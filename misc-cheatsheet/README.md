@@ -1,7 +1,7 @@
 # Misc commands and useful tips when working with Virtual WAN
 
 
-# How to dump all Virtual WAN Hubs routes?
+- Script to dump all vHUBs effective routes:
 
 ```bash
 #vHUB effective routes
