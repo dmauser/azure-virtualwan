@@ -6,12 +6,8 @@
 ```bash
 #vHUB effective routes
 
-#parameters
+#parameter
 rg=vwan-pair #Set your resource group
-
-#variables (do not change)
-#Parameter
-$rg=vwan-pair
 
 # Dump all vHUB route tables.
 for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`

@@ -1,11 +1,9 @@
 #vHUB effective routes
 
-#parameters
-rg=vwan-pair #Set your resource group
+#vHUB effective routes
 
-#variables (do not change)
-#Parameter
-$rg=vwan-pair
+#parameter
+rg=vwan-pair #Set your resource group
 
 # Dump all vHUB route tables.
 for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`
