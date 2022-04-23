@@ -58,7 +58,7 @@ az network nsg rule create -g $rg --nsg-name default-nsg -n allow-RFC-1918 \
     --destination-address-prefixes '*' \
     --destination-port-ranges '*' \
     --access Allow \
-    --protocol Tcp \
+    --protocol '*' \
     --description "Allow-Traffic-RFC-1918" \
     --output none
 az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name $nvavnet --network-security-group default-nsg -o none
