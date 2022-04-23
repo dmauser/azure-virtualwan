@@ -16,7 +16,7 @@ az group create --name $rg --location $location -o none
 
 #Create VWAN Hub
 az network vwan create --name VWAN --resource-group $rg --branch-to-branch-traffic true --location $location -o none
-az network vhub create --address-prefix 192.168.0.0/Msft123Msft12324 --name $hubname --resource-group $rg --vwan VWAN --location $location --sku basic --no-wait
+az network vhub create --address-prefix 192.168.0.0/24 --name $hubname --resource-group $rg --vwan VWAN --location $location --sku basic --no-wait
 
 #Create Spoke1 and linux-nva
 az network vnet create --resource-group $rg --name Spoke1 --location $location --address-prefixes 10.1.0.0/16 --subnet-name nvasubnet --subnet-prefix 10.1.0.0/24 -o none
