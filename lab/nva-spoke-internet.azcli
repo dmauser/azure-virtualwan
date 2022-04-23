@@ -1,6 +1,6 @@
 ##Parameters (make changes based on your needs)
 rg="vwan-lxnva-lab"
-location="eastus2"
+location="centralus"
 hubname="vhub1"
 username=azureuser
 password=Msft123Msft123
@@ -9,17 +9,17 @@ password=Msft123Msft123
 let "randomIdentifier=$RANDOM*$RANDOM" #used to create unique storage account name.
 nvavnet=Spoke1 #NVA VNET Name
 connname=to-spoke1 #vWAN connection name
+mypip=$(curl -s -4 ifconfig.io)
 
 #Resource Group
 az group create --name $rg --location $location -o none
 
 #Create VWAN Hub
 az network vwan create --name VWAN --resource-group $rg --branch-to-branch-traffic true --location $location -o none
-az network vhub create --address-prefix 192.168.0.0/24 --name $hubname --resource-group $rg --vwan VWAN --location $location --sku basic --no-wait
+az network vhub create --address-prefix 192.168.0.0/Msft123Msft12324 --name $hubname --resource-group $rg --vwan VWAN --location $location --sku basic --no-wait
 
 #Create Spoke1 and linux-nva
-az network vnet create --resource-group $rg --name Spoke1 --location $location --address-prefixes 10.1.0.0/16 --subnet-name Spoke1VM --subnet-prefix 10.1.10.0/24 -o none
-az network vnet subnet create --address-prefix 10.1.0.0/24 --name nvasubnet --resource-group $rg --vnet-name Spoke1 -o none
+az network vnet create --resource-group $rg --name Spoke1 --location $location --address-prefixes 10.1.0.0/16 --subnet-name nvasubnet --subnet-prefix 10.1.0.0/24 -o none
 
 #NVA + Config script to enable NAT
 az network public-ip create --name linux-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none
@@ -37,6 +37,33 @@ az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location
 az network nic create --resource-group $rg -n Spoke2VMNIC --location $location --subnet Spoke2VM --vnet-name Spoke2 --public-ip-address Spoke2VMPubIP --private-ip-address 10.2.10.4 -o none
 az VM create -n Spoke2VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password --nics Spoke2VMNIC --no-wait -o none
 
+#Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
+az network nsg create --resource-group $rg --name default-nsg --location $location -o none
+az network nsg rule create -g $rg --nsg-name default-nsg -n default-allow-ssh \
+    --direction Inbound \
+    --priority 100 \
+    --source-address-prefixes $mypip/32 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges 22 \
+    --access Allow \
+    --protocol Tcp \
+    --description "Allow inbound SSH" \
+    --output none
+az network nsg rule create -g $rg --nsg-name default-nsg -n allow-RFC-1918 \
+    --direction Inbound \
+    --priority 110 \
+    --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges '*' \
+    --access Allow \
+    --protocol Tcp \
+    --description "Allow-Traffic-RFC-1918" \
+    --output none
+az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name $nvavnet --network-security-group default-nsg -o none
+az network vnet subnet update --name Spoke2VM --resource-group $rg --vnet-name Spoke2 --network-security-group default-nsg -o none
+
 #Enable boot diagnostics for all VMs in the resource group (Serial console)
 #Create Storage Account (boot diagnostics + serial console)
 az storage account create -n sc$randomIdentifier -g $rg -l $location --sku Standard_LRS -o none
@@ -51,7 +78,6 @@ az network route-table route create --resource-group $rg --name to-Internet --ro
 az network vnet subnet update --name nvasubnet --vnet-name Spoke1 --resource-group $rg --route-table linux-nva-RT -o none
 
 ### Make exception to remote SSH Spoke2VM from Home Public IP
-mypip=$(curl -s -4 ifconfig.io)
 az network route-table create --name Spoke2VM-RT --resource-group $rg --location $location -o none
 az network route-table route create --resource-group $rg --name to-HomePIP --route-table-name Spoke2VM-RT --address-prefix $mypip/32 --next-hop-type Internet -o none
 az network vnet subnet update --name Spoke2VM --vnet-name Spoke2 --resource-group $rg --route-table Spoke2VM-RT -o none
