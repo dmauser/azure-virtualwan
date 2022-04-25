@@ -1,4 +1,4 @@
-# Azure Virtual WAn
+# Azure Virtual WAN
 
 ## Articles
 
