@@ -1,5 +1,10 @@
 # LAB: Azure Virtual WAN using NVA on Spoke for Internet
 
+### Diagram
+
+![NVA Spoke to Internet](./media/nva-spoke-internet.png)
+
+
 ### Lab steps:
 
 ```Bash
