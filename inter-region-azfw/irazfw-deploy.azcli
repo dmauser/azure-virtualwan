@@ -3,14 +3,16 @@
 
 # Pre-Requisite
 az extension add --name virtual-wan 
+az extension add --name azure-firewall 
 # or update
 az extension update --name virtual-wan
+az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
 region1=eastus2
 region2=westus2
-rg=lab-vwan-air
-vwanname=vwan-air
+rg=lab-vwan-irazfw
+vwanname=vwan-irazfw
 hub1name=hub1
 hub2name=hub2
 username=azureuser
@@ -20,7 +22,7 @@ vmsize=Standard_B1s
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
 
-# create rg
+# Create rg
 az group create -n $rg -l $region1 --output none
 
 # create virtual wan
@@ -49,6 +51,19 @@ az network vnet create --address-prefixes 10.4.0.0/24 -n spoke4 -g $rg -l $regio
 az network vnet create --address-prefixes 10.4.1.0/24 -n spoke7 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.4.1.0/27 --output none
 az network vnet create --address-prefixes 10.4.2.0/24 -n spoke8 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.4.2.0/24 --output none
 
+#vnet peering from spoke 5 and spoke 6 to spoke2
+#Create VNET Peerings between HUB and Spokes
+az network vnet peering create -g $rg -n spoke2-to-spoke5 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke5 --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke5-to-spoke2 --vnet-name spoke5 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke2-to-spoke6 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke6 --query id --out tsv) --output none 
+az network vnet peering create -g $rg -n spoke6-to-spoke2 --vnet-name spoke6 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+
+#vnet peering from spoke 7 and spoke 8 to spoke4
+az network vnet peering create -g $rg -n spoke4-to-spoke7 --vnet-name spoke4 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke7 --query id --out tsv) --output none 
+az network vnet peering create -g $rg -n spoke7-to-spoke4 --vnet-name spoke7 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke4  --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke4-to-spoke8 --vnet-name spoke4 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke8 --query id --out tsv) --output none 
+az network vnet peering create -g $rg -n spoke8-to-spoke4 --vnet-name spoke8 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke4  --query id --out tsv) --output none
+
 # create a VM in each branch spoke
 az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
@@ -75,7 +90,7 @@ az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vp
 az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 
-az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-u8sername $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait
 
 az vm create -n spoke7VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait
@@ -106,95 +121,8 @@ do
  --no-wait
 done
 
-# Deploy Azure Firewall on Spoke2 and Spoke 4
-## Log Analytics workspace name. 
-Workspacename1=AZFirewall-$region1-Logs 
-Workspacename2=AZFirewall-$region2-Logs 
 
-#Build Azure Firewall / Note this section takes few minutes to complete.
-#Spoke 2
-az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallSubnet --address-prefixes 10.2.0.64/26 --output none
-az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard
-az network firewall create --name spoke2-azfw --resource-group $rg --location $region1
-az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --public-ip-address spoke2-azfw-pip --resource-group $rg --vnet-name spoke2
-az network firewall update --name spoke2-azfw --resource-group $rg
-
-#Spoke4
-az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallSubnet --address-prefixes 10.4.0.64/26 --output none
-az network public-ip create --name spoke4-azfw-pip --resource-group $rg --location $region2 --allocation-method static --sku standard
-az network firewall create --name spoke4-azfw --resource-group $rg --location $region2
-az network firewall ip-config create --firewall-name spoke4-azfw --name FW-config --public-ip-address spoke4-azfw-pip  --resource-group $rg --vnet-name spoke4
-az network firewall update --name spoke4-azfw --resource-group $rg 
-
-#Create firewall rule to allow all traffic
-#Spoke2-azfw
-az network firewall network-rule create --resource-group $rg \
---firewall-name spoke2-azfw \
---collection-name azfw-rules \
---priority 1000 \
---action Allow \
---name Allow-All \
---protocols Any \
---source-addresses "*" \
---destination-addresses "*" \
---destination-ports "*"
-#spoke4-azfw
-az network firewall network-rule create --resource-group $rg \
---firewall-name spoke4-azfw \
---collection-name azfw-rules \
---priority 1000 \
---action Allow \
---name Allow-All \
---protocols Any \
---source-addresses "*" \
---destination-addresses "*" \
---destination-ports "*"
-
-#Create Log Analytics Workspace
-#Spoke2-azfw
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename1 --location $region1 --no-wait
-#Spoke4-azfw
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename2 --location $region2 --no-wait
-
-#Enable Azure Firewall diagnostics
-#Spoke2-azfw
-az monitor diagnostic-settings create -n 'toLogAnalytics' \
---resource $(az network firewall show --name spoke2-azfw --resource-group $rg --query id -o tsv) \
---workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename1 --query id -o tsv) \
---logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
---metrics '[{"category": "AllMetrics","enabled": true}]'
-#Spoke4-azfw
-az monitor diagnostic-settings create -n 'toLogAnalytics' \
---resource $(az network firewall show --name spoke4-azfw --resource-group $rg --query id -o tsv) \
---workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename2 --query id -o tsv) \
---logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
---metrics '[{"category": "AllMetrics","enabled": true}]'
-
-
-#UDRs for Spoke 5 and 6
-## Create UDR + Disable BGP Propagation
-az network route-table create --name RT-to-Spoke2-AzFW  --resource-group $rg --location $region1 --disable-bgp-route-propagation true
-## Default route to AzFW
-az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke2-AzFW \
---address-prefix 0.0.0.0/0 \
---next-hop-type VirtualAppliance \
---next-hop-ip-address $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
-## Associated RT-Hub-to-AzFW to Spoke 5 and 6.
-az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-AzFW
-az network vnet subnet update -n main -g $rg --vnet-name spoke6 --route-table RT-to-Spoke2-AzFW
-
-#UDRs for Spoke 7 and 8
-## Create UDR + Disable BGP Propagation
-az network route-table create --name RT-to-Spoke4-AzFW  --resource-group $rg --location $region2 --disable-bgp-route-propagation true
-## Default route to AzFW
-az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke4-AzFW \
---address-prefix 0.0.0.0/0 \
---next-hop-type VirtualAppliance \
---next-hop-ip-address $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
-## Associated RT-Hub-to-AzFW to Spoke 7 and 8.
-az network vnet subnet update -n main -g $rg --vnet-name spoke7 --route-table RT-to-Spoke4-AzFW
-az network vnet subnet update -n main -g $rg --vnet-name spoke8 --route-table RT-to-Spoke4-AzFW
-
+# Check Hub1 provisioning and routing state 
 prState=''
 rtState=''
 while [[ $prState != 'Succeeded' ]];
@@ -211,60 +139,10 @@ do
     sleep 5
 done
 
-#vnet peering spoke spoke 5 and spoke 6 to spoke2
-#Create VNET Peerings between HUB and Spokes
-az network vnet peering create -g $rg -n spoke2-to-spoke5 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke5 --query id --out tsv) --output none 
-az network vnet peering create -g $rg -n spoke5-to-spoke2 --vnet-name spoke5 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
-az network vnet peering create -g $rg -n spoke2-to-spoke6 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke6 --query id --out tsv) --output none 
-az network vnet peering create -g $rg -n spoke6-to-spoke2 --vnet-name spoke6 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+# create VPN gateways in each Hub1
+az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
 
-#vnet peering spoke spoke 7 and spoke 8 to spoke4
-az network vnet peering create -g $rg -n spoke4-to-spoke7 --vnet-name spoke4 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke7 --query id --out tsv) --output none 
-az network vnet peering create -g $rg -n spoke7-to-spoke4 --vnet-name spoke7 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke4  --query id --out tsv) --output none
-az network vnet peering create -g $rg -n spoke4-to-spoke8 --vnet-name spoke4 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke8 --query id --out tsv) --output none 
-az network vnet peering create -g $rg -n spoke8-to-spoke4 --vnet-name spoke8 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke4  --query id --out tsv) --output none
-
-# create spoke to vWAN connections to hub1
-# Spoke2 vnet connection
-az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
-
-#Spoke2 vnet connection and Static Route to Spoke2-azfw
-az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
- --vhub-name $hub1name \
- --route-name to-spoke2-azfw \
- --address-prefixes 10.2.0.0/16 \
- --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
- --no-wait
-
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
-    echo "vnet connection spoke2conn provisioningState="$prState
-    sleep 5
-done
-
-# Summary route to indirect spokes 5 and 6 via spoke2
-az network vhub route-table route add --destination-type CIDR --resource-group $rg \
- --destinations 10.2.0.0/16 \
- --name defaultroutetable \
- --next-hop-type ResourceID \
- --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
- --vhub-name $hub1name \
- --route-name to-spoke2-azfw 
-
-# Summary route to indirect spokes 7 and 8 via spoke4
-az network vhub route-table route add --destination-type CIDR --resource-group $rg \
- --destinations 10.4.0.0/16 \
- --name defaultroutetable \
- --next-hop-type ResourceID \
- --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
- --vhub-name $hub1name \
- --route-name to-spoke4-azfw \
- --no-wait
-
-# Check Hub2 provisioning state and routing state 
+# Check Hub2 provisioning and routing state 
 prState=''
 rtState=''
 while [[ $prState != 'Succeeded' ]];
@@ -281,49 +159,104 @@ do
     sleep 5
 done
 
-# Spoke3 vnet connection
-az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
-
-#Spoke4 vnet connection and Static Route to Spoke2-azfw
-az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
- --vhub-name $hub2name \
- --route-name to-spoke4-azfw \
- --address-prefixes 10.4.0.0/16 \
- --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
- --no-wait
-
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
-    echo "vnet connection spoke4conn provisioningState="$prState
-    sleep 5
-done
-
-# Summary route to indirect spokes 7 and 8 via spoke4
-az network vhub route-table route add --destination-type CIDR --resource-group $rg \
- --destinations 10.4.0.0/16 \
- --name defaultroutetable \
- --next-hop-type ResourceID \
- --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
- --vhub-name $hub2name \
- --route-name to-spoke4-azfw 
-# Summary route to indirect spokes 5 and 6 via spoke2
-az network vhub route-table route add --destination-type CIDR --resource-group $rg \
- --destinations 10.2.0.0/16 \
- --name defaultroutetable \
- --next-hop-type ResourceID \
- --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
- --vhub-name $hub2name \
- --route-name to-spoke2-azfw \
- --no-wait
-
-# create VPN gateways in each Hub1
-az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
-
 # create VPN gateways in each Hub2
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
+
+
+# Deploy Azure Firewall on Spoke2 and Spoke 4
+## Log Analytics workspace name. 
+Workspacename1=AZFirewall-$region1-Logs 
+Workspacename2=AZFirewall-$region2-Logs 
+
+#Build Azure Firewall / Note this section takes few minutes to complete.
+#Spoke 2
+az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallSubnet --address-prefixes 10.2.0.64/26 --output none
+az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none
+az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --output none
+az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --public-ip-address spoke2-azfw-pip --resource-group $rg --vnet-name spoke2 --output none
+az network firewall update --name spoke2-azfw --resource-group $rg --output none
+
+#Spoke4
+az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallSubnet --address-prefixes 10.4.0.64/26 --output none
+az network public-ip create --name spoke4-azfw-pip --resource-group $rg --location $region2 --allocation-method static --sku standard --output none
+az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --output none
+az network firewall ip-config create --firewall-name spoke4-azfw --name FW-config --public-ip-address spoke4-azfw-pip  --resource-group $rg --vnet-name spoke4 --output none
+az network firewall update --name spoke4-azfw --resource-group $rg --output none
+
+#Create firewall rule to allow all traffic
+#Spoke2-azfw
+az network firewall network-rule create --resource-group $rg \
+--firewall-name spoke2-azfw \
+--collection-name azfw-rules \
+--priority 1000 \
+--action Allow \
+--name Allow-All \
+--protocols Any \
+--source-addresses "*" \
+--destination-addresses "*" \
+--destination-ports "*" \
+--output none
+#spoke4-azfw
+az network firewall network-rule create --resource-group $rg \
+--firewall-name spoke4-azfw \
+--collection-name azfw-rules \
+--priority 1000 \
+--action Allow \
+--name Allow-All \
+--protocols Any \
+--source-addresses "*" \
+--destination-addresses "*" \
+--destination-ports "*" \
+--output none
+
+#Create Log Analytics Workspace
+#Spoke2-azfw
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename1 --location $region1 --no-wait
+#Spoke4-azfw
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename2 --location $region2 --no-wait
+
+#Enable Azure Firewall diagnostics
+#Spoke2-azfw
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name spoke2-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename1 --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+#Spoke4-azfw
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name spoke4-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename2 --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+#UDRs for Spoke 5 and 6
+## Create UDR + Disable BGP Propagation
+az network route-table create --name RT-to-Spoke2-AzFW  --resource-group $rg --location $region1 --disable-bgp-route-propagation true --output none
+## Default route to AzFW
+az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke2-AzFW \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+--output none
+## Associated RT-Hub-to-AzFW to Spoke 5 and 6.
+az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-AzFW --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke6 --route-table RT-to-Spoke2-AzFW --output none
+
+#UDRs for Spoke 7 and 8
+## Create UDR + Disable BGP Propagation
+az network route-table create --name RT-to-Spoke4-AzFW  --resource-group $rg --location $region2 --disable-bgp-route-propagation true --output none
+## Default route to AzFW
+az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke4-AzFW \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+--output none
+## Associated RT-Hub-to-AzFW to Spoke 7 and 8.
+az network vnet subnet update -n main -g $rg --vnet-name spoke7 --route-table RT-to-Spoke4-AzFW --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke8 --route-table RT-to-Spoke4-AzFW --output none
+
 
 #Branches VPN Gateways Status
 prState=''
@@ -384,3 +317,86 @@ az network vpn-connection create -n branch1-to-site-$hub1name -g $rg -l $region1
 
 az network local-gateway create -g $rg -n site-$hub2name-LG --gateway-ip-address $vwanpip2 --asn 65515 --bgp-peering-address $vwanbgp2 -l $region2 --output none
 az network vpn-connection create -n branch2-to-site-$hub2name -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 site-$hub2name-LG --enable-bgp --shared-key 'abc123' --output none
+
+
+# **** Configure vWAN route default route table for send traffic to Azure Firewall: *****
+
+# create spoke to vWAN connections to hub1
+# Spoke2 vnet connection
+az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
+
+#Spoke2 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
+ --vhub-name $hub1name \
+ --route-name to-spoke2-azfw \
+ --address-prefixes 10.2.0.0/16 \
+ --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+
+# Summary route to indirect spokes 5 and 6 via spoke2
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.2.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
+ --vhub-name $hub1name \
+ --route-name to-spoke2-azfw \
+ --output none
+
+# Summary route to indirect spokes 7 and 8 via spoke4
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.4.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
+ --vhub-name $hub1name \
+ --route-name to-spoke4-azfw \
+ --no-wait
+
+# Spoke3 vnet connection
+az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
+
+#Spoke4 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
+ --vhub-name $hub2name \
+ --route-name to-spoke4-azfw \
+ --address-prefixes 10.4.0.0/16 \
+ --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke4conn provisioningState="$prState
+    sleep 5
+done
+
+# Summary route to indirect spokes 7 and 8 via spoke4
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.4.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
+ --vhub-name $hub2name \
+ --route-name to-spoke4-azfw \
+ --output none
+# Summary route to indirect spokes 5 and 6 via spoke2
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.2.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
+ --vhub-name $hub2name \
+ --route-name to-spoke2-azfw \
+ --no-wait

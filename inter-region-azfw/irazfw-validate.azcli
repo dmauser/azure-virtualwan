@@ -1,9 +1,17 @@
 # Parameters 
-rg=lab-vwan-air #set resource group
+rg=lab-vwan-irazfw #set resource group
 
 #### Validate connectivity between VNETs and Branches
 
-# 1) Dump VMs route tables:
+# 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
+
+#List of VMs Private and Public IP for SSH access
+az network public-ip list -g $rg --query "[].{name:name,ip:ipAddress}" -o table 
+
+# For connectivity test you can also use curl or traceroute. For example from BranchVM1 or BranchVM2 run:
+curl 10.2.1.4 #expected output spoke5VM
+
+# 2) Dump VMs route tables:
 for nicname in `az network nic list -g $rg --query [].name -o tsv`
 do 
 echo -e $nicname effective routes:
@@ -11,7 +19,6 @@ az network nic show-effective-route-table -g $rg --name $nicname --output table
 echo -e 
 done
 
-# 2) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
 # 3) Dump all vHUBs route tables.
 for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`
 do
