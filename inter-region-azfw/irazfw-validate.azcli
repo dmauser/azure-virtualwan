@@ -5,8 +5,17 @@ rg=lab-vwan-irazfw #set resource group
 
 # 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
 
-#List of VMs Private and Public IP for SSH access
+#List of VMs Public IP for SSH access
 az network public-ip list -g $rg --query "[].{name:name,ip:ipAddress}" -o table 
+
+
+#List of VMs Private IPs
+for nicname in `az network nic list -g $rg --query [].name -o tsv`
+do 
+echo -e $nicname private IP:
+az network nic show -g $rg --name $nicname --query "ipConfigurations[].privateIpAddress" --output tsv
+echo -e 
+done
 
 # For connectivity test you can also use curl or traceroute. For example from BranchVM1 or BranchVM2 run:
 curl 10.2.1.4 #expected output spoke5VM
@@ -36,4 +45,11 @@ do
     fi
    done
 done
+
+# Azure Firewall Rules (to be added soon):
+region1=$(az network vhub show -g $rg -n $hub1name --query 'location' -o tsv)
+region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
+Workspacename1=AZFirewall-$region1-Logs 
+Workspacename2=AZFirewall-$region2-Logs 
+
 

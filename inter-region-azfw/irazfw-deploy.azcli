@@ -162,7 +162,6 @@ done
 # create VPN gateways in each Hub2
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
-
 # Deploy Azure Firewall on Spoke2 and Spoke 4
 ## Log Analytics workspace name. 
 Workspacename1=AZFirewall-$region1-Logs 
