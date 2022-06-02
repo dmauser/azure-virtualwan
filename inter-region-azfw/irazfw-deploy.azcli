@@ -168,7 +168,7 @@ do
     sleep 5
 done
 
-echo Creating Hub1 VPN Gateway...
+echo Creating Hub2 VPN Gateway...
 # Creating VPN gateways in each Hub2
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
