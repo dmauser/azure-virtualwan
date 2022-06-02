@@ -46,7 +46,10 @@ do
    done
 done
 
-# Azure Firewall Rules (to be added soon):
+# Azure Firewall Rules 
+# Over portal check Log Analytics and check the Firewall activities using Network Rule query.
+
+# (to be added soon via CLI):
 region1=$(az network vhub show -g $rg -n $hub1name --query 'location' -o tsv)
 region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
 Workspacename1=AZFirewall-$region1-Logs 
