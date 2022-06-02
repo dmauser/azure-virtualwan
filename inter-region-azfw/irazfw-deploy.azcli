@@ -377,7 +377,7 @@ az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vh
 # Spoke3 vnet connection
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
 
-Echo creating spoke 2 and spoke 4 vnet connections using static route to their respective Azure Firewalls...
+echo creating spoke 2 and spoke 4 vnet connections using static route to their respective Azure Firewalls...
 #Spoke2 vnet connection and Static Route to Spoke2-azfw
 az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
@@ -410,7 +410,7 @@ do
     sleep 5
 done
 
-Echo Adding static routes in the Hub1 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub1 default route table to the indirect spokes via Azure Firewall...
 # Creating summary route to indirect spokes 5 and 6 via spoke2
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.2.0.0/16 \
@@ -431,8 +431,7 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --route-name to-spoke4-azfw \
  --no-wait
 
-
-Echo Adding static routes in the Hub1 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub1 default route table to the indirect spokes via Azure Firewall...
 # Creating summary route to indirect spokes 7 and 8 via spoke4
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.4.0.0/16 \
