@@ -15,7 +15,7 @@ The lab uses the same amount of VNETs (six total) and two regions with Hubs, and
 All the content of this lab has been also available in above .azcli that you can rename as .sh (shell script) and execute them. You can open Azure Cloud Shell (Bash) and run the following command to run build the entire lab:
 
 ```bash
-wget -o irazfw-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-azfw/irazfw-deploy.azcli
+wget -O irazfw-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-azfw/irazfw-deploy.azcli
 chmod +xr irazfw-deploy.sh
 ./irazfw-deploy.sh 
 ```

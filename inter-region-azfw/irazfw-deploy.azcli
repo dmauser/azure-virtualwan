@@ -39,7 +39,7 @@ az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --addr
 
 # Creating location2 branch virtual network
 az network vnet create --address-prefixes 10.200.0.0/16 -n branch2 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.200.0.0/24 --output none
-az network vnet subnet Creating -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
+az network vnet subnet create  -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
 
 echo Creating spoke VNETs...
 # Creating spokes virtual network
