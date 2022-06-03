@@ -369,9 +369,9 @@ az network vpn-connection create -n branch2-to-site-$hub2name -g $rg -l $region2
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 
-# **** Configure vWAN route default route table for send traffic to Azure Firewall: *****
-
-# Creating spoke to vWAN connections to hub1
+# **** Configuring vWAN route default route table to send traffic to Azure Firewall and reach indirect spokes: *****
+echo Configuring spoke connections to their respective hubs...
+echo Creating spoke 1 and 3 connection to their respective hubs...
 # Spoke1 vnet connection
 az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
 # Spoke3 vnet connection
