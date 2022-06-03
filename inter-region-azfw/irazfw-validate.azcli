@@ -8,7 +8,6 @@ rg=lab-vwan-irazfw #set resource group
 #List of VMs Public IP for SSH access
 az network public-ip list -g $rg --query "[].{name:name,ip:ipAddress}" -o table 
 
-
 #List of VMs Private IPs
 for nicname in `az network nic list -g $rg --query [].name -o tsv`
 do 
@@ -19,6 +18,7 @@ done
 
 # For connectivity test you can also use curl or traceroute. For example from BranchVM1 or BranchVM2 run:
 curl 10.2.1.4 #expected output spoke5VM
+traceroute 10.2.1.4
 
 # 2) Dump VMs route tables:
 for nicname in `az network nic list -g $rg --query [].name -o tsv`
@@ -49,7 +49,7 @@ done
 # Azure Firewall Rules 
 # Over portal check Log Analytics and check the Firewall activities using Network Rule query.
 
-# (to be added soon via CLI):
+# (to be added soon via CLI) - Ignore commands below:
 region1=$(az network vhub show -g $rg -n $hub1name --query 'location' -o tsv)
 region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
 Workspacename1=AZFirewall-$region1-Logs 
