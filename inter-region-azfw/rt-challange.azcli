@@ -1,0 +1,43 @@
+# Parameters (make changes based on your requirements)
+region1=eastus2
+region2=westus2
+rg=lab-vwan-irazfw
+vwanname=vwan-irazfw
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_B1s
+
+
+#Spoke2 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
+ --vhub-name $hub1name \
+ --route-name $hub1name-indirect-spokes-rt \
+ --address-prefixes 10.2.0.0/16 \
+ --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+
+#Spoke4 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
+ --vhub-name $hub2name \
+ --route-name $hub2name-indirect-spokes-rt \
+ --address-prefixes 10.4.0.0/16 \
+ --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke4conn provisioningState="$prState
+    sleep 5
+done
