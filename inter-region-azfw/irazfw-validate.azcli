@@ -47,9 +47,31 @@ do
 done
 
 # Dump the Branches VPN Gateway routes:
+vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
+array=($vpngws)
+for vpngw in "${array[@]}"
+ do 
+ echo "*** $vpngw BGP peer status ***"
+ az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw -o table
+ echo "*** $vpngw BGP learned routes ***"
+ az network vnet-gateway list-learned-routes -g $rg -n $vpngw -o table
+ echo
+done
 
-
-
+# VPN Gateways advertised routes per BGP peer.
+vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
+array=($vpngws)
+for vpngw in "${array[@]}"
+ do 
+  ips=$(az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw --query 'value[].{ip:neighbor}' -o tsv)
+  array2=($ips)
+   for ip in "${array2[@]}"
+   do
+   echo *** $vpngw advertised routes to peer $ip ***
+   az network vnet-gateway list-advertised-routes -g $rg -n $vpngw -o table --peer $ip
+  done
+ echo
+done
 
 # Azure Firewall Rules 
 # Over portal check Log Analytics and check the Firewall activities using Network Rule query.

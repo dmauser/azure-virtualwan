@@ -12,7 +12,7 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 
 ### Components
 
-- Two Virtual WAN Hubs in two different regions.
+- Two Virtual WAN Hubs in two different regions (default EastUS2 and WestUS2).
 - Eight VNETs (Spoke 1 to 8) where:
     - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
     - The other four (indirect spokes) spoke 5, 6, 7, and 8.
@@ -20,6 +20,9 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 - Each VNET (except 2 and 4) has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
+- There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Azure Firewall spoke.
+- Virtual WAN hubs have routes to Azure Firewall spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke2conn)
+- Spoke2conn and Spoke4conn have specific routes 10.2.1.0/24 and 10.2.2.0/24 next hop to spoke 2 Azure Firewall IP and 10.4.1.0/24 and 10.4.2.0/24 next hop to spoke 4 Azure Firewall IP.
 - The outcome of the lab will be full transit between all ends (all VMs can reach each other).
 
 ### Deploy this solution
@@ -541,6 +544,33 @@ do
      echo
     fi
    done
+done
+
+# Dump the Branches VPN Gateway routes:
+vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
+array=($vpngws)
+for vpngw in "${array[@]}"
+ do 
+ echo "*** $vpngw BGP peer status ***"
+ az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw -o table
+ echo "*** $vpngw BGP learned routes ***"
+ az network vnet-gateway list-learned-routes -g $rg -n $vpngw -o table
+ echo
+done
+
+# VPN Gateways advertised routes per BGP peer.
+vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
+array=($vpngws)
+for vpngw in "${array[@]}"
+ do 
+  ips=$(az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw --query 'value[].{ip:neighbor}' -o tsv)
+  array2=($ips)
+   for ip in "${array2[@]}"
+   do
+   echo *** $vpngw advertised routes to peer $ip ***
+   az network vnet-gateway list-advertised-routes -g $rg -n $vpngw -o table --peer $ip
+  done
+ echo
 done
 
 # Azure Firewall Rules 
