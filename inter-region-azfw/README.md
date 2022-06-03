@@ -13,10 +13,14 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 ### Components
 
 - Two Virtual WAN Hubs in two different regions.
-- Eight VNETs (Spoke 1 to 8) where two are connected directly to each one.
-    - Transit Spoke2 and Spoke4 with Azure Firewall instead of NVAs.
-- Each VNET has a Linux VM accessible from SSH (need adjust NSG to allow access) or serial console.
-- All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap and others.  
+- Eight VNETs (Spoke 1 to 8) where:
+    - Four VNETs (spoke 1, 2, 3 and 4) are connected directly to its respective vHUBs.
+    - The other four (indirect spokes) spoke 5, 6, 7 and 8.
+    - Transit between indirect  Spoke2 and Spoke4 with Azure Firewall instead of NVAs.
+- Each VNET (except 2 and 4) has a Linux VM accessible from SSH (need adjust NSG to allow access) or serial console.
+- All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
+    - For connectivity tests you can use curl <"Destnation IP"> and the output should be the VM name.
+- The final outcome of the lab will be full transit between all ends (all VMs can reach each other).
 
 ### Deploy this solution
 
@@ -28,7 +32,9 @@ chmod +xr irazfw-deploy.sh
 ./irazfw-deploy.sh 
 ```
 
-However, it is recommended that you run step-by-step to get familiar with the provisioning process and the components deployed:
+**Note:** the provisioning process will take around 60 minutes to complete.
+
+Alternatively (recommended) you can run step-by-step to get familiar with the provisioning process and the components deployed:
 
 ```bash
 #!/bin/bash
