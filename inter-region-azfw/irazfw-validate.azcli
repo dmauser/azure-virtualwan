@@ -46,6 +46,11 @@ do
    done
 done
 
+# Dump the Branches VPN Gateway routes:
+
+
+
+
 # Azure Firewall Rules 
 # Over portal check Log Analytics and check the Firewall activities using Network Rule query.
 

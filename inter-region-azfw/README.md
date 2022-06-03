@@ -2,7 +2,7 @@
 
 ## Intro
 
-The goal of this lab is to demonstrate and validate Azure Virtual WAN using Isolated VNETs by leveraging a similar scenario to the one published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
+The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (in this case, we will use an Azure Firewall instead of NVA), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
 
 ### Lab diagram
 
@@ -14,17 +14,17 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 
 - Two Virtual WAN Hubs in two different regions.
 - Eight VNETs (Spoke 1 to 8) where:
-    - Four VNETs (spoke 1, 2, 3 and 4) are connected directly to its respective vHUBs.
-    - The other four (indirect spokes) spoke 5, 6, 7 and 8.
+    - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
+    - The other four (indirect spokes) spoke 5, 6, 7, and 8.
     - Transit between indirect  Spoke2 and Spoke4 with Azure Firewall instead of NVAs.
-- Each VNET (except 2 and 4) has a Linux VM accessible from SSH (need adjust NSG to allow access) or serial console.
+- Each VNET (except 2 and 4) has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
-    - For connectivity tests you can use curl <"Destnation IP"> and the output should be the VM name.
-- The final outcome of the lab will be full transit between all ends (all VMs can reach each other).
+    - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
+- The outcome of the lab will be full transit between all ends (all VMs can reach each other).
 
 ### Deploy this solution
 
-All the content of this lab has been also available in above .azcli that you can rename as .sh (shell script) and execute them. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following command to run build the entire lab:
+The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following commands build the entire lab:
 
 ```bash
 wget -O irazfw-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-azfw/irazfw-deploy.azcli
@@ -34,7 +34,7 @@ chmod +xr irazfw-deploy.sh
 
 **Note:** the provisioning process will take around 60 minutes to complete.
 
-Alternatively (recommended) you can run step-by-step to get familiar with the provisioning process and the components deployed:
+Alternatively (recommended), you can run step-by-step to get familiar with the provisioning process and the components deployed:
 
 ```bash
 #!/bin/bash
