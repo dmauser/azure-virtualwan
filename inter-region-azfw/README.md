@@ -1,4 +1,4 @@
-# Lab - Virtual WAN with Isolated VNETs using custom route tables
+# Lab - Virtual WAN Scenario: Route traffic through Azure Firewall spoke
 
 ## Intro
 
