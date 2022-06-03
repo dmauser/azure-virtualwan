@@ -2,14 +2,21 @@
 
 ## Intro
 
-The goal of this lab is to demonstrate and validate Azure Virtual WAN using Isolated VNETs by leveraging a similar scenario to the one published by the vWAN official document [Scenario: Custom isolation for VNets](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-isolate-vnets-custom).
-
+The goal of this lab is to demonstrate and validate Azure Virtual WAN using Isolated VNETs by leveraging a similar scenario to the one published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
 
 ### Lab diagram
 
-The lab uses the same amount of VNETs (six total) and two regions with Hubs, and the remote connectivity to two branches using site-to-site VPN using and BGP. Below is a diagram of what you should expect to get deployed:
+The lab uses the same amount of VNETs (eight total) and two regions with Hubs, and the remote connectivity to two branches using site-to-site VPN using and BGP. Below is a diagram of what you should expect to get deployed:
 
 ![net diagram](./media/networkdiagram.png)
+
+### Components
+
+- Two Virtual WAN Hubs in two different regions.
+- Eight VNETs (Spoke 1 to 8) where two are connected directly to each one.
+    - Transit Spoke2 and Spoke4 with Azure Firewall instead of NVAs.
+- Each VNET has a Linux VM accessible from SSH (need adjust NSG to allow access) or serial console.
+- All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap and others.  
 
 ### Deploy this solution
 
