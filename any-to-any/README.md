@@ -22,7 +22,7 @@ The lab uses the same amount of VNETs (six total) and two regions with Hubs, and
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following commands build the entire lab:
 
 ```bash
-wget -O irazfw-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/a2a-deploy.azcli
+wget -O a2a-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/a2a-deploy.azcli
 chmod +xr a2a-deploy.sh
 ./a2a-deploy.sh 
 ```
