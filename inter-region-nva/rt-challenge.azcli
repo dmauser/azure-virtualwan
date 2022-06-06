@@ -9,6 +9,7 @@ username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_B1s
 
+
 # Add VMs+Nettools+boot diagnostics enabled on Azure Firewall spokes for each hub:
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg ""

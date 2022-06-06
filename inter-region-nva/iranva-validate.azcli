@@ -1,5 +1,5 @@
 # Parameters 
-rg=lab-vwan-a2a #set resource group
+rg=lab-vwan-irazfw #set resource group
 
 #### Validate connectivity between VNETs and Branches
 
@@ -74,3 +74,14 @@ for vpngw in "${array[@]}"
   done
  echo
 done
+
+# Azure Firewall Rules 
+# Over portal check Log Analytics and check the Firewall activities using Network Rule query.
+
+# (to be added soon via CLI) - Ignore commands below:
+region1=$(az network vhub show -g $rg -n $hub1name --query 'location' -o tsv)
+region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
+Workspacename1=AZFirewall-$region1-Logs 
+Workspacename2=AZFirewall-$region2-Logs 
+
+
