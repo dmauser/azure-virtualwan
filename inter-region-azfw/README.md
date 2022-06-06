@@ -1,4 +1,4 @@
-# Lab - Virtual WAN Scenario: Route traffic through Azure Firewall spoke
+# Lab - Virtual WAN Scenario: Route traffic through an Azure Firewall spoke
 
 ## Intro
 
