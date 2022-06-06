@@ -97,15 +97,12 @@ echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
 az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
-
-
 # Creating VMs on each indirect spoke.
 az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke7VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke8VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait
-
-#Enablingboot diagnostics for all VMs in the resource group (Serial console)
+#Enabling boot diagnostics for all VMs in the resource group (Serial console)
 #Creating Storage Account (boot diagnostics + serial console)
 let "randomIdentifier1=$RANDOM*$RANDOM" 
 az storage account create -n sc$randomIdentifier1 -g $rg -l $region1 --sku Standard_LRS -o none
@@ -116,7 +113,6 @@ stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primary
 stguri2=$(az storage account show -n sc$randomIdentifier2 -g $rg --query primaryEndpoints.blob -o tsv)
 az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?contains(location,`'$region1'`)].{id:id}' -o tsv) -o none
 az vm boot-diagnostics enable --storage $stguri2 --ids $(az vm list -g $rg --query '[?contains(location,`'$region2'`)].{id:id}' -o tsv) -o none
-
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
