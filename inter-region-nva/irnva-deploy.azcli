@@ -126,49 +126,6 @@ do
  --no-wait
 done
 
-echo Checking Hub1 provisioning status...
-# Checking Hub1 provisioning and routing state 
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
-    echo "$hub1name provisioningState="$prState
-    sleep 5
-done
-
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
-    echo "$hub1name routingState="$rtState
-    sleep 5
-done
-echo Creating Hub1 VPN Gateway...
-# Creating VPN gateways in each Hub1
-az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
-
-echo Checking Hub2 provisioning status...
-# Checking Hub2 provisioning and routing state 
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
-    echo "$hub2name provisioningState="$prState
-    sleep 5
-done
-
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
-    echo "$hub2name routingState="$rtState
-    sleep 5
-done
-
-echo Creating Hub2 VPN Gateway...
-# Creating VPN gateways in each Hub2
-az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
-
 echo Deploying OPNSense Firewall...
 # Deploy two OPNsense instances on Spoke2
 az network vnet subnet create -g $rg --vnet-name spoke2 -n untrusted --address-prefixes 10.2.0.32/28  --output none
@@ -257,6 +214,50 @@ az network route-table route create --resource-group $rg --name Default-to-NVA -
 ## Associated RT-Hub-to-NVA to Spoke 7 and 8.
 az network vnet subnet update -n main -g $rg --vnet-name spoke7 --route-table RT-to-Spoke4-NVA --output none
 az network vnet subnet update -n main -g $rg --vnet-name spoke8 --route-table RT-to-Spoke4-NVA --output none
+
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+echo Creating Hub1 VPN Gateway...
+# Creating VPN gateways in each Hub1
+az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
+
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
+
+echo Creating Hub2 VPN Gateway...
+# Creating VPN gateways in each Hub2
+az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
 echo Validating Branches VPN Gateways provisioning...
 #Branches VPN Gateways provisioning status

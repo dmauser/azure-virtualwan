@@ -1,8 +1,8 @@
 # Parameters (make changes based on your requirements)
-region1=eastus2
-region2=westus2
-rg=lab-vwan-irazfw
-vwanname=vwan-irazfw
+region1=northcentralus
+region2=southcentralus
+rg=lab-vwan-nvaspk
+vwanname=vwan-nvaspk
 hub1name=hub1
 hub2name=hub2
 username=azureuser
@@ -32,7 +32,7 @@ az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
  --route-name $hub1name-indirect-spokes-rt \
  --address-prefixes 10.2.0.0/16 \
- --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --next-hop $(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv) \
  --no-wait
 
 prState=''
@@ -48,7 +48,7 @@ az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
  --vhub-name $hub2name \
  --route-name $hub2name-indirect-spokes-rt \
  --address-prefixes 10.4.0.0/16 \
- --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --next-hop $(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv) \
  --no-wait
 
 prState=''
@@ -66,7 +66,7 @@ az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
  --route-name $hub1name-indirect-spokes-rt \
  --address-prefixes 10.2.1.0/24 10.2.2.0/24 \
- --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --next-hop $(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv) \
  --no-wait
 
 prState=''
@@ -82,7 +82,7 @@ az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
  --vhub-name $hub2name \
  --route-name $hub2name-indirect-spokes-rt \
  --address-prefixes 10.4.1.0/24 10.4.2.0/24 \
- --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --next-hop $(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv) \
  --no-wait
 
 prState=''
