@@ -184,14 +184,30 @@ existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
 Location=$region1
 
-# Deploy OPNsense NVA1
+# Deploy two OPNsense instances on Spoke2
 az deployment group create --name nva1-$RANDOM --resource-group $rg \
---template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$Location\
 --no-wait
 
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Untrusted --address-prefixes 10.4.0.32/28  --output none
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Trusted --address-prefixes 10.4.0.48/28  --output none
+
+OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
+ShellScriptName=configureopnsense.sh
+scenarioOption="Active-Active"
+virtualMachineName=spoke4-opnnva
+virtualNetworkName=spoke4
+existingvirtualNetwork=existing
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+Location=$region2
+
+# Deploy two OPNsense instances on Spoke2
+az deployment group create --name nva1-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
+--parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$Location\
+--no-wait
 
 
 echo Updating indirect spoke UDRs to use Firewall as next hop...
