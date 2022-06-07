@@ -218,7 +218,7 @@ az network route-table create --name RT-to-Spoke2-AzFW  --resource-group $rg --l
 az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke2-AzFW \
 --address-prefix 0.0.0.0/0 \
 --next-hop-type VirtualAppliance \
---next-hop-ip-address $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+--next-hop-ip-address $(az network nic show --name spoke2-opnnva-Primary-Trusted-NIC --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
 --output none
 ## Associated RT-Hub-to-AzFW to Spoke 5 and 6.
 az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-AzFW --output none
