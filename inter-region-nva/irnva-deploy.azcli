@@ -164,7 +164,8 @@ az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
 --no-wait
 
 # Check Trusted NIC provisioning
-Echo NVA Trusted NIC provisioning status
+Echo NVA Trusted NIC provisioning status...
+sleep 30
 prState=''
 rtState=''
 while [[ $prState != 'Succeeded' ]];
