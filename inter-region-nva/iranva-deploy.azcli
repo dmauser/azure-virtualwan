@@ -12,8 +12,8 @@ az extension update --name azure-firewall
 # Parameters (make changes based on your requirements)
 region1=eastus2
 region2=westus2
-rg=lab-vwan-irazfw
-vwanname=vwan-irazfw
+rg=lab-vwan-nvaspk
+vwanname=vwan-nvaspk
 hub1name=hub1
 hub2name=hub2
 username=azureuser

@@ -1,8 +1,7 @@
 # Parameters 
-rg=lab-vwan-irazfw #set resource group
+rg=lab-vwan-nvaspk #set resource group
 
 #### Validate connectivity between VNETs and Branches
-
 
 # 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
 
