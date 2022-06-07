@@ -174,7 +174,7 @@ echo Deploying OPNSense Firewall...
 az network vnet subnet create -g $rg --vnet-name spoke2 -n untrusted --address-prefixes 10.2.0.32/28  --output none
 az network vnet subnet create -g $rg --vnet-name spoke2 -n trusted --address-prefixes 10.2.0.48/28  --output none
 
-OpnScriptURI=https://raw.githubusercontent.com/dmauser/opnazure/master/scripts/
+OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
 ShellScriptName=configureopnsense.sh
 scenarioOption="Active-Active"
 virtualMachineName=spoke2-opnnva
@@ -182,14 +182,13 @@ virtualNetworkName=spoke2
 existingvirtualNetwork=existing
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
-location=$region1
+Location=$region1
 
 # Deploy OPNsense NVA1
 az deployment group create --name nva1-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
---parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingVirtualNetworkName=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName location=$location \
+--parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$Location\
 --no-wait
-
 
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Untrusted --address-prefixes 10.4.0.32/28  --output none
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Trusted --address-prefixes 10.4.0.48/28  --output none
