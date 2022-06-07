@@ -185,7 +185,7 @@ existingTrustedSubnetName=trusted
 Location=$region1
 
 # Deploy two OPNsense instances on Spoke2
-az deployment group create --name nva1-$RANDOM --resource-group $rg \
+az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$Location\
 --no-wait
@@ -204,9 +204,9 @@ existingTrustedSubnetName=trusted
 Location=$region2
 
 # Deploy two OPNsense instances on Spoke2
-az deployment group create --name nva1-$RANDOM --resource-group $rg \
+az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
---parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$Location\
+--parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
 --no-wait
 
 

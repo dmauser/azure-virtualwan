@@ -458,10 +458,10 @@
       <descr>Default allow LAN to any rule</descr>
       <interface>lan</interface>
       <source>
-        <network>lan</network>
+        <any>1</any>
       </source>
       <destination>
-        <any/>
+        <any>1</any>
       </destination>
     </rule>
   </filter>
