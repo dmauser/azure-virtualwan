@@ -47,13 +47,13 @@ echo Creating spoke VNETs...
 az network vnet create --address-prefixes 10.1.0.0/24 -n spoke1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.1.0.0/27 --output none
 az network vnet create --address-prefixes 10.2.0.0/24 -n spoke2 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.0.0/27 --output none
 az network vnet create --address-prefixes 10.2.1.0/24 -n spoke5 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.1.0/27 --output none
-az network vnet create --address-prefixes 10.2.2.0/24 -n spoke6 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.2.0/24 --output none
+az network vnet create --address-prefixes 10.2.2.0/24 -n spoke6 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.2.0/27 --output none
 
 # Region2
 az network vnet create --address-prefixes 10.3.0.0/24 -n spoke3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.3.0.0/27 --output none
 az network vnet create --address-prefixes 10.4.0.0/24 -n spoke4 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.4.0.0/27 --output none
 az network vnet create --address-prefixes 10.4.1.0/24 -n spoke7 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.4.1.0/27 --output none
-az network vnet create --address-prefixes 10.4.2.0/24 -n spoke8 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.4.2.0/24 --output none
+az network vnet create --address-prefixes 10.4.2.0/24 -n spoke8 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.4.2.0/27 --output none
 
 echo Creating VNET peerings...
 # vnet peering from spoke 5 and spoke 6 to spoke2
