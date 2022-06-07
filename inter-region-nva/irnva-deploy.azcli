@@ -108,7 +108,7 @@ let "randomIdentifier1=$RANDOM*$RANDOM"
 az storage account create -n sc$randomIdentifier1 -g $rg -l $region1 --sku Standard_LRS -o none
 let "randomIdentifier2=$RANDOM*$RANDOM" 
 az storage account create -n sc$randomIdentifier2 -g $rg -l $region2 --sku Standard_LRS -o none
-#Enablingboot diagnostics
+#Enabling boot diagnostics
 stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primaryEndpoints.blob -o tsv)
 stguri2=$(az storage account show -n sc$randomIdentifier2 -g $rg --query primaryEndpoints.blob -o tsv)
 az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?contains(location,`'$region1'`)].{id:id}' -o tsv) -o none
