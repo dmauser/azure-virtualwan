@@ -10,9 +10,9 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=westus
-rg=lab-vwan-nvaspk2
+region1=eastus2
+region2=westus2
+rg=lab-vwan-nvaspk
 vwanname=vwan-nvaspk
 hub1name=hub1
 hub2name=hub2
@@ -176,7 +176,7 @@ az network vnet subnet create -g $rg --vnet-name spoke2 -n trusted --address-pre
 
 OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
 ShellScriptName=configureopnsense.sh
-scenarioOption="TwoNics"
+scenarioOption="Active-Active"
 virtualMachineName=spoke2-opnnva
 virtualNetworkName=spoke2
 existingvirtualNetwork=existing
@@ -194,7 +194,7 @@ az network vnet subnet create -g $rg --vnet-name spoke4 -n Trusted --address-pre
 
 OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
 ShellScriptName=configureopnsense.sh
-scenarioOption="TwoNics"
+scenarioOption="Active-Active"
 virtualMachineName=spoke4-opnnva
 virtualNetworkName=spoke4
 existingvirtualNetwork=existing
@@ -207,10 +207,34 @@ az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
 --no-wait
 
+Echo checking NVAs Load Balancers deployment state...
+
+# Parse LBs as parameters (add check)
+echo Checking Load Balancers provisioning status...
+# Checking LB provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    ilb=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region1'`)].name' -o tsv)
+    prState=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region1'`)].provisioningState' -o tsv)
+    echo "$ilb provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    ilb=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region2'`)].name' -o tsv)
+    prState=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region2'`)].provisioningState' -o tsv)
+    echo "$ilb provisioningState="$prState
+    sleep 5
+done
 
 #Set ILBs as variables
-spk2nvaip=$(az network nic list -g $rg --query '[?contains(location,`'$region1'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
-spk4nvaip=$(az network nic list -g $rg --query '[?contains(location,`'$region2'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
+spk2nvalb=$(az network lb list -g $rg --query '[?contains(location,`'$region1'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
+spk4nvalb=$(az network lb list -g $rg --query '[?contains(location,`'$region2'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
 
 echo Updating indirect spoke UDRs to use Firewall as next hop...
 #UDRs for Spoke 5 and 6
@@ -220,7 +244,7 @@ az network route-table create --name RT-to-Spoke2-NVA  --resource-group $rg --lo
 az network route-table route create --resource-group $rg --name Default-to-NVA --route-table-name RT-to-Spoke2-NVA \
 --address-prefix 0.0.0.0/0 \
 --next-hop-type VirtualAppliance \
---next-hop-ip-address $spk2nvaip \
+--next-hop-ip-address $spk2nvalb \
 --output none
 ## Associated RT-Hub-to-NVA to Spoke 5 and 6.
 az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-NVA --output none
@@ -233,7 +257,7 @@ az network route-table create --name RT-to-Spoke4-NVA  --resource-group $rg --lo
 az network route-table route create --resource-group $rg --name Default-to-NVA --route-table-name RT-to-Spoke4-NVA \
 --address-prefix 0.0.0.0/0 \
 --next-hop-type VirtualAppliance \
---next-hop-ip-address $spk4nvaip \
+--next-hop-ip-address $spk4nvalb \
 --output none
 ## Associated RT-Hub-to-NVA to Spoke 7 and 8.
 az network vnet subnet update -n main -g $rg --vnet-name spoke7 --route-table RT-to-Spoke4-NVA --output none
@@ -354,7 +378,7 @@ az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
  --route-name $hub1name-indirect-spokes-rt \
  --address-prefixes 10.2.1.0/24 10.2.2.0/24 \
- --next-hop $spk2nvaip \
+ --next-hop $spk2nvalb \
  --no-wait
 
 prState=''
@@ -370,7 +394,7 @@ az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
  --vhub-name $hub2name \
  --route-name $hub2name-indirect-spokes-rt \
  --address-prefixes 10.4.1.0/24 10.4.2.0/24 \
- --next-hop $spk4nvaip \
+ --next-hop $spk4nvalb \
  --no-wait
 
 prState=''
