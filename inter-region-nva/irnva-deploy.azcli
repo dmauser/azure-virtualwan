@@ -10,9 +10,9 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=westus
-rg=lab-vwan-nvaspk2
+region1=northcentralus
+region2=southcentralus
+rg=lab-vwan-nvaspk
 vwanname=vwan-nvaspk
 hub1name=hub1
 hub2name=hub2
@@ -170,7 +170,7 @@ echo Creating Hub2 VPN Gateway...
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
 echo Deploying OPNSense Firewall...
-
+# Deploy two OPNsense instances on Spoke2
 az network vnet subnet create -g $rg --vnet-name spoke2 -n untrusted --address-prefixes 10.2.0.32/28  --output none
 az network vnet subnet create -g $rg --vnet-name spoke2 -n trusted --address-prefixes 10.2.0.48/28  --output none
 
@@ -183,15 +183,14 @@ existingvirtualNetwork=existing
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
 
-# Deploy two OPNsense instances on Spoke2
 az deployment group create --name spoke2-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
 --no-wait
 
+# Deploy two OPNsense instances on Spoke4
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Untrusted --address-prefixes 10.4.0.32/28  --output none
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Trusted --address-prefixes 10.4.0.48/28  --output none
-
 OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
 ShellScriptName=configureopnsense.sh
 scenarioOption="TwoNics"
@@ -201,16 +200,36 @@ existingvirtualNetwork=existing
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
 
-# Deploy two OPNsense instances on Spoke2
+# Deploy two OPNsense instances on Spoke4
 az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
 --no-wait
 
+# Check Trusted NIC provisioning
+Echo NVA Trusted NIC provisioning status
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    nic=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'name' -o tsv)
+    prState=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'provisioningState' -o tsv)
+    echo "$nic provisioningState="$prState
+    sleep 5
+done
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    nic=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'name' -o tsv)
+    prState=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'provisioningState' -o tsv)
+    echo "$nic provisioningState="$prState
+    sleep 5
+done
 
-#Set ILBs as variables
-spk2nvaip=$(az network nic list -g $rg --query '[?contains(location,`'$region1'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
-spk4nvaip=$(az network nic list -g $rg --query '[?contains(location,`'$region2'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
+#Set NICs as variables
+spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk4nvaip=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 
 echo Updating indirect spoke UDRs to use Firewall as next hop...
 #UDRs for Spoke 5 and 6

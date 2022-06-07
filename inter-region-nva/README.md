@@ -1,8 +1,8 @@
-# Lab - Virtual WAN Scenario: Route traffic through an Azure Firewall spoke
+# Lab - Virtual WAN Scenario: Route traffic through an OPNsense NVA spoke
 
 ## Intro
 
-The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (in this case, we will use an Azure Firewall instead of NVA), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
+The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using opensource OPNsense), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
 
 ### Lab diagram
 
@@ -16,13 +16,13 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 - Eight VNETs (Spoke 1 to 8) where:
     - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
     - The other four (indirect spokes) spoke 5, 6, 7, and 8.
-    - Transit between indirect  Spoke2 and Spoke4 with Azure Firewall instead of NVAs.
+    - Transit between indirect  Spoke2 and Spoke4 with OPNsense NVA.
 - Each VNET (except 2 and 4) has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
-- There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Azure Firewall spoke.
-- Virtual WAN hubs have routes to Azure Firewall spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke2conn)
-- Spoke2conn and Spoke4conn have specific routes 10.2.1.0/24 and 10.2.2.0/24 next hop to spoke 2 Azure Firewall IP and 10.4.1.0/24 and 10.4.2.0/24 next hop to spoke 4 Azure Firewall IP.
+- There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective OPNsense NVA spoke.
+- Virtual WAN hubs have routes to OPNsense NVA spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke2conn)
+- Spoke2conn and Spoke4conn have specific routes 10.2.1.0/24 and 10.2.2.0/24 next hop to spoke 2 OPNsense NVA IP and 10.4.1.0/24 and 10.4.2.0/24 next hop to spoke 4 OPNsense NVA IP.
 - The outcome of the lab will be full transit between all ends (all VMs can reach each other).
 
 ### Deploy this solution
@@ -30,9 +30,9 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following commands build the entire lab:
 
 ```bash
-wget -O irazfw-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-azfw/irazfw-deploy.azcli
-chmod +xr irazfw-deploy.sh
-./irazfw-deploy.sh 
+wget -O irnva-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-azfw/irnva-deploy.azcli
+chmod +xr irnva-deploy.sh
+./irnva-deploy.sh 
 ```
 
 **Note:** the provisioning process will take around 60 minutes to complete.
@@ -54,8 +54,8 @@ az extension update --name azure-firewall
 # Parameters (make changes based on your requirements)
 region1=eastus2
 region2=westus2
-rg=lab-vwan-irazfw
-vwanname=vwan-irazfw
+rg=lab-vwan-irnva
+vwanname=vwan-irnva
 hub1name=hub1
 hub2name=hub2
 username=azureuser
@@ -214,13 +214,13 @@ echo Creating Hub2 VPN Gateway...
 # Creating VPN gateways in each Hub2
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
-echo Deploying Azure Firewall...
-# Deploy Azure Firewall on Spoke2 and Spoke 4
+echo Deploying OPNsense NVA...
+# Deploy OPNsense NVA on Spoke2 and Spoke 4
 ## Log Analytics workspace name. 
 Workspacename1=AZFirewall-$region1-Logs 
 Workspacename2=AZFirewall-$region2-Logs 
 
-#Build Azure Firewall / Note this section takes few minutes to complete.
+#Build OPNsense NVA / Note this section takes few minutes to complete.
 #Spoke 2
 az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallSubnet --address-prefixes 10.2.0.64/26 --output none
 az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none
@@ -411,7 +411,7 @@ az network vpn-connection create -n branch2-to-site-$hub2name -g $rg -l $region2
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 
-# **** Configure vWAN route default route table for send traffic to Azure Firewall: *****
+# **** Configure vWAN route default route table for send traffic to OPNsense NVA: *****
 
 # Creating spoke to vWAN connections to hub1
 # Spoke1 vnet connection
@@ -452,7 +452,7 @@ do
     sleep 5
 done
 
-echo Adding static routes in the Hub1 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub1 default route table to the indirect spokes via OPNsense NVA...
 # Creating summary route to indirect spokes 5 and 6 via spoke2
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.2.0.0/16 \
@@ -473,7 +473,7 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --route-name to-spoke4-azfw \
  --no-wait
 
-echo Adding static routes in the Hub3 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub3 default route table to the indirect spokes via OPNsense NVA...
 # Creating summary route to indirect spokes 7 and 8 via spoke4
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.4.0.0/16 \
@@ -499,7 +499,7 @@ echo Deployment has finished
 
 ```bash
 # Parameters 
-rg=lab-vwan-irazfw #set resource group
+rg=lab-vwan-irnva #set resource group
 
 #### Validate connectivity between VNETs and Branches
 
@@ -575,7 +575,7 @@ for vpngw in "${array[@]}"
  echo
 done
 
-# Azure Firewall Rules 
+# OPNsense NVA Rules 
 # Over portal check Log Analytics and check the Firewall activities using Network Rule query.
 ```
 
@@ -583,7 +583,7 @@ done
 
 ```bash
 # Parameters 
-rg=lab-vwan-irazfw #set resource group
+rg=lab-vwan-irnva #set resource group
 
 ### Clean up
 az group delete -g $rg --no-wait 
