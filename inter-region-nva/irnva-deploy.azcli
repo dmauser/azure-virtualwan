@@ -182,12 +182,11 @@ virtualNetworkName=spoke2
 existingvirtualNetwork=existing
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
-Location=$region1
 
 # Deploy two OPNsense instances on Spoke2
-az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
+az deployment group create --name spoke2-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/ARM/main.json" \
---parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$Location\
+--parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
 --no-wait
 
 az network vnet subnet create -g $rg --vnet-name spoke4 -n Untrusted --address-prefixes 10.4.0.32/28  --output none
@@ -201,7 +200,6 @@ virtualNetworkName=spoke4
 existingvirtualNetwork=existing
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
-Location=$region2
 
 # Deploy two OPNsense instances on Spoke2
 az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
@@ -209,33 +207,61 @@ az deployment group create --name spoke4-nva-$RANDOM --resource-group $rg \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
 --no-wait
 
+Echo checking NVAs Load Balancers deployment state...
+
+# Parse LBs as parameters (add check)
+echo Checking Load Balancers provisioning status...
+# Checking LB provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    ilb=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region1'`)].name' -o tsv)
+    prState=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region1'`)].provisioningState' -o tsv)
+    echo "$ilb provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    ilb=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region2'`)].name' -o tsv)
+    prState=$(az network lb list -g $rg --query '[?contains(name,`'ilb'`)] | [?contains(location,`'$region2'`)].provisioningState' -o tsv)
+    echo "$ilb provisioningState="$prState
+    sleep 5
+done
+
+#Set ILBs as variables
+spk2nvalb=$(az network lb list -g $rg --query '[?contains(location,`'$region1'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
+spk4nvalb=$(az network lb list -g $rg --query '[?contains(location,`'$region2'`)].frontendIpConfigurations[].privateIpAddress' -o tsv)
 
 echo Updating indirect spoke UDRs to use Firewall as next hop...
 #UDRs for Spoke 5 and 6
 ## Creating UDR + Disable BGP Propagation
-az network route-table create --name RT-to-Spoke2-AzFW  --resource-group $rg --location $region1 --disable-bgp-route-propagation true --output none
-## Default route to AzFW
-az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke2-AzFW \
+az network route-table create --name RT-to-Spoke2-NVA  --resource-group $rg --location $region1 --disable-bgp-route-propagation true --output none
+## Default route to NVA
+az network route-table route create --resource-group $rg --name Default-to-NVA --route-table-name RT-to-Spoke2-NVA \
 --address-prefix 0.0.0.0/0 \
 --next-hop-type VirtualAppliance \
---next-hop-ip-address $(az network nic show --name spoke2-opnnva-Primary-Trusted-NIC --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+--next-hop-ip-address $spk2nvalb \
 --output none
-## Associated RT-Hub-to-AzFW to Spoke 5 and 6.
-az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-AzFW --output none
-az network vnet subnet update -n main -g $rg --vnet-name spoke6 --route-table RT-to-Spoke2-AzFW --output none
+## Associated RT-Hub-to-NVA to Spoke 5 and 6.
+az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-NVA --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke6 --route-table RT-to-Spoke2-NVA --output none
 
 #UDRs for Spoke 7 and 8
 ## Creating UDR + Disable BGP Propagation
-az network route-table create --name RT-to-Spoke4-AzFW  --resource-group $rg --location $region2 --disable-bgp-route-propagation true --output none
-## Default route to AzFW
-az network route-table route create --resource-group $rg --name Default-to-AzFw --route-table-name RT-to-Spoke4-AzFW \
+az network route-table create --name RT-to-Spoke4-NVA  --resource-group $rg --location $region2 --disable-bgp-route-propagation true --output none
+## Default route to NVA
+az network route-table route create --resource-group $rg --name Default-to-NVA --route-table-name RT-to-Spoke4-NVA \
 --address-prefix 0.0.0.0/0 \
 --next-hop-type VirtualAppliance \
---next-hop-ip-address $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+--next-hop-ip-address $spk4nvalb \
 --output none
-## Associated RT-Hub-to-AzFW to Spoke 7 and 8.
-az network vnet subnet update -n main -g $rg --vnet-name spoke7 --route-table RT-to-Spoke4-AzFW --output none
-az network vnet subnet update -n main -g $rg --vnet-name spoke8 --route-table RT-to-Spoke4-AzFW --output none
+## Associated RT-Hub-to-NVA to Spoke 7 and 8.
+az network vnet subnet update -n main -g $rg --vnet-name spoke7 --route-table RT-to-Spoke4-NVA --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke8 --route-table RT-to-Spoke4-NVA --output none
 
 echo Validating Branches VPN Gateways provisioning...
 #Branches VPN Gateways provisioning status
@@ -338,7 +364,7 @@ az network vpn-connection create -n branch2-to-site-$hub2name -g $rg -l $region2
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 
-# **** Configuring vWAN route default route table to send traffic to Azure Firewall and reach indirect spokes: *****
+# **** Configuring vWAN route default route table to send traffic to the NVA and reach indirect spokes: *****
 echo Configuring spoke connections to their respective hubs...
 echo Creating spoke 1 and 3 connection to their respective hubs...
 # Spoke1 vnet connection
@@ -346,13 +372,13 @@ az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vh
 # Spoke3 vnet connection
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
 
-echo creating spoke 2 and spoke 4 vnet connections using static route to their respective Azure Firewalls...
-#Spoke2 vnet connection and Static Route to Spoke2-azfw
+echo creating spoke 2 and spoke 4 vnet connections using static route to their respective NVAs...
+#Spoke2 vnet connection and Static Route to Spoke2-nva
 az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
  --route-name $hub1name-indirect-spokes-rt \
  --address-prefixes 10.2.1.0/24 10.2.2.0/24 \
- --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --next-hop $spk2nvalb \
  --no-wait
 
 prState=''
@@ -363,12 +389,12 @@ do
     sleep 5
 done
 
-#Spoke4 vnet connection and Static Route to Spoke2-azfw
+#Spoke4 vnet connection and Static Route to Spoke2-nva
 az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
  --vhub-name $hub2name \
  --route-name $hub2name-indirect-spokes-rt \
  --address-prefixes 10.4.1.0/24 10.4.2.0/24 \
- --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --next-hop $spk4nvalb \
  --no-wait
 
 prState=''
@@ -379,7 +405,7 @@ do
     sleep 5
 done
 
-echo Adding static routes in the Hub1 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub1 default route table to the indirect spokes via NVA...
 # Creating summary route to indirect spokes 5 and 6 via spoke2
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.2.0.0/16 \
@@ -387,7 +413,7 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --next-hop-type ResourceID \
  --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
  --vhub-name $hub1name \
- --route-name to-spoke2-azfw \
+ --route-name to-spoke2-nva \
  --output none
 
 # Creating summary route to indirect spokes 7 and 8 via spoke4
@@ -397,10 +423,10 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --next-hop-type ResourceID \
  --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
  --vhub-name $hub1name \
- --route-name to-spoke4-azfw \
+ --route-name to-spoke4-nva \
  --no-wait
 
-echo Adding static routes in the Hub3 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub3 default route table to the indirect spokes via NVA...
 # Creating summary route to indirect spokes 7 and 8 via spoke4
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.4.0.0/16 \
@@ -408,7 +434,7 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --next-hop-type ResourceID \
  --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
  --vhub-name $hub2name \
- --route-name to-spoke4-azfw \
+ --route-name to-spoke4-nva \
  --output none
 # Creating summary route to indirect spokes 5 and 6 via spoke2
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
@@ -417,6 +443,6 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --next-hop-type ResourceID \
  --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
  --vhub-name $hub2name \
- --route-name to-spoke2-azfw \
+ --route-name to-spoke2-nva \
  --no-wait
 echo Deployment has finished
