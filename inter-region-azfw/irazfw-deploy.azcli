@@ -428,7 +428,7 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --route-name to-spoke4-azfw \
  --no-wait
 
-echo Adding static routes in the Hub3 default route table to the indirect spokes via Azure Firewall...
+echo Adding static routes in the Hub2 default route table to the indirect spokes via Azure Firewall...
 # Creating summary route to indirect spokes 7 and 8 via spoke4
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.4.0.0/16 \

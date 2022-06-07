@@ -84,4 +84,3 @@ region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
 Workspacename1=AZFirewall-$region1-Logs 
 Workspacename2=AZFirewall-$region2-Logs 
 
-
