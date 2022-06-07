@@ -1,3 +1,4 @@
+# ************** Work in Progress DO NOT USE this Deployment SCRIPT *****************
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
 
