@@ -2,7 +2,7 @@
 
 ## Intro
 
-The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using opensource OPNsense), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
+The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using OPNsense Firewall), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
 
 ### Lab diagram
 
