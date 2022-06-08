@@ -8,7 +8,7 @@ az extension update --name azure-firewall
 
 
 #Parameters
-region=northcentralus
+region=centralus
 rg=lab-vwan-svh
 vwanname=vwan-svh
 hubname=svhub
