@@ -1,4 +1,4 @@
-# Lab - Virtual WAN Scenario: Route traffic through an OPNsense NVA spoke
+# Lab - Virtual WAN Scenario: Route traffic through an NVA spoke
 
 ## Intro
 
