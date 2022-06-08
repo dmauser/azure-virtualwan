@@ -7,8 +7,8 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 #Parameters
-region=centralus
-rg=lab-vwan-svh
+region=eastus
+rg=lab-vwan-svh-eus
 vwanname=vwan-svh
 hubname=svhub
 username=azureuser
@@ -21,7 +21,7 @@ mypip=$(curl -4 ifconfig.io -s)
 
 # Creating rg
 az group create -n $rg -l $region --output none
-Creating vwan hubs..
+echo Creating vwan hubs..
 az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region --type Standard --output none
 az network vhub create -g $rg --name $hubname --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region --sku Standard --no-wait
 
@@ -82,8 +82,8 @@ do
  --no-wait
 done
 
-echo Checking Hub1 provisioning status...
-# Checking Hub1 provisioning and routing state 
+echo Checking vHub provisioning status...
+# Checking vHub provisioning and routing state 
 prState=''
 rtState=''
 while [[ $prState != 'Succeeded' ]];
@@ -99,8 +99,7 @@ do
     sleep 5
 done
 
-echo Creating Hub1 VPN Gateway...
-# Creating VPN gateways in each Hub1
+echo Creating vHub VPN Gateway...
 az network vpn-gateway create -n $hubname-vpngw -g $rg --location $region --vhub $hubname --no-wait 
 
 echo Validating Branches VPN Gateways provisioning...
@@ -150,7 +149,6 @@ vwanpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSett
 
 # Creating virtual wan vpn site
 az network vpn-site create --ip-address $pip1 -n site-branch -g $rg --asn 65510 --bgp-peering-address $bgp1 -l $region --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
-az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65509 --bgp-peering-address $bgp2 -l $region --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
 
 # Creating virtual wan vpn connection
 az network vpn-gateway connection create --gateway-name $hubname-vpngw -n site-branch-conn -g $rg --enable-bgp true --remote-vpn-site site-branch --internet-security --shared-key 'abc123' --output none
@@ -175,7 +173,7 @@ prState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network vhub connection show -n spoke1conn --vhub-name $hubname -g $rg  --query 'provisioningState' -o tsv)
-    echo "vnet connection spoke2conn provisioningState="$prState
+    echo "vnet connection spoke1conn provisioningState="$prState
     sleep 5
 done
 
@@ -191,15 +189,15 @@ prState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network vhub connection show -n spoke3conn --vhub-name $hubname -g $rg  --query 'provisioningState' -o tsv)
-    echo "vnet connection spoke2conn provisioningState="$prState
+    echo "vnet connection spoke3conn provisioningState="$prState
     sleep 5
 done
 
 echo Creating Azure Firewall Policy
 #Create firewall rules
 fwpolicyname=$hubname-fwpolicy #Firewall Policy Name
-az network firewall policy create --name $fwpolicyname --resource-group $rg
-az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg
+az network firewall policy create --name $fwpolicyname --resource-group $rg --output none
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none
 #Adding any-to-any firewall rule
 az network firewall policy rule-collection-group collection add-filter-collection \
  --resource-group $rg \
@@ -222,12 +220,13 @@ az network firewall create -g $rg -n $hubname-azfw --sku AZFW_Hub --tier $firewa
 
 echo Enabling Azure Firewall diagnostics...
 ## Log Analytics workspace name. 
-Workspacename=$hubname-LA-$region-Logs 
+Workspacename=$hubname-$region-Logs
 
 #Creating Log Analytics Workspaces
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region --no-wait
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region
 
 #EnablingAzure Firewall diagnostics
+az monitor diagnostic-settings show -n toLogAnalytics -g $rg --resource --resource $(az network firewall show --name $hubname-azfw --resource-group $rg --query id -o tsv)
 az monitor diagnostic-settings create -n 'toLogAnalytics' \
 --resource $(az network firewall show --name $hubname-azfw --resource-group $rg --query id -o tsv) \
 --workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
