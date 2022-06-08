@@ -16,7 +16,7 @@ The lab uses the same amount of VNETs (six total) and two regions with Hubs, and
 - Six VNETs (Spoke 1 to 6) that are connected directly to their respective vHUBs.
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
-- Two remote branches emulated in Azure with Azure VPN Gateway on each site and S2S VPN using BGP to their respective vHUB. ASN 65009 is assigned to Branch 1 and ASN 65010 is assigned to Branch 2 while vHUBs VPN Gateways on both Hubs have fixed ASN 65515.
+- Two remote branches emulated in Azure with Azure VPN Gateway on each site and S2S VPN using BGP to their respective vHUB. ASN 65010 is assigned to Branch 1 and ASN 65009 is assigned to Branch 2 while vHUBs VPN Gateways on both Hubs have fixed ASN 65515.
 
 ### Deploy this solution
 
