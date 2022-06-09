@@ -67,6 +67,13 @@ az dns-resolver forwarding-rule create -g $rg --name onprem-contoso \
  --forwarding-rule-state "Enabled" \
  --target-dns-servers ip-address="$dnsvmip" port=53
 
+
+# Create ruleset vnet links (for spoke1 only)
+az dns-resolver vnet-link create -g $rg --name spoke1-vnetlink \
+ --ruleset-name spoke1-fwd-ruleset \
+ --id $(az network vnet show -g $rg -n spoke1 --query id -o tsv) \
+ --output none
+
 # Create Private DNS Zone for Azure VM resolution
 az network private-dns zone create -g $rg -n azure.contoso.corp --output none
 
@@ -102,12 +109,6 @@ az vm run-command invoke --command-id RunPowerShellScript \
 # Configure Azure Firewall DNS Proxy to use Spoke1 DNS Private Resolver
 az network firewall policy update --name $fwpolicyname --resource-group $rg --enable-dns-proxy true --dns-servers $dnsresolverip --output none
 
-# Create ruleset vnet links (for spoke1 only)
-az dns-resolver vnet-link create -g $rg --name spoke1-vnetlink \
- --ruleset-name spoke1-fwd-ruleset \
- --id $(az network vnet show -g $rg -n spoke1 --query id -o tsv) \
- --output none
-
 # Update Workload VNETs 2 and 3 to use Azure Firewall as DNS Server
 az network vnet update -g $rg -n spoke2 --dns-servers $fwdnsresolverip -o none
 az network vnet update -g $rg -n spoke3 --dns-servers $fwdnsresolverip -o none
@@ -116,6 +117,7 @@ az network vnet update -g $rg -n spoke3 --dns-servers $fwdnsresolverip -o none
 az network vnet update -g $rg -n branch --dns-servers $dnsvmip -o none
 
 # Restart VMs to get the new DNS Server using parallel run to save time.
+az vm restart -g $rg -n spoke1vm && \
 az vm restart -g $rg -n spoke2vm && \
 az vm restart -g $rg -n spoke3vm && \
 az vm restart -g $rg -n branchvm && \
@@ -123,3 +125,8 @@ az vm restart -g $rg -n $dnsvmname
 
 # Wildcard rule set to send Internet traffic to AzFW (To be validated)
 
+# Simulated IPDS query detection
+# From Spoke1VM
+
+# test making DNS Resolver
+az network vnet update -g $rg -n spoke1 --dns-servers $fwdnsresolverip -o none
