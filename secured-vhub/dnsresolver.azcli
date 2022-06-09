@@ -1,0 +1,100 @@
+
+#Parameters
+region=eastus
+rg=lab-vwan-svh-eus
+vwanname=vwan-svh
+hubname=svhub
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_B1s #VM Size
+firewallsku=Premium #Azure Firewall SKU Standard or Premium
+
+
+# Deploy Bastion Branch for DNS Server access.
+az network public-ip create --resource-group $rg --name branch-bastion-pip --sku Standard --location $region -o none
+az network vnet subnet create -g $rg --vnet-name branch -n AzureBastionSubnet --address-prefixes 10.100.1.0/26 --output none
+az network bastion create --name branch-bastion --public-ip-address branch-bastion-pip --sku basic --resource-group $rg --vnet-name branch --location $region -o none
+
+az network bastion delete --name branch-bastion -g $rg
+
+# Deploy DNS On-premises
+dnsvmname=branch-windns
+az network nic create --name $dnsvmname-nic --resource-group $rg --subnet main --vnet branch -o none
+az vm create --resource-group $rg --location $region --name $dnsvmname --size Standard_DS1_v2 --nics $dnsvmname-nic  --image MicrosoftWindowsServer:WindowsServer:2019-Datacenter-smalldisk:latest --admin-username $username --admin-password $password -o none
+az vm extension set --resource-group $rg --vm-name $dnsvmname  --name CustomScriptExtension \
+--publisher Microsoft.Compute \
+--setting "{\"commandToExecute\": \"powershell Install-WindowsFeature -Name DNS -IncludeManagementTools\"}"
+# Enable boot diagnostics
+stguri=$(az storage account list -g $rg --query '[].primaryEndpoints.blob' -o tsv)
+az vm boot-diagnostics enable -g $rg --storage $stguri --name $dnsvmname -o none
+# Configure Windows DNS Server
+
+#Deploy DNS Resolver
+az extension add -n dns-resolver
+spoke1id=$(az network vnet show -g $rg -n spoke1 --query id -o tsv)
+az dns-resolver create --name spoke1-dnsresolver -g $rg --location $region --id $spoke1id 
+
+# Create inbound-endpoint subnet
+az network vnet subnet create -g $rg --vnet-name spoke1 -n dnsin --address-prefixes 172.16.1.32/28 --output none
+indnsid=$(az network vnet subnet show -g $rg -n dnsin --vnet-name spoke1 --query id -o tsv)
+az dns-resolver inbound-endpoint create -g $rg --name InboundEndpoint \
+ --dns-resolver-name spoke1-dnsresolver \
+ --location $region \
+ --ip-configurations private-ip-address="" private-ip-allocation-method="Dynamic" id="$indnsid" \
+ --no-wait
+
+# Create outbound-endpoint subnet
+az network vnet subnet create -g $rg --vnet-name spoke1 -n dnsout --address-prefixes 172.16.1.48/28 --output none
+outdnsid=$(az network vnet subnet show -g $rg -n dnsout --vnet-name spoke1 --query id -o tsv)
+az dns-resolver outbound-endpoint create -g $rg --name OutboundEndpoint \
+ --dns-resolver-name spoke1-dnsresolver \
+ --location $region \
+ --id="$outdnsid" \
+ --output none
+
+# Create forwarding-ruleset
+outepid=$(az dns-resolver outbound-endpoint show -g $rg --name OutboundEndpoint --dns-resolver-name spoke1-dnsresolver --query id -o tsv)
+az dns-resolver forwarding-ruleset create -g $rg --name spoke1-fwd-ruleset \
+ --location $region \
+ --outbound-endpoints id=$outepid \
+ --output none
+
+# Create forwarding-rule
+dnsvmip=$(az network nic show --name $dnsvmname-nic -g $rg  --query "ipConfigurations[0].privateIpAddress" -o tsv)
+az dns-resolver forwarding-rule create -g $rg --name onprem-contoso \
+ --ruleset-name spoke1-fwd-ruleset \
+ --domain-name "contoso.corp." \
+ --forwarding-rule-state "Enabled" \
+ --target-dns-servers ip-address="$dnsvmip" port=53
+
+# Create ruleset vnet links
+
+# Private DNS Zone and Enable VM registration
+
+# Private Endpoint + Private Link Zone
+
+# Run command for Onprem DNS configuration:
+dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
+globaldnsfwd=8.8.8.8 # Global/Server level DNS Forwarder
+branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIpAddress" -o tsv)
+
+az vm run-command invoke --command-id RunPowerShellScript \
+ --name $dnsvmname \
+ --resource-group $rg \
+ --scripts 'param([string]$arg1,[string]$arg2,[string]$arg3,[string]$arg4,[string]$arg5)' \
+ 'Set-DnsServerForwarder -IPAddress $arg2' \
+ 'Add-DnsServerConditionalForwarderZone -Name "blob.core.windows.net" -MasterServers $arg1 -PassThru' \
+ 'Add-DnsServerPrimaryZone -Name "contoso.corp" -ZoneFile "contoso.corp.dns"' \
+ 'Add-DnsServerResourceRecordA -Name "branchvm" -IPv4Address $arg3 -ZoneName "contoso.corp"' \
+ 'Add-DnsServerResourceRecordA -Name $arg4 -IPv4Address $arg5 -ZoneName "contoso.corp"' \
+ --parameters $(echo "arg1="$dnsresolverip"" "arg2=$globaldnsfwd" "arg3=$branchvmip" "arg4=$dnsvmname" "arg5=$dnsvmip") \
+ --output none
+
+# Enable Azure Firewall DNS Proxy
+fwpolicyname=$hubname-fwpolicy #Firewall Policy Name
+az network firewall policy update --name $fwpolicyname --resource-group $rg --enable-dns-proxy true --output none
+
+# Wildcard rule set to send Internet traffic to AzFW
+fwdnsresolverip=$(az network firewall show --name $hubname-azfw --resource-group $rg --query "hubIpAddresses.privateIpAddress" -o tsv)
+
+
