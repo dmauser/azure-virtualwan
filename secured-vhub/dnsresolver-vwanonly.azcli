@@ -77,9 +77,26 @@ do
  az network private-dns link vnet create -g $rg -n $spoke-link -z azure.contoso.corp -v $spoke -e true -o none
 done
 
+
+# Private DNS Zone and Enable VM registration
+
 # Private Endpoint + Private Link Zone
 
-# Create a storage account for each spoke and private link.
+# Run command for Onprem DNS configuration (Direct to DNS Resolver):
+dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
+globaldnsfwd=8.8.8.8 # Global/Server level DNS Forwarder
+branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIpAddress" -o tsv)
+az vm run-command invoke --command-id RunPowerShellScript \
+ --name $dnsvmname \
+ --resource-group $rg \
+ --scripts 'param([string]$arg1,[string]$arg2,[string]$arg3,[string]$arg4,[string]$arg5)' \
+ 'Set-DnsServerForwarder -IPAddress $arg2' \
+ 'Add-DnsServerConditionalForwarderZone -Name "blob.core.windows.net" -MasterServers $arg1 -PassThru' \
+ 'Add-DnsServerPrimaryZone -Name "onprem.contoso.corp" -ZoneFile "onprem.contoso.corp.dns"' \
+ 'Add-DnsServerResourceRecordA -Name "branchvm" -IPv4Address $arg3 -ZoneName "onprem.contoso.corp"' \
+ 'Add-DnsServerResourceRecordA -Name $arg4 -IPv4Address $arg5 -ZoneName "onprem.contoso.corp"' \
+ --parameters $(echo "arg1="$dnsresolverip"" "arg2=$globaldnsfwd" "arg3=$branchvmip" "arg4=$dnsvmname" "arg5=$dnsvmip") \
+ --output none
 
 # Run command for Onprem DNS configuration (AZ Firewall Scenario):
 dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
@@ -99,27 +116,12 @@ az vm run-command invoke --command-id RunPowerShellScript \
  --parameters $(echo "arg1="$fwdnsresolverip"" "arg2=$globaldnsfwd" "arg3=$branchvmip" "arg4=$dnsvmname" "arg5=$dnsvmip") \
  --output none
 
-# Configure Azure Firewall DNS Proxy to use Spoke1 DNS Private Resolver
-az network firewall policy update --name $fwpolicyname --resource-group $rg --enable-dns-proxy true --dns-servers $dnsresolverip --output none
 
-# Create ruleset vnet links (for spoke1 only)
-az dns-resolver vnet-link create -g $rg --name spoke1-vnetlink \
- --ruleset-name spoke1-fwd-ruleset \
- --id $(az network vnet show -g $rg -n spoke1 --query id -o tsv) \
- --output none
+# Enable Azure Firewall DNS Proxy (Changed in the Policy)
+fwpolicyname=$hubname-fwpolicy #Firewall Policy Name
+az network firewall policy update --name $fwpolicyname --resource-group $rg --enable-dns-proxy true --output none
 
-# Update Workload VNETs 2 and 3 to use Azure Firewall as DNS Server
-az network vnet update -g $rg -n spoke2 --dns-servers $fwdnsresolverip -o none
-az network vnet update -g $rg -n spoke3 --dns-servers $fwdnsresolverip -o none
-
-# On-prem
-az network vnet update -g $rg -n branch --dns-servers $dnsvmip -o none
-
-# Restart VMs to get the new DNS Server using parallel run to save time.
-az vm restart -g $rg -n spoke2vm && \
-az vm restart -g $rg -n spoke3vm && \
-az vm restart -g $rg -n branchvm && \
-az vm restart -g $rg -n $dnsvmname
+# Create ruleset vnet links (Not for the Firewall Scenario)
 
 # Wildcard rule set to send Internet traffic to AzFW (To be validated)
 
