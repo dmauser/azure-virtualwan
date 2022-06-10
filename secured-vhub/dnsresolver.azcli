@@ -85,8 +85,37 @@ do
 done
 
 # Private Endpoint + Private Link Zone
-
-# Create a storage account for each spoke and private link.
+# Use storage account created for serial console
+stgname=$(az storage account list -g $rg --query [].name -o tsv)
+stgid=$(az storage account show -g $rg -n $stgname --query id -o tsv)
+stgblob=$(az storage account show -g $rg -n $stgname --query primaryEndpoints.blob -o tsv)
+# Create a storage account for each spoke and private endpoint.
+az network private-endpoint create \
+    --connection-name stgplconnection \
+    --name stgscpe \
+    --private-connection-resource-id $stgid \
+    --resource-group $rg \
+    --subnet main \
+    --group-id blob \
+    --vnet-name spoke1
+# Create DNS Private Link zone:
+az network private-dns zone create \
+    --resource-group $rg \
+    --name "privatelink.blob.core.windows.net"
+#Enable DNS link
+az network private-dns link vnet create \
+    --resource-group $rg \
+    --zone-name "privatelink.blob.core.windows.net" \
+    --name spoke1-link \
+    --virtual-network spoke1 \
+    --registration-enabled false
+#Create DNS zone group
+az network private-endpoint dns-zone-group create \
+    --resource-group $rg \
+    --endpoint-name stgscpe \
+    --name privatelink_blob_core_windows_net \
+    --private-dns-zone "privatelink.blob.core.windows.net" \
+    --zone-name default
 
 # Run command for Onprem DNS configuration (AZ Firewall Scenario):
 dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
@@ -117,16 +146,33 @@ az network vnet update -g $rg -n spoke3 --dns-servers $fwdnsresolverip -o none
 az network vnet update -g $rg -n branch --dns-servers $dnsvmip -o none
 
 # Restart VMs to get the new DNS Server using parallel run to save time.
-az vm restart -g $rg -n spoke1vm && \
-az vm restart -g $rg -n spoke2vm && \
-az vm restart -g $rg -n spoke3vm && \
-az vm restart -g $rg -n branchvm && \
+az vm restart -g $rg -n spoke1vm & \
+az vm restart -g $rg -n spoke2vm & \
+az vm restart -g $rg -n spoke3vm & \
+az vm restart -g $rg -n branchvm & \
 az vm restart -g $rg -n $dnsvmname
 
-# Wildcard rule set to send Internet traffic to AzFW (To be validated)
+# Connectivity Test
+# 1) try to resolver all names from different sides.
+# For example, spoke3vm run: nslookup spoke1vm.azure.contoso.corp
+# to on-premises run: nslookup branch.onprem.contoso.corp.
 
-# Simulated IPDS query detection
-# From Spoke1VM
+# Filter Azure Firewall Log query, for example you will see filtering branch for query from spoke3vm:
+AzureDiagnostics 
+| where OperationName contains "AzureFirewallDnsProxy" or OperationName contains "AzureFirewallIDSLog"
+| where msg_s contains "branch" and msg_s contains "172.16.3.4"
+| project TimeGenerated, Resource, msg_s
+| sort by TimeGenerated desc 
 
-# test making DNS Resolver
-az network vnet update -g $rg -n spoke1 --dns-servers $fwdnsresolverip -o none
+# 2) Test storage account name for private link resolution from each VM.
+stgname=$(az storage account list -g $rg --query [].name -o tsv)
+echo $stgname.blob.core.windows.net
+
+# 3) Simulated IPDS query detection
+# Send query to .onion for example nslookup test1.onion to trigger a IDS log.
+# Sample KQL query
+AzureDiagnostics 
+| where OperationName contains "AzureFirewallDnsProxy" or OperationName contains "AzureFirewallIDSLog"
+| where msg_s contains "onion"
+| project TimeGenerated, Resource, msg_s
+| sort by TimeGenerated desc 
