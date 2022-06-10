@@ -9,7 +9,7 @@ chmod +xr svh-deploy.sh
 ./svh-deploy.sh
 ```
 
-For DNS Resolver scenario use file [dnsresolver.azcli]() commands inside the repo.
+For DNS Resolver scenario use file [dnsresolver.azcli](https://github.com/dmauser/azure-virtualwan/blob/main/secured-vhub/dnsresolver.azcli) commands inside the repo.
 
 Draft of Lab outcome.
 
