@@ -32,7 +32,7 @@ az vm boot-diagnostics enable -g $rg --storage $stguri --name $dnsvmname -o none
 #Deploy DNS Resolver
 az extension add -n dns-resolver
 spoke1id=$(az network vnet show -g $rg -n spoke1 --query id -o tsv)
-az dns-resolver create --name spoke1-dnsresolver -g $rg --location $region --id $spoke1id 
+az dns-resolver create --name spoke1-dnsresolver -g $rg --location $region --id $spoke1id -o none
 
 # Create inbound-endpoint subnet
 az network vnet subnet create -g $rg --vnet-name spoke1 -n dnsin --address-prefixes 172.16.1.32/28 --output none
@@ -66,7 +66,6 @@ az dns-resolver forwarding-rule create -g $rg --name onprem-contoso \
  --domain-name "onprem.contoso.corp." \
  --forwarding-rule-state "Enabled" \
  --target-dns-servers ip-address="$dnsvmip" port=53
-
 
 # Create ruleset vnet links (for spoke1 only)
 az dns-resolver vnet-link create -g $rg --name spoke1-vnetlink \

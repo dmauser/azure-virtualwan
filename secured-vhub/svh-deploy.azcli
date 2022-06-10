@@ -233,3 +233,7 @@ az monitor diagnostic-settings create -n 'toLogAnalytics' \
 --logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
 --metrics '[{"category": "AllMetrics","enabled": true}]' \
 --output none
+
+echo Deployment has finished
+echo Use Firewall Manager to enable Private Traffic under Security configuration
+echo Automation to enable Secured-vHub Prvate Traffic to be added soon...
