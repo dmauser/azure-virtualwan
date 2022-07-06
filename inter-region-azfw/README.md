@@ -22,7 +22,7 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
     - All VMs have default username azureuser and password Msft123Msft123 (you can change it under parameters section).
 - There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Azure Firewall spoke.
-- Virtual WAN hubs have routes to Azure Firewall spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke2conn)
+- Virtual WAN hubs have routes to Azure Firewall spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke4conn)
 - Spoke2conn and Spoke4conn have specific routes 10.2.1.0/24 and 10.2.2.0/24 next hop to spoke 2 Azure Firewall IP and 10.4.1.0/24 and 10.4.2.0/24 next hop to spoke 4 Azure Firewall IP.
 - The outcome of the lab will be full transit between all ends (all VMs can reach each other).
 - Two remote branches emulated in Azure with Azure VPN Gateway on each site and S2S VPN using BGP to their respective vHUB. ASN 65010 is assigned to Branch 1 and ASN 65009 is assigned to Branch 2 while vHUBs VPN Gateways on both Hubs have fixed ASN 65515.
