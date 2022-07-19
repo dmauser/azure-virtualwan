@@ -1,6 +1,3 @@
-# Notes: 
-# 1) Add boot diagnostics.
-
 # Pre-Requisite
 az extension add --name virtual-wan 
 # or update
@@ -16,43 +13,48 @@ region1=eastus
 region2=westus
 
 # Deploy BGP endpoont (Make the changes based on your needs)
-vnetname=spoke2 #Target NET
-instances=2
-nvaname=linux-nva
-subnetname=main
-hubtopeer=hub1 #Note VNET has to be in the same hub.
+vnetname=spoke1 #Target NET
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+subnetname=main #Existing Subnet where NVA gets deployed
+hubtopeer=hub1 #Note: VNET has to be connected to the same hub.
+
+#Specific NVA BGP settings
+asn_quagga=65020 # Set ASN
+bgp_network1=10.50.0.0/29 # Set Network to be propagated
 
 # Deploy NVA instances on the target VNET above.
-i=1
-while [ $i -le $instances ]
+nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)
+for nvaname in $nvanames
 do
  # Enable routing, NAT and BGP on Linux NVA:
- az network public-ip create --name $vnetname-$nvaname$i-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
- az network nic create --name $vnetname-$nvaname$i-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $vnetname-$nvaname$i-pip --ip-forwarding true -o none
- az vm create --resource-group $rg --location $region1 --name $vnetname-$nvaname$i --size Standard_B1s --nics $vnetname-$nvaname$i-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
- #NVA BGP settings
- asn_quagga=65020 # Set ASN
- bgp_network1=10.50.0.0/29 # Set Network to be propagated
+ az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
+ az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true -o none
+ az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+ 
+ #Enable boot diagnostics
+ nvalocation=$(az vm show -n $nvaname -g $rg --query location -o tsv)
+ stgregion1=$(az storage account list -g $rg --query '[?contains(location,`'$nvalocation'`)].name' -o tsv)
+ stguri1=$(az storage account show -n $stgregion1 -g $rg --query primaryEndpoints.blob -o tsv)
+ az vm boot-diagnostics enable --storage $stguri1 --name $nvaname -g $rg -o none
 
  #NVA BGP config variables (do not change)
-
- bgp_routerId=$(az network nic show --name $vnetname-$nvaname$i-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv)
+ bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv)
  routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
  routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
 
  # Enable routing and NAT on Linux NVA:
  scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouterbgp.sh"
- az vm extension set --resource-group $rg --vm-name $vnetname-$nvaname$i  --name customScript --publisher Microsoft.Azure.Extensions \
+ az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
  --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgp.sh $asn_quagga $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
  --no-wait
 
  # Build Virtual Router BGP Peering
  az network vhub bgpconnection create --resource-group $rg \
  --vhub-name $hubtopeer \
- --name $vnetname-$nvaname$i \
+ --name $nvaname \
  --peer-asn $asn_quagga \
- --peer-ip $(az network nic show --name $vnetname-$nvaname$i-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
- --vhub-conn $(az network vhub connection show --name spoke1conn --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $vnetname'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
  --no-wait
 done
-

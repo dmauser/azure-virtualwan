@@ -53,7 +53,6 @@ cp 5000-bgproutes.txt /etc/quagga/bgpd.conf
 systemctl restart bgpd.service #restart BGP deamon.
 tail -f /var/log/quagga/bgpd.log
 
-
 # Takes long
 ### 6000 routes: https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/conf/6000-bgproutes.txt
 rm /var/log/quagga/bgpd.log #clean logs
