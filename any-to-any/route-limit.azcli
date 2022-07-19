@@ -1,0 +1,19 @@
+# Reference:
+# https://netaddr.readthedocs.io/en/latest/tutorial_01.html
+
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=westus
+rg=lab-vwan-a2a
+vwanname=vwan-a2a
+hub1name=hub1
+hub2name=hub2
+branch1=branch1
+branch2=branch2
+
+#
+az network vnet update -g $rg -n $branch1
+az network vnet 
+
+
