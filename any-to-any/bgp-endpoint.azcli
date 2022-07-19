@@ -10,42 +10,49 @@ az extension update --name virtual-wan
 rg=lab-vwan-a2a #set resource group
 username=azureuser
 password=Msft123Msft123
-vnetname=spoke1
-subnetname=main
-nvaname=linux-nva
 hub1name=hub1
 hub2name=hub2
 region1=eastus
 region2=westus
 
-# Deploy BGP endpoont at Spoke1
+# Deploy BGP endpoont (Make the changes based on your needs)
+vnetname=spoke2 #Target NET
+instances=2
+nvaname=linux-nva
+subnetname=main
+hubtopeer=hub1 #Note VNET has to be in the same hub.
 
-# Enable routing, NAT and BGP on Linux NVA:
-az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
-az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true -o none
-az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+# Deploy NVA instances on the target VNET above.
+i=1
+while [ $i -le $instances ]
+do
+ # Enable routing, NAT and BGP on Linux NVA:
+ az network public-ip create --name $vnetname-$nvaname$i-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
+ az network nic create --name $vnetname-$nvaname$i-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $vnetname-$nvaname$i-pip --ip-forwarding true -o none
+ az vm create --resource-group $rg --location $region1 --name $vnetname-$nvaname$i --size Standard_B1s --nics $vnetname-$nvaname$i-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+ #NVA BGP settings
+ asn_quagga=65020 # Set ASN
+ bgp_network1=10.50.0.0/29 # Set Network to be propagated
 
-#NVA BGP settings
-asn_quagga=65020 # Set ASN
-bgp_network1=10.50.0.0/29 # Set Network to be propagated
+ #NVA BGP config variables (do not change)
 
-#NVA BGP config variables (do not change)
+ bgp_routerId=$(az network nic show --name $vnetname-$nvaname$i-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv)
+ routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
+ routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
 
-bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv)
-routeserver_IP1=$(az network vhub show -n hub1 -g $rg --query virtualRouterIps[0] -o tsv)
-routeserver_IP2=$(az network vhub show -n hub1 -g $rg --query virtualRouterIps[1] -o tsv)
-
-# Enable routing and NAT on Linux NVA:
-scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouterbgp.sh"
-az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
---protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgp.sh $asn_quagga $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
---no-wait
-
-# Build Virtual Router BGP Peering
-az network vhub bgpconnection create --resource-group $rg \
- --vhub-name $hub1name \
- --name $nvaname \
- --peer-asn $asn_quagga \
- --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
- --vhub-conn $(az network vhub connection show --name spoke1conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
+ # Enable routing and NAT on Linux NVA:
+ scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouterbgp.sh"
+ az vm extension set --resource-group $rg --vm-name $vnetname-$nvaname$i  --name customScript --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgp.sh $asn_quagga $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
  --no-wait
+
+ # Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hubtopeer \
+ --name $vnetname-$nvaname$i \
+ --peer-asn $asn_quagga \
+ --peer-ip $(az network nic show --name $vnetname-$nvaname$i-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name spoke1conn --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --no-wait
+done
+
