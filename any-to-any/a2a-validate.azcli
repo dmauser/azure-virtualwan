@@ -1,6 +1,6 @@
 # Parameters 
 rg=lab-vwan-a2a #set resource group
-
+az extension update --name virtual-wan
 #### Validate connectivity between VNETs and Branches
 
 

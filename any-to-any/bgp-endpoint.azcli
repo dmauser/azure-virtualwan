@@ -1,3 +1,6 @@
+# Notes: 
+# 1) Add boot diagnostics.
+
 # Pre-Requisite
 az extension add --name virtual-wan 
 # or update
