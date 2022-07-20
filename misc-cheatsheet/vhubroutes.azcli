@@ -24,3 +24,28 @@ do
     fi
    done
 done
+
+# v2
+subscription_id=$(az account list --query "[?isDefault == \`true\`].id" -o tsv)
+for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`
+do
+  for routetable in `az network vhub route-table list --vhub-name $vhubname -g $rg --query "[].id" -o tsv`
+   do
+   if [ "$(echo $routetable | rev | cut -d'/' -f1 | rev)" != "noneRouteTable" ]; then
+     echo -e vHUB: $vhubname 
+     echo -e Effective route table: $(echo $routetable | rev | cut -d'/' -f1 | rev)   
+     az network vhub get-effective-routes -g $rg -n $vhubname \
+     --resource-type RouteTable \
+     --resource-id $routetable \
+     --query "value[].{Prefix:addressPrefixes[0],ASPath:asPath,NextHopType:nextHopType,NextHop:nextHops[0],Origin:routeOrigin}" \
+     --output table \
+     | awk '{ gsub(/\/subscriptions\/'$subscription_id'\/resourceGroups\/'$rg'\/providers\/Microsoft.Network\/virtualHubs\//,"");gsub(/\/subscriptions\/'$subscription_id'\/resourceGroups\/'$rg'\/providers\/Microsoft.Network\/vpnGateways\//,""); print }'
+     echo
+    fi
+   done
+done
+
+
+
+
+'value[].{Prefix:addressPrefixes[0],ASPath:asPath,NextHopType:nextHopType,NextHop:nextHops[0],Origin:routeOrigin}' -o table | awk '{ gsub(/\/subscriptions\/'$subscription_id'\/resourceGroups\/'$rg'\/providers\/Microsoft.Network\//,""); print }'
