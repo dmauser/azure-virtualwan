@@ -10,8 +10,8 @@ az extension update --name virtual-wan
 # Parameters (make changes based on your requirements)
 region1=eastus2
 region2=westus2
-rg=lab-vwan-nvabgp
-vwanname=vwan-nvabgp
+rg=lab-vwan-nvabgp2
+vwanname=vwan-nvabgp2
 hub1name=hub1
 hub2name=hub2
 username=azureuser
