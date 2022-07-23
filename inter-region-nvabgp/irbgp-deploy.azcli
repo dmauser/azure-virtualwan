@@ -246,8 +246,6 @@ do
     sleep 5
 done
 
-
-
 echo Deploying Linux Router VM with BGP on Spoke4...
 # Deploy two OPNsense instances on Spoke4
 az network vnet subnet create -g $rg --vnet-name spoke4 -n nvasubnet --address-prefixes 10.4.0.32/28 --output none
