@@ -34,7 +34,7 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following commands build the entire lab:
 
 ```bash
-wget -O irnva-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/irbgp-deploy.azcli
+wget -O irnva-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli
 chmod +xr irnva-deploy.sh
 ./irnva-deploy.sh 
 ```
