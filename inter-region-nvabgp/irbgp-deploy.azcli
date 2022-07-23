@@ -10,10 +10,10 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
-region1=northcentralus
-region2=southcentralus
-rg=lab-vwan-nvaspk
-vwanname=vwan-nvaspk
+region1=eastus2
+region2=westus2
+rg=lab-vwan-nvabgp
+vwanname=vwan-nvabgp
 hub1name=hub1
 hub2name=hub2
 username=azureuser
