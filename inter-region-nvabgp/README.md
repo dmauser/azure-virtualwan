@@ -35,8 +35,8 @@ The lab is also available in the above .azcli that you can rename as .sh (shell 
 
 ```bash
 wget -O irnva-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli
-chmod +xr irbgp-deploy.azcli
-./irbgp-deploy.azcli
+chmod +xr irbgp-deploy.sh
+./irbgp-deploy.sh
 ```
 
 **Note:** the provisioning process will take around 60 minutes to complete.
