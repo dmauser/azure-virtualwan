@@ -4,10 +4,8 @@
 # Pre-Requisites
 echo validating pre-requisites
 az extension add --name virtual-wan 
-az extension add --name azure-firewall 
 # or updating vWAN and AzFirewall CLI extensions
 az extension update --name virtual-wan
-az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
 region1=eastus2
