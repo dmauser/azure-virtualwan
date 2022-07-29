@@ -177,7 +177,7 @@ az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vh
 # Spoke4 vnet connection
 az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg --vhub-name $hub2name --no-wait
 
-echo Validating Spoke2 hub connection state before deploy NVA
+echo Validating Spoke2 hub connection state before deploying the NVA
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
@@ -207,7 +207,7 @@ for nvaname in $nvanames
 do
  # Enable routing, NAT and BGP on Linux NVA:
  az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
- az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region2 -o none
+ az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
  az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
  
  #Enable boot diagnostics
@@ -237,7 +237,7 @@ do
  --no-wait
 done
 
-echo Validating Spoke4 hub connection state before deploy NVA
+echo Validating Spoke4 hub connection state before deploying the NVA
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
@@ -298,7 +298,7 @@ do
 done
 
 # Check Trusted NIC provisioning
-echo NVA Trusted NIC provisioning status...
+echo NVA NIC provisioning status...
 sleep 30
 prState=''
 rtState=''
