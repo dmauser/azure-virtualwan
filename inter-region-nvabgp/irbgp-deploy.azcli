@@ -199,7 +199,7 @@ hubtopeer=$hub1name #Note: VNET has to be connected to the same hub.
 
 #Specific NVA BGP settings
 asn_quagga=65002 # Set ASN
-bgp_network1=10.0.2.0/16 # Set Network to be propagated
+bgp_network1="10.2.0.0/16"
 
 # Deploy NVA instances on the target VNET above.
 nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)
@@ -259,7 +259,7 @@ hubtopeer=$hub2name #Note: VNET has to be connected to the same hub.
 
 #Specific NVA BGP settings
 asn_quagga=65004 # Set ASN
-bgp_network1=10.0.4.0/16 # Set Network to be propagated
+bgp_network1="10.4.0.0/16" # Set Network to be propagated
 
 # Deploy NVA instances on the target VNET above.
 nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)

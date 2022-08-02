@@ -1,5 +1,5 @@
 # Parameters 
-rg=lab-vwan-nvaspk #set resource group
+rg=lab-vwan-nvabgp #set resource group
 
 ### Clean up
 az group delete -g $rg --no-wait 
