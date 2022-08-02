@@ -2,8 +2,7 @@
 
 ## Intro
 
-The main goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using a Linux VM NVA). The scenario is the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes over Hub route table and connections. Additional reference for BGP peering can also be found in https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-bgp-peering-hub
-
+The main goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using a Linux VM NVA). The scenario is the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes over Hub route table and connections. Additional reference for BGP peering can also be found in [Scenario: BGP peering with a virtual hub](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-bgp-peering-hub). 
 ### Lab diagram
 
 The lab uses the same amount of VNETs (eight total) described on the official documentation, two regions with Hubs, and remote connectivity to two branches using site-to-site VPN (IPSEC +BGP). Below is a diagram of what you should expect to get deployed:
