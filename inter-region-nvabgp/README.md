@@ -22,7 +22,7 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
     - All VMs have default username azureuser and password Msft123Msft123 (you can change it under parameters section).
 - There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Transit NVA spoke.
-- Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Those NVAs propagate 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA)
+- Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Each NVA advertise networks 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA).
 - Each Linux NVA a single interface with IP forwarding enabled, BGP (Quagga) and NAT is configured for Internet breakout.
     - Linux NVA default username is azureuser and password is Msft123Msft123.
 - There are two Branches locations (Branch1 - 10.100.0.0/16 and Branch2 - 10.200.0.0/16) each one connected to their respective vHUBs using S2S IPSec VPN + BGP (Branch 1 using ASN 65010 and Branch 2 using ASN 65009).
