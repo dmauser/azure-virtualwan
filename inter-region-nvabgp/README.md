@@ -16,11 +16,10 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 - Eight VNETs (Spoke 1 to 8) where:
     - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
     - The other four (indirect spokes) spoke 5, 6, 7, and 8 peered with their respective Spokes (2 and 4) where we have the Linux NVA.
-    - Transit is allowed from indirect spokes to Spoke2 and Spoke4 using their Linux NVA which allow by default IP Forwarding and NAT for Internet Breakout.
 - There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Transit NVA spoke.
 - Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Each NVA advertise the networks 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA).
+- Transit is allowed from indirect spokes to Spoke2 and Spoke4 using their Linux NVA.
 - Each Linux NVA a single interface with IP forwarding enabled, BGP (Quagga) and NAT is configured for Internet breakout.
-    - Linux NVA default username is azureuser and password is Msft123Msft123.
 - There are two Branches locations (Branch1 - 10.100.0.0/16 and Branch2 - 10.200.0.0/16) each one connected to their respective vHUBs using S2S IPSec VPN + BGP (Branch 1 using ASN 65010 and Branch 2 using ASN 65009).
 - Each VNET has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
