@@ -2,34 +2,34 @@
 
 ## Intro
 
-The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using a Linux VM NVA). The scenarios is the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes over Hub route table and connections.
+The main goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using a Linux VM NVA). The scenario is the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes over Hub route table and connections.
 
 ### Lab diagram
 
-The lab uses the same amount of VNETs (eight total) and two regions with Hubs, and the remote connectivity to two branches using site-to-site VPN using and BGP. Below is a diagram of what you should expect to get deployed:
+The lab uses the same amount of VNETs (eight total) described on the official documentation, two regions with Hubs, and remote connectivity to two branches using site-to-site VPN (IPSEC +BGP). Below is a diagram of what you should expect to get deployed:
 
 ![net diagram](./media/networkdiagram.png)
 
 ### Components
 
-- Two Virtual WAN Hubs in two different regions (you can change the regions over the script under parameters section).
+- Two Virtual WAN Hubs in two different regions (you can change the regions over the script under the parameters section).
 - Eight VNETs (Spoke 1 to 8) where:
     - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
     - The other four (indirect spokes) spoke 5, 6, 7, and 8 peered with their respective Spokes (2 and 4) where we have the Linux NVA.
-- There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Transit NVA spoke.
-- Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Each NVA advertise the networks 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA).
+- There are UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Transit NVA spoke.
+- Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Each NVA advertises the networks 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA).
 - Transit is allowed from indirect spokes to Spoke2 and Spoke4 using their Linux NVA.
-- Each Linux NVA a single interface with IP forwarding enabled, BGP (Quagga) and NAT is configured for Internet breakout.
+- Each Linux NVA has a single network interface with IP forwarding enabled, BGP (Quagga) and NAT are configured two allow transit between Indirect Spokes to the other spokes connected to vHUB as well as Internet breakout is possible (only from indirect spoke VMs).
 - There are two Branches locations (Branch1 - 10.100.0.0/16 and Branch2 - 10.200.0.0/16) each one connected to their respective vHUBs using S2S IPSec VPN + BGP (Branch 1 using ASN 65010 and Branch 2 using ASN 65009).
 - Each VNET has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
-    - All VMs have default username azureuser and password Msft123Msft123 (you can change it under parameters section).
+    - All VMs have a default username azureuser and password Msft123Msft123 (you can change it under the parameters section).
 - The outcome of the lab will be full transit between all ends (all VMs can reach each other).
 
 ### Deploy this solution
 
-The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) or Azure CLI via Linux (Ubuntu) and run the following commands build the entire lab:
+The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) or Azure CLI via Linux (Ubuntu) and run the following commands to build the entire lab:
 
 ```bash
 wget -O irbgp-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli
@@ -37,7 +37,7 @@ chmod +xr irbgp-deploy.sh
 ./irbgp-deploy.sh
 ```
 
-**Note:** the provisioning process will take around 60 minutes to complete. Also note that Azure Cloud Shell has a 20 minute timeout and make sure you watch the process to make sure it will not timeout causing the deployment to stop. You can hit enter during the process just to make sure Serial Console will not timeout. Otherwise, you can install it using any Linux. In can you have Windows you can get a Ubuntu with WSL2 and install Azure CLI.
+**Note:** the provisioning process will take around 60 minutes to complete. Also, note that Azure Cloud Shell has a 20 minutes timeout and make sure you watch the process to make sure it will not timeout causing the deployment to stop. You can hit enter during the process just to make sure Serial Console will not timeout. Otherwise, you can install it using any Linux. In can you have Windows OS you can get a Ubuntu + WSL2 and install Azure CLI.
 
 Alternatively (recommended), you can run step-by-step to get familiar with the provisioning process and the components deployed:
 
