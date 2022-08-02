@@ -1,5 +1,5 @@
 # Parameters 
-rg=lab-vwan-nvaspk #set resource group
+rg=lab-vwan-nvabgp #set resource group
 
 #### Validate connectivity between VNETs and Branches
 
@@ -74,5 +74,10 @@ for vpngw in "${array[@]}"
  echo
 done
 
-# OPNSense Firewall 
-# Access OPNsense using http://<OPN-Sense-PublicIP> 
+# Review BGP configuration over Linux VMs:
+# 1) Login spoke2-linux-nva1 and spoke4-linux-nva1
+# 2) Elevate shell as root by running
+sudo -s
+# Review BGP config by running both commands:
+vtysh 
+show running-config
