@@ -49,7 +49,7 @@ Alternatively (recommended), you can run step-by-step to get familiar with the p
 # Pre-Requisites
 echo validating pre-requisites
 az extension add --name virtual-wan 
-# or updating vWAN and AzFirewall CLI extensions
+# or updating vWAN CLI extensions
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
@@ -368,7 +368,7 @@ done
 spk2nvaip=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 spk4nvaip=$(az network nic show -n spoke4-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
 
-echo Updating indirect spoke UDRs to use Firewall as next hop...
+echo Updating indirect spoke UDRs to use Linux NVA as next hop...
 #UDRs for Spoke 5 and 6
 ## Creating UDR + Disable BGP Propagation
 az network route-table create --name RT-to-Spoke2-NVA  --resource-group $rg --location $region1 --disable-bgp-route-propagation true --output none
