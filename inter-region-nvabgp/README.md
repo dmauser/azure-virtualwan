@@ -1,8 +1,8 @@
-# Lab - Virtual WAN Scenario: Route traffic through an NVA spoke
+# Lab - Virtual WAN Scenario: Route traffic through an NVA spoke using BGP peering
 
 ## Intro
 
-The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using Linux Firewall), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes (Hub and connections).
+The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using a Linux VM NVA), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes over Hub route table and connections.
 
 ### Lab diagram
 
@@ -22,9 +22,8 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
     - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
     - All VMs have default username azureuser and password Msft123Msft123 (you can change it under parameters section).
 - There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Transit NVA spoke.
-- Virtual WAN hubs have routes to Linux NVA spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke2conn)
-- Spoke2conn and Spoke4conn have specific routes 10.2.1.0/24 and 10.2.2.0/24 next hop to spoke 2 Linux NVA trusted nic IP and 10.4.1.0/24 and 10.4.2.0/24 next hop to spoke 4 Linux NVA trusted nic IP.
-- Linux NVA has a single interface with IP forwarding enabled, BGP (Quagga) and NAT is configured for Internet breakout.
+- Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Those NVAs propagate 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA)
+- Each Linux NVA a single interface with IP forwarding enabled, BGP (Quagga) and NAT is configured for Internet breakout.
     - Linux NVA default username is azureuser and password is Msft123Msft123.
 - There are two Branches locations (Branch1 - 10.100.0.0/16 and Branch2 - 10.200.0.0/16) each one connected to their respective vHUBs using S2S IPSec VPN + BGP (Branch 1 using ASN 65010 and Branch 2 using ASN 65009).
 - The outcome of the lab will be full transit between all ends (all VMs can reach each other).
