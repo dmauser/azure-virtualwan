@@ -9,13 +9,11 @@ password="Msft123Msft123" #Please change your password
 vmsize=Standard_B1s #VM Size
 firewallsku=Premium #Azure Firewall SKU Standard or Premium
 
-
 # Deploy Bastion Branch for DNS Server access.
 az network public-ip create --resource-group $rg --name branch-bastion-pip --sku Standard --location $region -o none
 az network vnet subnet create -g $rg --vnet-name branch -n AzureBastionSubnet --address-prefixes 10.100.1.0/26 --output none
 az network bastion create --name branch-bastion --public-ip-address branch-bastion-pip --sku basic --resource-group $rg --vnet-name branch --location $region -o none
-
-az network bastion delete --name branch-bastion -g $rg
+# az network bastion delete --name branch-bastion -g $rg
 
 # Deploy DNS On-premises
 dnsvmname=onprem-windns

@@ -1,8 +1,7 @@
 # Parameters 
-rg=lab-vwan-a2a #set resource group
-az extension update --name virtual-wan
-#### Validate connectivity between VNETs and Branches
+rg=lab-vwan-nvabgp #set resource group
 
+#### Validate connectivity between VNETs and Branches
 
 # 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
 
@@ -74,3 +73,11 @@ for vpngw in "${array[@]}"
   done
  echo
 done
+
+# Review BGP configuration over Linux VMs:
+# 1) Login spoke2-linux-nva1 and spoke4-linux-nva1
+# 2) Elevate shell as root by running
+sudo -s
+# Review BGP config by running both commands:
+vtysh 
+show running-config
