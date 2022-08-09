@@ -1,10 +1,53 @@
+# Lab - Virtual WAN Scenario: Route traffic through an NVA spoke using BGP peering
+
+## Intro
+
+The main goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (using a Linux VM NVA). The scenario is the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva) but using BGP instead of vWAN static routes over Hub route table and connections. Additional reference for BGP peering can also be found in [Scenario: BGP peering with a virtual hub](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-bgp-peering-hub). 
+### Lab diagram
+
+The lab uses the same amount of VNETs (eight total) described on the official documentation, two regions with Hubs, and remote connectivity to two branches using site-to-site VPN (IPSEC +BGP). Below is a diagram of what you should expect to get deployed:
+
+![net diagram](./media/networkdiagram.png)
+
+### Components
+
+- Two Virtual WAN Hubs in two different regions (you can change the regions over the script under the parameters section).
+- Eight VNETs (Spoke 1 to 8) where:
+    - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
+    - The other four (indirect spokes) spoke 5, 6, 7, and 8 peered with their respective Spokes (2 and 4) where we have the Linux NVA.
+- There are UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Transit NVA spoke.
+- Virtual WAN hubs have BGP peerings to their respective Linux NVA spokes. Each NVA advertises the networks 10.2.0.0/16 (Spoke2 Linux NVA) and 10.4.0.0/16 (Spoke 4 Linux NVA).
+- Transit is allowed from indirect spokes to Spoke2 and Spoke4 using their Linux NVA.
+- Each Linux NVA has a single network interface with IP forwarding enabled, BGP (Quagga) and NAT are configured two allow transit between Indirect Spokes to the other spokes connected to vHUB as well as Internet breakout is possible (only from indirect spoke VMs).
+- There are two Branches locations (Branch1 - 10.100.0.0/16 and Branch2 - 10.200.0.0/16) each one connected to their respective vHUBs using S2S IPSec VPN + BGP (Branch 1 using ASN 65010 and Branch 2 using ASN 65009).
+- Each VNET has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
+- All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
+    - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
+    - All VMs have a default username azureuser and password Msft123Msft123 (you can change it under the parameters section).
+- The outcome of the lab will be full transit between all ends (all VMs can reach each other).
+
+### Deploy this solution
+
+The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) or Azure CLI via Linux (Ubuntu) and run the following commands to build the entire lab:
+
+```bash
+wget -O irbgp-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli
+chmod +xr irbgp-deploy.sh
+./irbgp-deploy.sh
+```
+
+**Note:** the provisioning process will take around 60 minutes to complete. Also, note that Azure Cloud Shell has a 20 minutes timeout and make sure you watch the process to make sure it will not timeout causing the deployment to stop. You can hit enter during the process just to make sure Serial Console will not timeout. Otherwise, you can install it using any Linux. In can you have Windows OS you can get a Ubuntu + WSL2 and install Azure CLI.
+
+Alternatively (recommended), you can run step-by-step to get familiar with the provisioning process and the components deployed:
+
+```bash
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
 
 # Pre-Requisites
 echo validating pre-requisites
 az extension add --name virtual-wan 
-# or updating vWAN and AzFirewall CLI extensions
+# or updating vWAN CLI extensions
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
@@ -88,8 +131,8 @@ az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sk
 az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku Basic --output none
 
 # Creating VPN gateways
-az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65010 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
-az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65009 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
+az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
@@ -357,7 +400,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch1-vpngw -g $rg
-    az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65010 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''
@@ -374,7 +417,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch2-vpngw -g $rg
-    az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65009 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''
@@ -435,8 +478,8 @@ vwanbgp2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSet
 vwanpip2=$(az network vpn-gateway show -n $hub2name-vpngw  -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
 
 # Creating virtual wan vpn site
-az network vpn-site create --ip-address $pip1 -n site-branch1 -g $rg --asn 65010 --bgp-peering-address $bgp1 -l $region1 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
-az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65009 --bgp-peering-address $bgp2 -l $region2 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+az network vpn-site create --ip-address $pip1 -n site-branch1 -g $rg --asn 65510 --bgp-peering-address $bgp1 -l $region1 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65509 --bgp-peering-address $bgp2 -l $region2 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
 
 # Creating virtual wan vpn connection
 az network vpn-gateway connection create --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --enable-bgp true --remote-vpn-site site-branch1 --internet-security --shared-key 'abc123' --output none
@@ -450,3 +493,102 @@ az network local-gateway create -g $rg -n site-$hub2name-LG --gateway-ip-address
 az network vpn-connection create -n branch2-to-site-$hub2name -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 site-$hub2name-LG --enable-bgp --shared-key 'abc123' --output none
 
 echo Deployment has finished
+```
+
+### Validation
+
+```bash
+# Parameters 
+rg=lab-vwan-nvabgp #set resource group
+
+#### Validate connectivity between VNETs and Branches
+
+# 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
+
+#List of VMs Public IP for SSH access
+az network public-ip list -g $rg --query "[].{name:name,ip:ipAddress}" -o table 
+
+#List of VMs Private IPs
+for nicname in `az network nic list -g $rg --query [].name -o tsv`
+do 
+echo -e $nicname private IP:
+az network nic show -g $rg --name $nicname --query "ipConfigurations[].privateIpAddress" --output tsv
+echo -e 
+done
+
+# For connectivity test you can also use curl or traceroute. For example from BranchVM1 or BranchVM2 run:
+curl 10.2.1.4 #expected output spoke5VM
+traceroute 10.2.1.4
+ping 10.2.1.4 -O
+
+# 2) Dump VMs route tables:
+for nicname in `az network nic list -g $rg --query [].name -o tsv`
+do 
+echo -e $nicname effective routes:
+az network nic show-effective-route-table -g $rg --name $nicname --output table
+echo -e 
+done
+
+# 3) Dump all vHUBs route tables.
+for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`
+do
+  for routetable in `az network vhub route-table list --vhub-name $vhubname -g $rg --query "[].id" -o tsv`
+   do
+   if [ "$(echo $routetable | rev | cut -d'/' -f1 | rev)" != "noneRouteTable" ]; then
+     echo -e vHUB: $vhubname 
+     echo -e Effective route table: $(echo $routetable | rev | cut -d'/' -f1 | rev)   
+     az network vhub get-effective-routes -g $rg -n $vhubname \
+     --resource-type RouteTable \
+     --resource-id $routetable \
+     --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
+     --output table
+     echo
+    fi
+   done
+done
+
+# Dump the Branches VPN Gateway routes:
+vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
+array=($vpngws)
+for vpngw in "${array[@]}"
+ do 
+ echo "*** $vpngw BGP peer status ***"
+ az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw -o table
+ echo "*** $vpngw BGP learned routes ***"
+ az network vnet-gateway list-learned-routes -g $rg -n $vpngw -o table
+ echo
+done
+
+# VPN Gateways advertised routes per BGP peer.
+vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
+array=($vpngws)
+for vpngw in "${array[@]}"
+ do 
+  ips=$(az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw --query 'value[].{ip:neighbor}' -o tsv)
+  array2=($ips)
+   for ip in "${array2[@]}"
+   do
+   echo *** $vpngw advertised routes to peer $ip ***
+   az network vnet-gateway list-advertised-routes -g $rg -n $vpngw -o table --peer $ip
+  done
+ echo
+done
+
+# Review BGP configuration over Linux VMs:
+# 1) Login spoke2-linux-nva1 and spoke4-linux-nva1
+# 2) Elevate shell as root by running
+sudo -s
+# Review BGP config by running both commands:
+vtysh 
+show running-config
+```
+
+### Clean-up
+
+```bash
+# Parameters 
+rg=lab-vwan-nvabgp #set resource group
+
+### Clean up
+az group delete -g $rg --no-wait 
+```

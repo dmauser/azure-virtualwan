@@ -81,10 +81,3 @@ sudo -s
 # Review BGP config by running both commands:
 vtysh 
 show running-config
-show ip bgp
-show ip bgp summary
-show ip bgp neighbors
-show ip bgp neighbors 192.168.1.68 received-routes
-show ip bgp neighbors 192.168.1.68 advertised-routes
-show ip bgp neighbors 192.168.1.69 received-routes
-show ip bgp neighbors 192.168.1.69 advertised-routes
