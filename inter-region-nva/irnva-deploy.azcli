@@ -81,8 +81,8 @@ az network nsg create --resource-group $rg --name default-nsg-$region2 --locatio
 az network nsg rule create -g $rg --nsg-name default-nsg-$region1 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
 az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
 # Associating NSG to the VNET subnets (Spokes and Branches)
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region1'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region1 -o none
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region2'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region2 -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region1'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region2 -o none
 
 echo Creating VPN Gateways in both branches...
 # Creating pips for VPN GW's in each branch
@@ -111,8 +111,8 @@ az storage account create -n sc$randomIdentifier2 -g $rg -l $region2 --sku Stand
 #Enabling boot diagnostics
 stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primaryEndpoints.blob -o tsv)
 stguri2=$(az storage account show -n sc$randomIdentifier2 -g $rg --query primaryEndpoints.blob -o tsv)
-az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?contains(location,`'$region1'`)].{id:id}' -o tsv) -o none
-az vm boot-diagnostics enable --storage $stguri2 --ids $(az vm list -g $rg --query '[?contains(location,`'$region2'`)].{id:id}' -o tsv) -o none
+az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?location==`'$region1'`].{id:id}' -o tsv) -o none
+az vm boot-diagnostics enable --storage $stguri2 --ids $(az vm list -g $rg --query '[?location==`'$region2'`].{id:id}' -o tsv) -o none
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
