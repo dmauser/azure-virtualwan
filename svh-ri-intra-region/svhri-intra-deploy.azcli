@@ -407,20 +407,19 @@ az monitor diagnostic-settings create -n 'toLogAnalytics' \
 --metrics '[{"category": "AllMetrics","enabled": true}]' \
 --output none
 
-#Enabling Secured-vHUB Routing intenet
-hubname=$hub1name 
-nexthop=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
+#Enabling Secured-vHUB + Routing intenet
+echo Enabling Secured-vHUB + Routing intenet (Private Traffic Only)
+nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
 az deployment group create \
 --resource-group $rg \
---template-file ./routeintent.bicep \
---parameters hubname=$hubname nexthop=$nexthop
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-intra-region/bicep/routeintent.json \
+--parameters hubname=$hub1name nexthop=$nexthophub1 \
+--no-wait
 
-hubname=$hub1name 
-nexthop=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
+nexthophub2=$(az network vhub show -g $rg -n $hub2name --query azureFirewall.id -o tsv)
 az deployment group create \
 --resource-group $rg \
---template-file ./routeintent.bicep \
---parameters hubname=$hubname nexthop=$nexthop
-
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-intra-region/bicep/routeintent.json \
+--parameters hubname=$hub2name nexthop=$nexthophub2
 
 echo Deployment has finished
