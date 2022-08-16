@@ -10,9 +10,9 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
-region1=westus2
-region2=westus2
-rg=lab-svhri-intra
+region1=eastus
+region2=eastus
+rg=lab-svhri-intra-test
 vwanname=svhri-intra
 hub1name=sechub1
 hub2name=sechub2
