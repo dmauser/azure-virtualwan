@@ -1,0 +1,24 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "resources": [
+        {
+            "type": "Microsoft.Network/virtualHubs/routingIntent",
+            "apiVersion": "2021-01-01",
+            "name": "hub2/hub2_RoutingIntent",
+            "properties": {
+                "routingPolicies": [
+                    {
+                        "name": "PrivateTraffic",
+                        "destinations": [
+                            "PrivateTraffic"
+                        ],
+                        "nextHop": "/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/lab-vwan-a2a/providers/Microsoft.Network/azureFirewalls/AzureFirewall_hub2"
+                    }
+                ]
+            },
+            "id": "/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/lab-vwan-a2a/providers/Microsoft.Network/virtualHubs/hub2/routingIntent/hub2_RoutingIntent"
+        }
+    ]
+}
