@@ -36,11 +36,9 @@ az network vhub create -g $rg --name $hub2name --address-prefix 192.168.2.0/24 -
 echo Creating branches VNETs...
 # create location1 branch virtual network
 az network vnet create --address-prefixes 10.100.0.0/16 -n branch1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.100.0.0/24 --output none
-az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
 
 # create location2 branch virtual network
 az network vnet create --address-prefixes 10.200.0.0/16 -n branch2 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.200.0.0/24 --output none
-az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
 
 echo Creating spoke VNETs...
 # create spokes virtual network
@@ -76,7 +74,9 @@ az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sk
 az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku Basic --output none
 
 # create VPN gateways
+az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
 az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
 
 echo Creating Spoke VMs...
