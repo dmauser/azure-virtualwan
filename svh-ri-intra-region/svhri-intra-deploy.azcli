@@ -1,10 +1,13 @@
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-isolate-vnets-custom
 
-# Pre-Requisite
+# Pre-Requisites
+echo validating pre-requisites
 az extension add --name virtual-wan 
-# or update
+az extension add --name azure-firewall 
+# or updating vWAN and AzFirewall CLI extensions
 az extension update --name virtual-wan
+az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
 region1=westus2
