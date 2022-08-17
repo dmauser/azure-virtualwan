@@ -12,7 +12,7 @@ az extension update --name azure-firewall
 # Parameters (make changes based on your requirements)
 region1=eastus2
 region2=eastus2
-rg=lab-svh-intra
+rg=lab-svh-intra2
 vwanname=svh-intra
 hub1name=sechub1
 hub2name=sechub2
@@ -411,7 +411,7 @@ az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 
 # Use instruction of validation section below if you want to test that connectivity.
 
 #Enabling Secured-vHUB + Routing intenet
-echo "Enabling Secured-vHUB + Routing intenet (Private Traffic Only)"
+echo "Enabling Secured-vHUB + Routing intenet (Private and Internet Traffic)"
 nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
 az deployment group create --name $hub1name-ri \
 --resource-group $rg \
