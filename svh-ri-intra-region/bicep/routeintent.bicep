@@ -6,13 +6,6 @@ resource routeintent 'Microsoft.Network/virtualHubs/routingIntent@2022-01-01' = 
   properties: {
     routingPolicies: [
       {
-        name: 'InternetTraffic'
-        destinations: [
-          'InternetTraffic'
-        ]
-        nextHop: nexthop
-      }
-      {
         name: 'PrivateTraffic'
         destinations: [
           'PrivateTraffic'

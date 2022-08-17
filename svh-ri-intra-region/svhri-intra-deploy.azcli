@@ -217,8 +217,8 @@ az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vh
 echo Creating $hub1name Azure Firewall Policy
 #Create firewall rules
 fwpolicyname=$hub1name-fwpolicy #Firewall Policy Name
-az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewallsku --enable-dns-proxy true --output none
-az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none
+az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewallsku --enable-dns-proxy true --output none --only-show-errors
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none --only-show-errors
 #Adding any-to-any firewall rule
 az network firewall policy rule-collection-group collection add-filter-collection \
  --resource-group $rg \
@@ -244,7 +244,7 @@ echo Enabling $hub1name Azure Firewall diagnostics...
 Workspacename=$hub1name-$region1-Logs
 
 #Creating Log Analytics Workspaces
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
 
 #EnablingAzure Firewall diagnostics
 #az monitor diagnostic-settings show -n toLogAnalytics -g $rg --resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv)
