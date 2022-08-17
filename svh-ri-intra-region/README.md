@@ -1,4 +1,4 @@
-# Lab - Secured Virtual Hubs and Routing Internet
+# Lab - Secured Virtual Hubs and Routing Intent (Intra-Region)
 
 ### Under Construction ###
 
