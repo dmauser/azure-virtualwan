@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.9.1.41621",
-      "templateHash": "12801644975949044656"
+      "templateHash": "7216656336828112734"
     }
   },
   "parameters": {
@@ -23,6 +23,13 @@
       "name": "[format('{0}/{1}_RoutingIntent', parameters('hubname'), parameters('hubname'))]",
       "properties": {
         "routingPolicies": [
+          {
+            "name": "PublicTraffic",
+            "destinations": [
+              "Internet"
+            ],
+            "nextHop": "[parameters('nexthop')]"
+          },
           {
             "name": "PrivateTraffic",
             "destinations": [
