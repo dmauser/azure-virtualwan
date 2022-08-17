@@ -1,0 +1,214 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.9.1.41621",
+      "templateHash": "15547063615560002043"
+    }
+  },
+  "parameters": {
+    "scenarioOption": {
+      "type": "string",
+      "defaultValue": "PrivateOnly",
+      "allowedValues": [
+        "PrivateOnly",
+        "Private-and-Internet",
+        "InternetOnly"
+      ],
+      "metadata": {
+        "description": "Select scenario: PrivateOnly,Private-and-Internet,InternetOnly"
+      }
+    },
+    "hubname": {
+      "type": "string"
+    },
+    "nexthop": {
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "condition": "[equals(parameters('scenarioOption'), 'PrivateOnly')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2020-10-01",
+      "name": "[format('{0}PrivateOnly', parameters('hubname'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "hubname": {
+            "value": "[parameters('hubname')]"
+          },
+          "routingPolicies": {
+            "value": [
+              {
+                "name": "PrivateTraffic",
+                "destinations": [
+                  "PrivateTraffic"
+                ],
+                "nextHop": "[parameters('nexthop')]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.9.1.41621",
+              "templateHash": "14235869993287537837"
+            }
+          },
+          "parameters": {
+            "hubname": {
+              "type": "string"
+            },
+            "routingPolicies": {
+              "type": "array",
+              "defaultValue": []
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualHubs/routingIntent",
+              "apiVersion": "2022-01-01",
+              "name": "[format('{0}/{1}_RoutingIntent', parameters('hubname'), parameters('hubname'))]",
+              "properties": {
+                "routingPolicies": "[parameters('routingPolicies')]"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "condition": "[equals(parameters('scenarioOption'), 'InternetOnly')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2020-10-01",
+      "name": "[format('{0}PrivateOnly', parameters('hubname'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "hubname": {
+            "value": "[parameters('hubname')]"
+          },
+          "routingPolicies": {
+            "value": [
+              {
+                "name": "PublicTraffic",
+                "destinations": [
+                  "Internet"
+                ],
+                "nextHop": "[parameters('nexthop')]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.9.1.41621",
+              "templateHash": "14235869993287537837"
+            }
+          },
+          "parameters": {
+            "hubname": {
+              "type": "string"
+            },
+            "routingPolicies": {
+              "type": "array",
+              "defaultValue": []
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualHubs/routingIntent",
+              "apiVersion": "2022-01-01",
+              "name": "[format('{0}/{1}_RoutingIntent', parameters('hubname'), parameters('hubname'))]",
+              "properties": {
+                "routingPolicies": "[parameters('routingPolicies')]"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "condition": "[equals(parameters('scenarioOption'), 'Private-and-Internet')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2020-10-01",
+      "name": "[format('{0}PrivateOnly', parameters('hubname'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "hubname": {
+            "value": "[parameters('hubname')]"
+          },
+          "routingPolicies": {
+            "value": [
+              {
+                "name": "PublicTraffic",
+                "destinations": [
+                  "Internet"
+                ],
+                "nextHop": "[parameters('nexthop')]"
+              },
+              {
+                "name": "PrivateTraffic",
+                "destinations": [
+                  "PrivateTraffic"
+                ],
+                "nextHop": "[parameters('nexthop')]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.9.1.41621",
+              "templateHash": "14235869993287537837"
+            }
+          },
+          "parameters": {
+            "hubname": {
+              "type": "string"
+            },
+            "routingPolicies": {
+              "type": "array",
+              "defaultValue": []
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualHubs/routingIntent",
+              "apiVersion": "2022-01-01",
+              "name": "[format('{0}/{1}_RoutingIntent', parameters('hubname'), parameters('hubname'))]",
+              "properties": {
+                "routingPolicies": "[parameters('routingPolicies')]"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
