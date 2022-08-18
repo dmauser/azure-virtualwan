@@ -18,14 +18,14 @@ while [[ $prState == 'Deleting' ]];
 do
     prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
     echo "$hub1name routing intent provisioningState="$prState
-    sleep 5
+    sleep 15
 done
 echo "$hub1name routing intent disabled"
 prState='Deleting'
 while [[ $prState == 'Deleting' ]];
 do
-    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
     echo "$hub2name routing intent provisioningState="$prState
-    sleep 5
+    sleep 15
 done
 echo "$hub2name routing intent disabled"
