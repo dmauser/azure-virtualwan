@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.9.1.41621",
-      "templateHash": "15547063615560002043"
+      "templateHash": "2225458366090922980"
     }
   },
   "parameters": {
@@ -33,7 +33,7 @@
       "condition": "[equals(parameters('scenarioOption'), 'PrivateOnly')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2020-10-01",
-      "name": "[format('{0}PrivateOnly', parameters('hubname'))]",
+      "name": "[format('{0}_PrivateOnly', parameters('hubname'))]",
       "properties": {
         "expressionEvaluationOptions": {
           "scope": "inner"
@@ -91,7 +91,7 @@
       "condition": "[equals(parameters('scenarioOption'), 'InternetOnly')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2020-10-01",
-      "name": "[format('{0}PrivateOnly', parameters('hubname'))]",
+      "name": "[format('{0}_InternetOnly', parameters('hubname'))]",
       "properties": {
         "expressionEvaluationOptions": {
           "scope": "inner"
@@ -149,7 +149,7 @@
       "condition": "[equals(parameters('scenarioOption'), 'Private-and-Internet')]",
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2020-10-01",
-      "name": "[format('{0}PrivateOnly', parameters('hubname'))]",
+      "name": "[format('{0}_Private-and-Internet', parameters('hubname'))]",
       "properties": {
         "expressionEvaluationOptions": {
           "scope": "inner"

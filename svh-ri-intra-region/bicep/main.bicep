@@ -11,7 +11,7 @@ param nexthop string //Firewall as next hop
 
 //Private Traffic Only
 module riprivateonly 'routeintent.bicep' = if (scenarioOption == 'PrivateOnly') {
-  name: '${hubname}PrivateOnly'
+  name: '${hubname}_PrivateOnly'
   params: {
     hubname: hubname
     routingPolicies: [
@@ -28,7 +28,7 @@ module riprivateonly 'routeintent.bicep' = if (scenarioOption == 'PrivateOnly') 
 
 //Internet Traffic Only
 module riinternetonly 'routeintent.bicep' = if (scenarioOption == 'InternetOnly') {
-  name: '${hubname}PrivateOnly'
+  name: '${hubname}_InternetOnly'
   params: {
     hubname: hubname
     routingPolicies: [
@@ -45,7 +45,7 @@ module riinternetonly 'routeintent.bicep' = if (scenarioOption == 'InternetOnly'
 
 //Private and Internet Traffic
 module riinternetandprivate 'routeintent.bicep' = if (scenarioOption == 'Private-and-Internet') {
-  name: '${hubname}PrivateOnly'
+  name: '${hubname}_Private-and-Internet'
   params: {
     hubname: hubname
     routingPolicies: [
