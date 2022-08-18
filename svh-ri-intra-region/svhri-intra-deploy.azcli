@@ -428,7 +428,6 @@ az deployment group create --name $hub2name-ri \
 
 subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 prState=''
-rtState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
@@ -436,7 +435,6 @@ do
     sleep 5
 done
 prState=''
-rtState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)

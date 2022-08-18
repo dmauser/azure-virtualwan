@@ -1,28 +1,31 @@
-
 # Parameters (make changes based on your requirements)
 rg=lab-svh-intra2
 hub1name=sechub1
 hub2name=sechub2
 subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 
-
 # ****** CAUTION ***** 
 # This command will remove routing intent from both Hubs
 #Hub1
-az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01
+az rest --method delete --uri https://management.azure.com/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/"$hub1name"_RoutingIntent?api-version=2022-01-01
 
 #Hub2
-az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01
+az rest --method delete --uri https://management.azure.com/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/"$hub2name"_RoutingIntent?api-version=2022-01-01
 
-az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01
-
-az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01
-
-az rest --method put --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent
-
-az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv
-
-DELETE https://management.azure.com/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/lab-svh-intra2/providers/Microsoft.Network/virtualHubs/sechub1/routingIntent/sechub1_RoutingIntent?api-version=2022-01-01
-Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IjJaUXBKM1VwYmpBWVhZR2FYRUpsOGxWMFRPSSIsImtpZCI6IjJaUXBKM1VwYmpBWVhZR2FYRUpsOGxWMFRPSSJ9.eyJhdWQiOiJodHRwczovL21hbmFnZW1lbnQuY29yZS53aW5kb3dzLm5ldCIsImlzcyI6Imh0dHBzOi8vc3RzLndpbmRvd3MubmV0LzcyZjk4OGJmLTg2ZjEtNDFhZi05MWFiLTJkN2NkMDExZGI0Ny8iLCJpYXQiOjE2NjA3Nzk3NjgsIm5iZiI6MTY2MDc3OTc2OCwiZXhwIjoxNjYwNzg0MTYyLCJfY2xhaW1fbmFtZXMiOnsiZ3JvdXBzIjoic3JjMSJ9LCJfY2xhaW1fc291cmNlcyI6eyJzcmMxIjp7ImVuZHBvaW50IjoiaHR0cHM6Ly9ncmFwaC53aW5kb3dzLm5ldC83MmY5ODhiZi04NmYxLTQxYWYtOTFhYi0yZDdjZDAxMWRiNDcvdXNlcnMvNWMwMzVjOTMtYTg5NC00ZDg3LTg1OTctYTU1N2UxMWY0MzI1L2dldE1lbWJlck9iamVjdHMifX0sImFjciI6IjEiLCJhaW8iOiJBVlFBcS84VEFBQUFaNlFCYVUzWjYzOG5ac1FmWXd4YnZPL3B3WEEySGUrNFRXMzF0WHZsZDQ1NzV4WUl1VTRkdTkwME5GTmprakN3TzJ0WExTdHJEbTd6bUJxRm5rR1lqaEViMEZsSlh5TUdCZEE1NDhtNGZRZz0iLCJhbXIiOlsiZmlkbyIsInJzYSIsIm1mYSJdLCJhcHBpZCI6IjE4ZmJjYTE2LTIyMjQtNDVmNi04NWIwLWY3YmYyYjM5YjNmMyIsImFwcGlkYWNyIjoiMCIsImRldmljZWlkIjoiOGI0MmU1ZTItNWMzMC00MTQ3LWE2MDktNWY0ZjRjMTc3YTkzIiwiZmFtaWx5X25hbWUiOiJNYXVzZXIiLCJnaXZlbl9uYW1lIjoiRGFuaWVsIiwiaXBhZGRyIjoiNDcuMTg3LjEyNC45MiIsIm5hbWUiOiJEYW5pZWwgTWF1c2VyIiwib2lkIjoiNWMwMzVjOTMtYTg5NC00ZDg3LTg1OTctYTU1N2UxMWY0MzI1Iiwib25wcmVtX3NpZCI6IlMtMS01LTIxLTEyNDUyNTA5NS03MDgyNTk2MzctMTU0MzExOTAyMS03MDY3OTQiLCJwdWlkIjoiMTAwMzNGRkY4MDFCOUZFNCIsInJoIjoiMC5BUm9BdjRqNWN2R0dyMEdScXkxODBCSGJSMFpJZjNrQXV0ZFB1a1Bhd2ZqMk1CTWFBRHMuIiwic2NwIjoidXNlcl9pbXBlcnNvbmF0aW9uIiwic3ViIjoiMy1JbEJCNkQ4ZTJON3N3bDhUWmF3X3pZaGRKVUd0QlR4Z1ZwZW9wdUVMayIsInRpZCI6IjcyZjk4OGJmLTg2ZjEtNDFhZi05MWFiLTJkN2NkMDExZGI0NyIsInVuaXF1ZV9uYW1lIjoiZG1hdXNlckBtaWNyb3NvZnQuY29tIiwidXBuIjoiZG1hdXNlckBtaWNyb3NvZnQuY29tIiwidXRpIjoiZ1l4U1hQbC1EMHllelRObWtJc3FBQSIsInZlciI6IjEuMCIsIndpZHMiOlsiYjc5ZmJmNGQtM2VmOS00Njg5LTgxNDMtNzZiMTk0ZTg1NTA5Il0sInhtc190Y2R0IjoxMjg5MjQxNTQ3fQ.En0_DStWicWHk-xcpb3NZw4CpPCrdHfa5e4MHRGXrikAGdW9Yb0-YKFKfssY-3LXhrl2jvkPGrnoVHMjU6bc8DORY361rsR9U9k5Z6Ia58V4y7LJefwzC87_YB2WIPa9bKrH8yOxfKZlKo-hmu37wrbp7Cr-HmyAV7FR4UvsenUZNvI062J9v2x4vVcd8t7uoLBlfCh93J_E4d975DgnRd09g8525uxUXf9ZttHSqwr2WFB7b0cRh1l9X2xrFwijRySinGUMYJGo-qAZM_hrIsU8zTwABNwkfFpO1iQGxxJfFLq2pO9mUfeV4q45vQ9UZ7C54ui-28eNXhSOxymwtA
-
-az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01
+# Check status
+prState='Deleting'
+while [[ $prState == 'Deleting' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub1name routing intent provisioningState="$prState
+    sleep 5
+done
+echo "$hub1name routing intent disabled"
+prState='Deleting'
+while [[ $prState == 'Deleting' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub2name routing intent provisioningState="$prState
+    sleep 5
+done
+echo "$hub2name routing intent disabled"
