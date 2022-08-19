@@ -15,7 +15,7 @@ The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenar
 
 ### Lab diagram
 
-The lab uses six VNETs and two regions with Hubs, and the remote connectivity to two branches using site-to-site VPN using and BGP. Below is a diagram of what you should expect to get deployed:
+The lab uses six VNETs and two regions with Secured Virtual Hubs, and the remote connectivity to two branches using site-to-site VPN using and BGP. Below is a diagram of what you should expect to get deployed:
 
 ![net diagram](./media/networkdiagram.png)
 
