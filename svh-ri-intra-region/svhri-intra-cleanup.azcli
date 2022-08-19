@@ -1,5 +1,5 @@
 # Parameters 
-rg=lab-vwan-a2a #set resource group
+rg=lab-svh-intra #set resource group
 
 ### Clean up
 az group delete -g $rg --no-wait 

@@ -1,8 +1,7 @@
 # Parameters 
-rg=lab-vwan-a2a #set resource group
-az extension update --name virtual-wan
-#### Validate connectivity between VNETs and Branches
+rg=lab-svh-intra #set resource group
 
+#### Validate connectivity between VNETs and Branches
 
 # 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
 
@@ -74,3 +73,12 @@ for vpngw in "${array[@]}"
   done
  echo
 done
+
+# Azure Firewall Rules 
+# Over portal check Log Analytics and check the Firewall activities using Network Rule query.
+
+# (to be added soon via CLI) - Ignore commands below:
+region1=$(az network vhub show -g $rg -n $hub1name --query 'location' -o tsv)
+region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
+Workspacename1=AZFirewall-$region1-Logs 
+Workspacename2=AZFirewall-$region2-Logs 

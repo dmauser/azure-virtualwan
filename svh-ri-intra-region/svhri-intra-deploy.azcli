@@ -1,5 +1,4 @@
 #!/bin/bash
-# Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-isolate-vnets-custom
 
 # Pre-Requisites
 echo validating pre-requisites
@@ -10,15 +9,15 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
-region1=eastus2
-region2=eastus2
-rg=lab-svh-intra
-vwanname=svh-intra
-hub1name=sechub1
-hub2name=sechub2
-username=azureuser
-password="Msft123Msft123"
-vmsize=Standard_DS1_v2
+region1=eastus2 #set region1
+region2=eastus2 #set region2
+rg=lab-svh-intra #set resource group
+vwanname=svh-intra #set vWAN name
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+username=azureuser #set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1_v2 #set VM Size
 firewallsku=Premium #Azure Firewall SKU Standard or Premium
 
 #Variables
