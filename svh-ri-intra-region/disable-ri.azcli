@@ -1,5 +1,5 @@
 # Parameters (make changes based on your requirements)
-rg=lab-svhri-intra
+rg=lab-svh-intra
 hub1name=sechub1
 hub2name=sechub2
 subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
