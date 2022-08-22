@@ -410,7 +410,7 @@ az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 
 # Use instruction of validation section below if you want to test that connectivity.
 
 #Enabling Secured-vHUB + Routing intenet
-echo "Enabling Secured-vHUB + Routing intent (Private Traffic Only)"
+echo "Enabling Secured-vHUB + Routing intent (Internet and Private Traffic)"
 nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
 az deployment group create --name $hub1name-ri \
 --resource-group $rg \
