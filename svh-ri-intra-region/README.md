@@ -26,7 +26,7 @@ The lab uses six VNETs and two regions with Secured Virtual Hubs, and the remote
 - All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
     - For connectivity tests, you can use curl <"Destination IP"> and the output should be the VM name.
 - Two remote branches emulated in Azure with Azure VPN Gateway on each site and S2S VPN using BGP to their respective vHUB. ASN 65010 is assigned to Branch 1 and ASN 65009 is assigned to Branch 2 while vHUBs VPN Gateways on both Hubs have fixed ASN 65515.
-- Routing intent/policies for private traffic are enabled via deployment script. To review routing intent/policies you via portal use the [inter-hub preview portal](https://aka.ms/inter-hub). Inter-hub enabled is the indication the feature is enabled. Example:
+- Routing intent/policies for private traffic are enabled via deployment script. To review routing intent/policies you via portal use the [inter-hub preview portal](https://aka.ms/interhub). Inter-hub enabled is the indication the feature is enabled. Example:
 ![](./media/azfwmg-routingintent.png)
 - Routing intent feature does not support Internet together with Private traffic at this time (please review the [official documentation](https://docs.microsoft.com/en-us/azure/virtual-wan/how-to-routing-policies#background) - purple box). Some of those constrains are going to be removed before going to General Availability (GA). It recommended to review the documentation on regular bases to get the most updated information about the route intent/policies functionality.
 
