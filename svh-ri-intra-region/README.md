@@ -11,7 +11,9 @@
 
 ### Intro
 
-The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario: [How to configure Virtual WAN Hub routing intent and routing policies](https://docs.microsoft.com/en-us/azure/virtual-wan/how-to-routing-policies)
+The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario: [How to configure Virtual WAN Hub routing intent and routing policies](https://docs.microsoft.com/en-us/azure/virtual-wan/how-to-routing-policies) 
+
+        Note: Azure Virtual WAN routing intent and routing policies features are in Preview during the writing of this lab. Please, check the official documentation to get the most updated status.
 
 ### Lab diagram
 
