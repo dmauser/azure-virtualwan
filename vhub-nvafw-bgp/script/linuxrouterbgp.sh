@@ -35,7 +35,7 @@ iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 # Save to IPTables file for persistence on reboot
 iptables-save > /etc/iptables/rules.v4
 
-## Stopping Quagga 
+## Stopping Quagga (required for script re-runs)
 systemctl stop zebra
 systemctl stop bgpd 
 
