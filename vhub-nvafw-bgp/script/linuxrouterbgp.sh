@@ -35,6 +35,10 @@ iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
 # Save to IPTables file for persistence on reboot
 iptables-save > /etc/iptables/rules.v4
 
+## Stopping Quagga 
+systemctl stop zebra
+systemctl stop bgpd 
+
 ## Create a folder for the quagga logs
 echo "creating folder for quagga logs"
 sudo mkdir -p /var/log/quagga && sudo chown quagga:quagga /var/log/quagga
