@@ -109,7 +109,7 @@ az network vnet subnet create -g $rg --vnet-name spoke2 -n nvasubnet --address-p
 vnetname=spoke2 #Target NET
 instances=2 #Set number of NVA instaces to be created
 nvaintname=linux-nva #NVA instance name
-subnetname=nvasubnet #Existing Subnet where NVA gets deployed
+nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
 hubtopeer=$hub1name #Note: VNET has to be connected to the same hub.
 
 #Specific NVA BGP settings
@@ -121,9 +121,9 @@ nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i+
 for nvaname in $nvanames
 do
  # Enable routing, NAT and BGP on Linux NVA:
- az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
- az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
- az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+ az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --sku Standard --output none --only-show-errors
+ az network nic create --name $nvaname-nic --resource-group $rg --subnet $nvasubnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
+ az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none --only-show-errors
  
  #Enable boot diagnostics
  nvalocation=$(az vm show -n $nvaname -g $rg --query location -o tsv)
@@ -154,19 +154,19 @@ done
 
 #Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
 echo Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
-az network lb create -g $rg --name $vnetname-$nvaname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $vnetname-vnet --subnet=$nvasubnetname --output none --location $location
-az network lb probe create -g $rg --lb-name $vnetname-$nvaname-ilb --name sshprobe --protocol tcp --port 22 --output none  
-az network lb rule create -g $rg --lb-name $vnetname-$nvaname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
+az network lb create -g $rg --name $vnetname-$nvaintname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $vnetname --subnet=$nvasubnetname --location $region1 --output none --only-show-errors
+az network lb probe create -g $rg --lb-name $vnetname-$nvaintname-ilb --name sshprobe --protocol tcp --port 22 --output none  
+az network lb rule create -g $rg --lb-name $vnetname-$nvaintname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
 
 # Attach NVAs to the Backend as NICs
-for vm in $nvanames
+for nvaname in $nvanames
 do
   az network nic ip-config address-pool add \
   --address-pool nvabackend \
-  --ip-config-name ipconfig"$vm" \
+  --ip-config-name ipconfig1 \
   --nic-name $nvaname-nic \
   --resource-group $rg \
-  --lb-name $vnetname-$nvaname-ilb \
+  --lb-name $vnetname-$nvaintname-ilb \
   --output none
 done
 
@@ -185,6 +185,7 @@ done
 
 #Set NICs as variables
 spk2nvaip=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk2nvalbip=$(az network lb show -g $rg -n $vnetname-$nvaintname-ilb --query frontendIpConfigurations[0].privateIpAddress -o tsv)
 
 echo Updating indirect spoke UDRs to use Linux NVA as next hop...
 #UDRs for Spoke 5 and 6
@@ -194,7 +195,7 @@ az network route-table create --name RT-to-Spoke2-NVA  --resource-group $rg --lo
 az network route-table route create --resource-group $rg --name Default-to-NVA --route-table-name RT-to-Spoke2-NVA \
 --address-prefix 0.0.0.0/0 \
 --next-hop-type VirtualAppliance \
---next-hop-ip-address $spk2nvaip \
+--next-hop-ip-address $spk2nvalbip \
 --output none
 ## Associated RT-Hub-to-NVA to Spoke 5 and 6.
 az network vnet subnet update -n main -g $rg --vnet-name spoke3 --route-table RT-to-Spoke2-NVA --output none
