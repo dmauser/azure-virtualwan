@@ -32,22 +32,22 @@ echo Creating spoke VNETs...
 # Region1
 az network vnet create --address-prefixes 10.1.0.0/24 -n spoke1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.1.0.0/27 --output none
 az network vnet create --address-prefixes 10.2.0.0/24 -n spoke2 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.0.0/27 --output none
-az network vnet create --address-prefixes 10.2.1.0/24 -n spoke5 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.1.0/27 --output none
-az network vnet create --address-prefixes 10.2.2.0/24 -n spoke6 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.2.0/27 --output none
+az network vnet create --address-prefixes 10.2.1.0/24 -n spoke3 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.1.0/27 --output none
+az network vnet create --address-prefixes 10.2.2.0/24 -n spoke4 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.2.0/27 --output none
 
 echo Creating VNET peerings...
 # vnet peering from spoke 5 and spoke 6 to spoke2
-az network vnet peering create -g $rg -n spoke2-to-spoke5 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke5 --query id --out tsv) --output none
-az network vnet peering create -g $rg -n spoke5-to-spoke2 --vnet-name spoke5 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
-az network vnet peering create -g $rg -n spoke2-to-spoke6 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke6 --query id --out tsv) --output none 
-az network vnet peering create -g $rg -n spoke6-to-spoke2 --vnet-name spoke6 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke2-to-spoke3 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke3 --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke3-to-spoke2 --vnet-name spoke3 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke2-to-spoke4 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke4 --query id --out tsv) --output none 
+az network vnet peering create -g $rg -n spoke4-to-spoke2 --vnet-name spoke4 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
 az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
 # Creating VMs on each indirect spoke.
-az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg "" --no-wait
 #Enabling boot diagnostics for all VMs in the resource group (Serial console)
 #Creating Storage Account (boot diagnostics + serial console)
 let "randomIdentifier1=$RANDOM*$RANDOM" 
@@ -85,7 +85,6 @@ do
     echo "$hub1name routingState="$rtState
     sleep 5
 done
-echo Creating Hub1 VPN Gateway...
 
 echo Creating spoke connections to their respective hubs...
 # Spoke1 vnet connection
@@ -198,7 +197,7 @@ az network route-table route create --resource-group $rg --name Default-to-NVA -
 --next-hop-ip-address $spk2nvaip \
 --output none
 ## Associated RT-Hub-to-NVA to Spoke 5 and 6.
-az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-NVA --output none
-az network vnet subnet update -n main -g $rg --vnet-name spoke6 --route-table RT-to-Spoke2-NVA --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke3 --route-table RT-to-Spoke2-NVA --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke4 --route-table RT-to-Spoke2-NVA --output none
 
 echo Deployment has finished
