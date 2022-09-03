@@ -98,7 +98,6 @@ log file /var/log/quagga/bgpd.log informational
 router bgp $asn_quagga
  bgp router-id $bgp_routerId
  network $bgp_network1
- network $bgp_network2
  neighbor $routeserver_IP1 remote-as 65515
  neighbor $routeserver_IP1 ebgp-multihop 255
  neighbor $routeserver_IP1 soft-reconfiguration inbound

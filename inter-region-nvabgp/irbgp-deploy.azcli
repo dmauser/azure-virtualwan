@@ -71,7 +71,7 @@ echo Creating VMs in both branches...
 az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
 
-echo Creating NSGs in both branches...
+echo Creating NSGs and assciating them to the subnets
 #Updating NSGs:
 az network nsg create --resource-group $rg --name default-nsg-$region1 --location $region1 -o none
 az network nsg create --resource-group $rg --name default-nsg-$region2 --location $region2 -o none
