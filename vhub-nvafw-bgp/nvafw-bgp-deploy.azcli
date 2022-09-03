@@ -1,0 +1,204 @@
+#!/bin/bash
+# Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
+
+# Pre-Requisites
+echo validating pre-requisites
+az extension add --name virtual-wan 
+# or updating vWAN and AzFirewall CLI extensions
+az extension update --name virtual-wan
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+rg=lab-vhub-nvafwbgp
+vwanname=vwan-nvafwbgp
+hub1name=hub1
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2
+
+#Variables
+mypip=$(curl -4 ifconfig.io -s)
+
+# Creating rg
+az group create -n $rg -l $region1 --output none
+
+# Creating virtual wan
+echo Creating vwan and both hubs...
+az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region1 --type Standard --output none
+az network vhub create -g $rg --name $hub1name --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region1 --sku Standard --no-wait
+
+echo Creating spoke VNETs...
+# Creating spokes virtual network
+# Region1
+az network vnet create --address-prefixes 10.1.0.0/24 -n spoke1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.1.0.0/27 --output none
+az network vnet create --address-prefixes 10.2.0.0/24 -n spoke2 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.0.0/27 --output none
+az network vnet create --address-prefixes 10.2.1.0/24 -n spoke5 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.1.0/27 --output none
+az network vnet create --address-prefixes 10.2.2.0/24 -n spoke6 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.2.2.0/27 --output none
+
+echo Creating VNET peerings...
+# vnet peering from spoke 5 and spoke 6 to spoke2
+az network vnet peering create -g $rg -n spoke2-to-spoke5 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke5 --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke5-to-spoke2 --vnet-name spoke5 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+az network vnet peering create -g $rg -n spoke2-to-spoke6 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke6 --query id --out tsv) --output none 
+az network vnet peering create -g $rg -n spoke6-to-spoke2 --vnet-name spoke6 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
+
+echo Creating Spoke VMs...
+# Creating a VM in each connected spoke
+az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
+# Creating VMs on each indirect spoke.
+az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait
+#Enabling boot diagnostics for all VMs in the resource group (Serial console)
+#Creating Storage Account (boot diagnostics + serial console)
+let "randomIdentifier1=$RANDOM*$RANDOM" 
+az storage account create -n sc$randomIdentifier1 -g $rg -l $region1 --sku Standard_LRS -o none
+#Enabling boot diagnostics
+stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primaryEndpoints.blob -o tsv)
+az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?location==`'$region1'`].{id:id}' -o tsv) -o none
+### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
+do
+ az vm extension set \
+ --resource-group $rg \
+ --vm-name $vm \
+ --name customScript \
+ --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+done
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+echo Creating Hub1 VPN Gateway...
+
+echo Creating spoke connections to their respective hubs...
+# Spoke1 vnet connection
+az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
+# Spoke2 vnet connection 
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg --vhub-name $hub1name --no-wait
+
+echo Validating Spoke2 hub connection state before deploying the NVA
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+
+echo Deploying Linux Router VM with BGP on Spoke2...
+# Deploy two OPNsense instances on Spoke2
+az network vnet subnet create -g $rg --vnet-name spoke2 -n nvasubnet --address-prefixes 10.2.0.32/28  --output none
+
+# Deploy BGP endpoont (Make the changes based on your needs)
+vnetname=spoke2 #Target NET
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+subnetname=nvasubnet #Existing Subnet where NVA gets deployed
+hubtopeer=$hub1name #Note: VNET has to be connected to the same hub.
+
+#Specific NVA BGP settings
+asn_quagga=65002 # Set ASN
+bgp_network1="10.2.0.0/16"
+
+# Deploy NVA instances on the target VNET above.
+nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)
+for nvaname in $nvanames
+do
+ # Enable routing, NAT and BGP on Linux NVA:
+ az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
+ az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
+ az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+ 
+ #Enable boot diagnostics
+ nvalocation=$(az vm show -n $nvaname -g $rg --query location -o tsv)
+ stgregion1=$(az storage account list -g $rg --query '[?contains(location,`'$nvalocation'`)].name' -o tsv)
+ stguri1=$(az storage account show -n $stgregion1 -g $rg --query primaryEndpoints.blob -o tsv)
+ az vm boot-diagnostics enable --storage $stguri1 --name $nvaname -g $rg -o none
+
+ #NVA BGP config variables (do not change)
+ bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv)
+ routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
+ routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
+
+ # Enable routing and NAT on Linux NVA:
+ scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouterbgp.sh"
+ az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgp.sh $asn_quagga $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
+ --no-wait
+
+ # Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hubtopeer \
+ --name $nvaname \
+ --peer-asn $asn_quagga \
+ --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $vnetname'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --no-wait
+done
+
+#Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
+echo Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
+az network lb create -g $rg --name $vnetname-$nvaname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $vnetname-vnet --subnet=$nvasubnetname --output none --location $location
+az network lb probe create -g $rg --lb-name $vnetname-$nvaname-ilb --name sshprobe --protocol tcp --port 22 --output none  
+az network lb rule create -g $rg --lb-name $vnetname-$nvaname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
+
+# Attach NVAs to the Backend as NICs
+for vm in $nvanames
+do
+  az network nic ip-config address-pool add \
+  --address-pool nvabackend \
+  --ip-config-name ipconfig"$vm" \
+  --nic-name $nvaname-nic \
+  --resource-group $rg \
+  --lb-name $vnetname-$nvaname-ilb \
+  --output none
+done
+
+# Check Trusted NIC provisioning
+echo NVA NIC provisioning status...
+sleep 30
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    nic=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'name' -o tsv)
+    prState=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'provisioningState' -o tsv)
+    echo "$nic provisioningState="$prState
+    sleep 5
+done
+
+#Set NICs as variables
+spk2nvaip=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+
+echo Updating indirect spoke UDRs to use Linux NVA as next hop...
+#UDRs for Spoke 5 and 6
+## Creating UDR + Disable BGP Propagation
+az network route-table create --name RT-to-Spoke2-NVA  --resource-group $rg --location $region1 --disable-bgp-route-propagation true --output none
+## Default route to NVA
+az network route-table route create --resource-group $rg --name Default-to-NVA --route-table-name RT-to-Spoke2-NVA \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $spk2nvaip \
+--output none
+## Associated RT-Hub-to-NVA to Spoke 5 and 6.
+az network vnet subnet update -n main -g $rg --vnet-name spoke5 --route-table RT-to-Spoke2-NVA --output none
+az network vnet subnet update -n main -g $rg --vnet-name spoke6 --route-table RT-to-Spoke2-NVA --output none
+
+echo Deployment has finished
