@@ -1,0 +1,145 @@
+# Variables (make changes based on your requirements)
+region1=eastus
+rg=lab-vhub-nvafwbgp
+vwanname=vwan-nvafwbgp
+hub1name=hub1
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2
+mypip=$(curl -4 ifconfig.io -s) #Gets your current public IP for SSH access restricted by NSG.
+
+#NVA specific variables:
+# Deploy BGP endpoint (Make the changes based on your needs)
+nvavnetname=spoke2 #Target NET
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
+hubtopeer=$hub1name #Note: VNET has to be connected to the same hub.
+
+#Specific NVA BGP settings
+asn_quagga=65002 # Set ASN
+bgp_network1="10.2.0.0/16"
+
+# Run: sudo hping3 10.2.1.4 -S -p 80 -c 10000
+
+# Enforce IPtables stateful rules on both NVAs
+nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)
+for nvaname in $nvanames
+do 
+ scripturi="https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vhub-nvafw-bgp/script/iptables.sh"
+ az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./iptables.sh\"}" \
+ --force-update \
+ --no-wait
+done
+
+# Internet Breakout by advertising default route (0/0) from the NVA.
+# Add default route confguration in Quagga using run-command:
+nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)
+for nvaname in $nvanames
+do 
+ az vm run-command invoke -g $rg -n $nvaname --command-id RunShellScript --scripts "vtysh -c 'configure terminal' -c 'router bgp 65002' -c 'network 0.0.0.0/0' && vtysh -c 'write memory'"
+done
+
+# Test Access
+
+# Check NVAs Effective Route Table.
+for nicname in $(az network nic list -g $rg --query '[?contains(name, `'$nvaintname'`)].[name]' -o tsv)
+do 
+echo -e NVA $nicname effective routes:
+az network nic show-effective-route-table -g $rg --name $nicname --output table
+echo -e 
+done
+
+# Two options:
+# 1) Add UDR External NIC - BGP propapgation enable + Route 0/0 = Internet.
+echo Creating UDR Internet Breakout and associate it to $nvasubnetname
+az network route-table create --name $nvaintname-rt-nva --resource-group $rg --location $region1 -o none
+az network route-table route create --resource-group $rg --name default-to-Internet --route-table-name $nvaintname-rt-nva  \
+ --address-prefix 0.0.0.0/0 \
+ --next-hop-type Internet \
+ --output none
+az network vnet subnet update -n $nvasubnetname -g $rg --vnet-name $nvavnetname --route-table $nvaintname-rt-nva -o none
+
+# 2) Disable default route propagation at the vnet connection spoke2conn.
+
+# Check NVAs Effective Route Table.
+
+for nicname in $(az network nic list -g $rg --query '[?contains(name, `'$nvaintname'`)].[name]' -o tsv)
+do 
+echo -e NVA $nicname effective routes:
+az network nic show-effective-route-table -g $rg --name $nicname --output table
+echo -e 
+done
+# Expected output, should have learned 0/0 from Route Server and User entry with next hop Internet
+:'
+NVA spoke2-linux-nva1-nic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  -------------
+VirtualNetworkGateway  Invalid  0.0.0.0/0         VirtualNetworkGateway  10.2.0.36
+VirtualNetworkGateway  Invalid  0.0.0.0/0         VirtualNetworkGateway  10.2.0.37
+User                   Active   0.0.0.0/0         Internet
+
+NVA spoke2-linux-nva2-nic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  -------------
+VirtualNetworkGateway  Invalid  0.0.0.0/0         VirtualNetworkGateway  10.2.0.36
+VirtualNetworkGateway  Invalid  0.0.0.0/0         VirtualNetworkGateway  10.2.0.37
+User                   Active   0.0.0.0/0         Internet
+'
+# You may get a different output because it may take few seconds to the UDR update commit the changes. 
+# Please, re-run the effective route command until you get 0.0.0.0/0 next hop Internet.
+
+# Go to Spoke1VM and run:
+curl ifconfig.io
+# You should get the public IP for either NVA1 or NVA2. 
+# Check by running the following command
+az network public-ip list -g $rg --query '[?contains(name, `'$nvaintname'`)].{name:name,ipAddress:ipAddress}' -o table
+
+# Step 6: in case your ifconfig.io failed 
+# Add step to dump effect NSGs
+echo Creating NSG and associate it to the NVA Subnet
+# Creating NSG
+az network nsg create --resource-group $rg --name $nvavnetname-$nvaintname-nsg --location $region1 -o none
+# Creating security rule for SSH access restricted by public IP.
+echo Creating security rule for SSH access restricted by source public IP $mypip 
+az network nsg rule create -g $rg --nsg-name $nvavnetname-$nvaintname-nsg \
+-n 'default-allow-ssh' \
+--direction Inbound \
+--priority 100 \
+--source-address-prefixes $mypip \
+--source-port-ranges '*' \
+--destination-address-prefixes '*' \
+--destination-port-ranges 22 \
+--access Allow \
+--protocol Tcp \
+--description "Allow inbound SSH" \
+--output none
+echo Creating security rule required by NVA for Internet Breakout 
+az network nsg rule create -g $rg --nsg-name $nvavnetname-$nvaintname-nsg \
+ -n 'allow-$nvaintname-inetbreakout' \
+ --direction Inbound \
+ --priority 200 \
+ --source-address-prefixes VirtualNetwork \
+ --source-port-ranges '*' \
+ --destination-address-prefixes '*' \
+ --destination-port-ranges "*" \
+ --access Allow --protocol "*" \
+ --description "Allow NVA single NIC use Internet Breakout" \
+ --output none
+az network vnet subnet update -g $rg --name $nvasubnetname --vnet-name $nvavnetname --network-security-group $nvavnetname-$nvaintname-nsg -o none
+# Check by running the following command
+az network public-ip list -g $rg --query '[?contains(name, `'$nvaintname'`)].{name:name,ipAddress:ipAddress}' -o table
+# Go to Spoke1VM and run:
+curl ifconfig.io
+# You should get the public IP for either NVA1 or NVA2. 
+# Running the command curl ifconfig.io multiple times you should see either Public IPs changing.
+
+# Validate the connectivity between accessing Private IPs and Internet.
+# Inside Spoke1VM run to test internet traffic.
+sudo hping3 www.msn.com -S -p 80 -c 20
+# Do you see any packet drops?
+
+# Now run the same command to test private traffic.
+sudo hping3 10.2.1.4 -S -p 80 -c 20
+# Do you see any packet drops?

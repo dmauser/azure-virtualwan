@@ -7,7 +7,7 @@ az extension add --name virtual-wan
 # or updating vWAN and AzFirewall CLI extensions
 az extension update --name virtual-wan
 
-# Parameters (make changes based on your requirements)
+# variables (make changes based on your requirements)
 region1=eastus
 rg=lab-vhub-nvafwbgp
 vwanname=vwan-nvafwbgp
@@ -15,6 +15,18 @@ hub1name=hub1
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_DS1_v2
+
+#NVA specific variables:
+# Deploy BGP endpoint (Make the changes based on your needs)
+nvavnetname=spoke2 #Target NET
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
+hubtopeer=$hub1name #Note: VNET has to be connected to the same hub.
+
+#Specific NVA BGP settings
+asn_quagga=65002 # Set ASN
+bgp_network1="10.2.0.0/16"
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -115,24 +127,13 @@ done
 echo Deploying Linux Router VM with BGP on Spoke2...
 
 
-# Deploy BGP endpoont (Make the changes based on your needs)
-vnetname=spoke2 #Target NET
-instances=2 #Set number of NVA instaces to be created
-nvaintname=linux-nva #NVA instance name
-nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
-hubtopeer=$hub1name #Note: VNET has to be connected to the same hub.
-
-#Specific NVA BGP settings
-asn_quagga=65002 # Set ASN
-bgp_network1="10.2.0.0/16"
-
 # Deploy NVA instances on the target VNET above.
-nvanames=$(i=1;while [ $i -le $instances ];do echo $vnetname-$nvaintname$i; ((i++));done)
+nvanames=$(i=1;while [ $i -le $instances ];do echo $nvavnetname-$nvaintname$i; ((i++));done)
 for nvaname in $nvanames
 do
  # Enable routing, NAT and BGP on Linux NVA:
  az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --sku Standard --output none --only-show-errors
- az network nic create --name $nvaname-nic --resource-group $rg --subnet $nvasubnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
+ az network nic create --name $nvaname-nic --resource-group $rg --subnet $nvasubnetname --vnet $nvavnetname --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
  az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none --only-show-errors
  
  #Enable boot diagnostics
@@ -159,15 +160,15 @@ do
  --name $nvaname \
  --peer-asn $asn_quagga \
  --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
- --vhub-conn $(az network vhub connection show --name $vnetname'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $nvavnetname'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
  --no-wait
 done
 
 #Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
 echo Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
-az network lb create -g $rg --name $vnetname-$nvaintname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $vnetname --subnet=$nvasubnetname --location $region1 --output none --only-show-errors
-az network lb probe create -g $rg --lb-name $vnetname-$nvaintname-ilb --name sshprobe --protocol tcp --port 22 --output none  
-az network lb rule create -g $rg --lb-name $vnetname-$nvaintname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
+az network lb create -g $rg --name $nvavnetname-$nvaintname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $nvavnetname --subnet=$nvasubnetname --location $region1 --output none --only-show-errors
+az network lb probe create -g $rg --lb-name $nvavnetname-$nvaintname-ilb --name sshprobe --protocol tcp --port 22 --output none  
+az network lb rule create -g $rg --lb-name $nvavnetname-$nvaintname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
 
 # Attach NVAs to the Backend as NICs
 for nvaname in $nvanames
@@ -177,7 +178,7 @@ do
   --ip-config-name ipconfig1 \
   --nic-name $nvaname-nic \
   --resource-group $rg \
-  --lb-name $vnetname-$nvaintname-ilb \
+  --lb-name $nvavnetname-$nvaintname-ilb \
   --output none
 done
 
@@ -196,7 +197,7 @@ done
 
 #Set NICs as variables
 spk2nvaip=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
-spk2nvalbip=$(az network lb show -g $rg -n $vnetname-$nvaintname-ilb --query frontendIpConfigurations[0].privateIpAddress -o tsv)
+spk2nvalbip=$(az network lb show -g $rg -n $nvavnetname-$nvaintname-ilb --query frontendIpConfigurations[0].privateIpAddress -o tsv)
 
 echo Updating indirect spoke UDRs to use Linux NVA as next hop...
 #UDRs for Spoke 5 and 6
