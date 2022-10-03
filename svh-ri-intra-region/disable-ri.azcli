@@ -7,10 +7,10 @@ subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 # ****** CAUTION ***** 
 # This command will remove routing intent from both Hubs
 #Hub1
-az rest --method delete --uri https://management.azure.com/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/"$hub1name"_RoutingIntent?api-version=2022-01-01
+az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/"$hub1name"_RoutingIntent?api-version=2022-01-01
 
 #Hub2
-az rest --method delete --uri https://management.azure.com/subscriptions/c1dcf5c6-9af0-47ab-a0bf-6f358a5fed44/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/"$hub2name"_RoutingIntent?api-version=2022-01-01
+az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/"$hub2name"_RoutingIntent?api-version=2022-01-01
 
 # Check status
 prState1='Deleting'
