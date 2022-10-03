@@ -25,7 +25,7 @@ echo Creating vwan hubs..
 az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region --type Standard --output none
 az network vhub create -g $rg --name $hubname --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region --sku Standard --no-wait
 
-echo Creating branche VNET...
+echo Creating branch VNET...
 # Creating location1 branch virtual network
 az network vnet create --address-prefixes 10.100.0.0/16 -n branch -g $rg -l $region --subnet-name main --subnet-prefixes 10.100.0.0/24 --output none
 az network vnet subnet create -g $rg --vnet-name branch -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
