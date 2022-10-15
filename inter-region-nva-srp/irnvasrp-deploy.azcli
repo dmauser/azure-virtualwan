@@ -389,8 +389,8 @@ subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 vhubregion=$(az network vhub show -g $rg -n $hub1name --query id --query location -o tsv)
 
 az rest --method put --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/hubVirtualNetworkConnections/$conn?api-version=$apiversion \
---body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub1name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk2nvaip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
---output none
+ --body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub1name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk2nvaip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
+ --output none
 
 #Spoke4 vnet connection 
 rg=lab-vwan-nvaspk #Set Resource Group
@@ -409,9 +409,10 @@ subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 vhubregion=$(az network vhub show -g $rg -n $hub2name --query id --query location -o tsv)
 
 az rest --method put --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/hubVirtualNetworkConnections/$conn?api-version=$apiversion \
---body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub2name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk4nvaip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}'
+ --body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub2name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk4nvaip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
+ --output none
 
-Echo connection status
+echo connection status
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do

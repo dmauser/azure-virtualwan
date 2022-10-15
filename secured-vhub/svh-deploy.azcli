@@ -8,7 +8,7 @@ az extension update --name azure-firewall
 
 #Parameters
 region=eastus
-rg=lab-vwan-svh-eus
+rg=lab-vwan-svh
 vwanname=vwan-svh
 hubname=svhub
 username=azureuser
@@ -217,6 +217,18 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 echo Deploying Azure Firewall inside vHub...
 fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
 az network firewall create -g $rg -n $hubname-azfw --sku AZFW_Hub --tier $firewallsku --virtual-hub $hubname --public-ip-count 1 --firewall-policy $fwpolid --location $region --output none
+
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
 
 echo Enabling Azure Firewall diagnostics...
 ## Log Analytics workspace name. 
