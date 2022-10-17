@@ -22,8 +22,8 @@ The lab is also available in the above .azcli that you can rename as .sh (shell 
 
 ```bash
 wget -O svh-irer-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-inter-region-er/svh-irer-deploy.azcli
-chmod +xr irnva-deploy.sh
-./irnva-deploy.sh 
+chmod +xr svh-irer-deploy.sh
+./svh-irer-deploy.sh
 ```
 
 ### Default parameters:
