@@ -1,9 +1,11 @@
 #!/bin/bash
 
-# Pre-Requisite
+echo validating pre-requisites
 az extension add --name virtual-wan 
-# or update
+az extension add --name azure-firewall 
+# or updating vWAN and AzFirewall CLI extensions
 az extension update --name virtual-wan
+az extension update --name azure-firewall
 
 # variables (make changes based on your requirements)
 region1=centralus #set region1
@@ -14,7 +16,7 @@ hub1name=svhub1 #set secured-vhub1 name
 hub2name=svhub2 #set secured-vhub2 name
 username=azureuser # set username
 password="Msft123Msft123" #set password
-vmsize=Standard_B1s #set vm size
+vmsize=Standard_DS1 #set vm size
 mypip=$(curl -4 ifconfig.io -s) #get your Public IP and set NSG as a source for SSH access.
 
 #ExpressRoute specific variables
