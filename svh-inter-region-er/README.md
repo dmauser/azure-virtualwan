@@ -2,7 +2,7 @@
 
 ## Intro
 
-This lab demonstrates two Secured-vHubs (Virtual WAN Hub + Azure Firewall) deployed in different Azure regions and using Cross-connected ExpressRoute circuits for inter-hub traffic.
+This lab demonstrates two Secured-vHubs (Virtual WAN Hub + Azure Firewall) deployed in different Azure regions and using cross-connected expressRoute circuits for inter-hub traffic.
 
 ## Network topology
 
