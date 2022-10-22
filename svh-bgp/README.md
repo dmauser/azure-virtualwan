@@ -22,6 +22,8 @@ chmod +xr svhbgp-deploy.sh
 ./svhbgp-deploy.sh
 ```
 
+Please note that you must enable Secured-vHub via Firewall Manager after deployment.
+
 ### Default parameters:
 
 TBD
