@@ -233,7 +233,7 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 
 echo Deploying Azure Firewall inside vHub...
 fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
-az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none  none &>/dev/null &
+az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none &>/dev/null &
 
 prState1=''
 while [[ $prState1 != 'Succeeded' ]];
