@@ -29,11 +29,11 @@ mypip=$(curl -4 ifconfig.io -s)
 az group create -n $rg -l $region1 --output none
 
 # Creating virtual wan
-echo Creating vwan and both hubs...
+echo Creating vwan adn vhub...
 az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region1 --type Standard --output none
 az network vhub create -g $rg --name $hub1name --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region1 --sku Standard --no-wait
 
-echo Creating branches VNETs...
+echo Creating branch VNETs...
 # Creating location1 branch virtual network
 az network vnet create --address-prefixes 10.100.0.0/16 -n branch1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.100.0.0/24 --output none
 az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
@@ -53,7 +53,7 @@ az network vnet peering create -g $rg -n spoke3-to-spoke2 --vnet-name spoke3 --a
 az network vnet peering create -g $rg -n spoke2-to-spoke4 --vnet-name spoke2 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke4 --query id --out tsv) --output none 
 az network vnet peering create -g $rg -n spoke4-to-spoke2 --vnet-name spoke4 --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n spoke2  --query id --out tsv) --output none
 
-echo Creating VMs in both branches...
+echo Creating BranchVM..
 # Creating a VM in each branch spoke
 az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
 
