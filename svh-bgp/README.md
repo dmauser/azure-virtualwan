@@ -26,4 +26,13 @@ Please note that you must enable Secured-vHub via Firewall Manager after deploym
 
 ### Default parameters:
 
-TBD
+```Bash
+# Parameters (make changes based on your requirements)
+region1=eastus2
+rg=lab-svh-nvabgp
+vwanname=vwan-svh-nvabgp
+hub1name=sechub1
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1
+```
