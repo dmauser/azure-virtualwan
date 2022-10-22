@@ -6,10 +6,26 @@ rg=lab-svh-irer
 # Stop Firewall 
 az network firewall update --ids $(az network firewall list -g $rg --query [].id -o tsv) --vhub '' --output none
 
+prState1=''
+while [[ $prState1 != 'Succeeded' ]];
+do
+    prState1=$(az network firewall show -g $rg -n $hub1name-azfw --query 'provisioningState' -o tsv)
+    echo "$hub1name-azfw provisioningState="$prState1
+    sleep 5
+done
+
 # Start Firewall
 vhubnames=$(az network vhub list -g $rg --query [].name -o tsv)
 for vhubname in $vhubnames; do
  az network firewall update --ids $(az network firewall show --name $vhubname-azfw -g $rg --query id -o tsv) \
  --vhub $(az network vhub show --name $vhubname -g $rg --query id -o tsv) \
  --output none
+done
+
+prState1=''
+while [[ $prState1 != 'Succeeded' ]];
+do
+    prState1=$(az network firewall show -g $rg -n $hub1name-azfw --query 'provisioningState' -o tsv)
+    echo "$hub1name-azfw provisioningState="$prState1
+    sleep 5
 done

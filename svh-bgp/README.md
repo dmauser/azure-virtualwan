@@ -6,7 +6,7 @@ TBD
 
 ## Network topology
 
-TBD
+![](./Secured-vHub-BGPEndpoint.png)
 
 ## Considerations
 
