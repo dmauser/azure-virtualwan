@@ -322,7 +322,7 @@ az network vpn-site create --ip-address $pip1 -n site-branch1 -g $rg --asn 65010
 
 # Creating virtual wan vpn connection
 az network vpn-gateway connection create --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --enable-bgp true --remote-vpn-site site-branch1 --internet-security --shared-key 'abc123' --output none
-a
+
 # Creating connection from vpn gw to local gateway and watch for connection succeeded
 az network local-gateway create -g $rg -n site-$hub1name-LG --gateway-ip-address $vwanpip1 --asn 65515 --bgp-peering-address $vwanbgp1 -l $region1 --output none
 az network vpn-connection create -n branch1-to-site-$hub1name -g $rg -l $region1 --vnet-gateway1 branch1-vpngw --local-gateway2 site-$hub1name-LG --enable-bgp --shared-key 'abc123' --output none
