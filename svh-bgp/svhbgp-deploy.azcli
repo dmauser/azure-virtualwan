@@ -260,7 +260,7 @@ echo Enabling Azure Firewall diagnostics...
 Workspacename=$hub1name-$region1-Logs
 
 #Creating Log Analytics Workspaces
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
 
 #EnablingAzure Firewall diagnostics
 #az monitor diagnostic-settings show -n toLogAnalytics -g $rg --resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv)

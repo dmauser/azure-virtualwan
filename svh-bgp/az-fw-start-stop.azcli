@@ -3,10 +3,7 @@ region1=eastus2
 rg=lab-svh-nvabgp
 
 # Stop Firewall 
-az network firewall update --ids $(az network firewall list -g $rg --query [].id -o tsv) --vhub '' --output none
-
-
-
+az network firewall update --ids $(az network firewall list -g $rg --query [].id -o tsv) --vhub '' --output none &>/dev/null &
 
 # Start Firewall
 vhubnames=$(az network vhub list -g $rg --query [].name -o tsv)
@@ -15,6 +12,5 @@ for vhubname in $vhubnames; do
  --vhub $(az network vhub show --name $vhubname -g $rg --query id -o tsv) \
  --output none
 done
-
 
 az network firewall list -g $rg

@@ -375,7 +375,7 @@ echo creating spoke 2 and spoke 4 vnet connections using static route to their r
 az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
  --route-name $hub1name-indirect-spokes-rt \
- --address-prefixes 10.2.1.0/24 10.2.2.0/24 \
+ --address-prefixes 10.2.0.0/16 \
  --next-hop $spk2nvaip \
  --no-wait
 
@@ -391,7 +391,7 @@ done
 az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
  --vhub-name $hub2name \
  --route-name $hub2name-indirect-spokes-rt \
- --address-prefixes 10.4.1.0/24 10.4.2.0/24 \
+ --address-prefixes 10.4.0.0/16 \
  --next-hop $spk4nvaip \
  --no-wait
 
@@ -424,7 +424,7 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --route-name to-spoke4-nva \
  --no-wait
 
-echo Adding static routes in the Hub3 default route table to the indirect spokes via NVA...
+echo Adding static routes in the Hub2 default route table to the indirect spokes via NVA...
 # Creating summary route to indirect spokes 7 and 8 via spoke4
 az network vhub route-table route add --destination-type CIDR --resource-group $rg \
  --destinations 10.4.0.0/16 \

@@ -1,0 +1,61 @@
+# Asymmetric route workaround
+
+# Parameters
+region1=northcentralus
+region2=southcentralus
+rg=lab-vwan-nvaspk
+vwanname=vwan-nvaspk
+hub1name=hub1
+hub2name=hub2
+
+# list routes:
+az network vhub route-table route list -g $rg --name defaultroutetable --vhub-name $hub1name 
+az network vhub route-table route list -g $rg --name defaultroutetable --vhub-name $hub2name 
+
+#Remove Routes both static routes on each Hub
+az network vhub route-table route remove -g $rg --name defaultroutetable --vhub-name $hub1name --index 1
+az network vhub route-table route remove -g $rg --name defaultroutetable --vhub-name $hub1name --index 1
+
+#Remove Routes both static routes on each Hub
+az network vhub route-table route remove -g $rg --name defaultroutetable --vhub-name $hub2name --index 1
+az network vhub route-table route remove -g $rg --name defaultroutetable --vhub-name $hub2name --index 1
+
+# Creating summary route to indirect spokes 5 and 6 via spoke2
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.2.0.0/17 10.2.128.0/17 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
+ --vhub-name $hub1name \
+ --route-name to-spoke2-nva \
+ --output none
+
+# Creating summary route to indirect spokes 7 and 8 via spoke4
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.4.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
+ --vhub-name $hub1name \
+ --route-name to-spoke4-nva \
+ --no-wait
+
+echo Adding static routes in the Hub2 default route table to the indirect spokes via NVA...
+# Creating summary route to indirect spokes 7 and 8 via spoke4
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.4.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke4conn --resource-group $rg --vhub-name $hub2name --query id -o tsv) \
+ --vhub-name $hub2name \
+ --route-name to-spoke4-nva \
+ --output none
+# Creating summary route to indirect spokes 5 and 6 via spoke2
+az network vhub route-table route add --destination-type CIDR --resource-group $rg \
+ --destinations 10.2.0.0/16 \
+ --name defaultroutetable \
+ --next-hop-type ResourceID \
+ --next-hop $(az network vhub connection show --name spoke2conn --resource-group $rg --vhub-name $hub1name --query id -o tsv) \
+ --vhub-name $hub2name \
+ --route-name to-spoke2-nva \
+ --no-wait
