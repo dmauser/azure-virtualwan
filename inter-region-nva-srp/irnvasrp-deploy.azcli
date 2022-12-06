@@ -9,10 +9,10 @@ az extension add --name virtual-wan
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-region1=northcentralus
-region2=southcentralus
-rg=lab-vwan-nvaspk
-vwanname=vwan-nvaspk
+region1=eastus
+region2=westus
+rg=lab-vwan-nvaspk-srp
+vwanname=vwan-nvaspk-srp
 hub1name=hub1
 hub2name=hub2
 username=azureuser
@@ -373,8 +373,6 @@ echo creating spoke 2 and spoke 4 vnet connections using static route to their r
 
 
 #Spoke2 vnet connection
-rg=lab-vwan-nvaspk #Set Resource Group
-hub1name=hub1 #vHub name
 spokevnet=spoke2
 vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
 spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
@@ -393,8 +391,6 @@ az rest --method put --uri https://management.azure.com/subscriptions/$subid/res
  --output none
 
 #Spoke4 vnet connection 
-rg=lab-vwan-nvaspk #Set Resource Group
-hub2name=hub2 #vHub name
 spokevnet=spoke4
 vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
 spk4nvaip=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
