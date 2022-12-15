@@ -1,0 +1,58 @@
+# variables (make changes based on your requirements)
+region=southcentralus
+rg=lab-vwan-vpner
+vwanname=vwan-vpner
+hubname=vhub1
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_B1s #VM Size
+firewallsku=Premium #Azure Firewall SKU Standard or Premiume
+
+#ExpressRoute specific variables
+ername1="er-ckt-$hubname" 
+perloc1="Dallas"
+providerloc1=Megaport
+ername2="er-ckt-branch" 
+perloc2="Dallas"
+providerloc2=Megaport
+
+# Validate Circuits Provider privisionaing status:
+echo $ername1
+if  [ $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
+ echo "Provisioned"
+else
+ echo $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv)
+ echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
+fi
+
+# Connect vuhb1 to ErCircuit1
+peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
+routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hubname -g $rg --query id -o tsv)
+az network express-route gateway connection create --name $hubname-conn-to-$ername1 -g $rg --gateway-name $hubname-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network express-route gateway connection show --name $hubname-conn-to-$ername1 -g $rg --gateway-name $hubname-ergw --query 'provisioningState' -o tsv)
+    echo "ER connection $hubname-conn-to-$ername1 provisioningState="$prState
+    sleep 5
+done
+
+# Connect branch to ErCircuit2
+erid=$(az network express-route show -g $rg --name $ername2 --query id -o tsv)
+az network vpn-connection create --name Connection-to-branch \
+ --resource-group $rg --vnet-gateway1 branch-ergw \
+ --express-route-circuit2 $erid \
+ --routing-weight 0 \
+ &>/dev/null &
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vpn-connection show --name Connection-to-branch -g $rg --query 'provisioningState' -o tsv)
+    echo "ER connection Connection-to-branch provisioningState="$prState
+    sleep 5
+done
+
+
+
