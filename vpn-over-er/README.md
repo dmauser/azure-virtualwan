@@ -2,7 +2,7 @@
 
 ### Lab diagram
 
-
+![network diagram]
 
 ### Deploy this solution
 
@@ -13,3 +13,4 @@ wget -O vwan-vpner-deploy.sh https://raw.githubusercontent.com/dmauser/azure-vir
 chmod +xr vwan-vpner-deploy.sh
 ./vwan-vpner-deploy.sh
 ```
+
