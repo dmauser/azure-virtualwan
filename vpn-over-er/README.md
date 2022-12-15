@@ -10,6 +10,6 @@ The lab is also available in the above .azcli that you can rename as .sh (shell 
 
 ```bash
 wget -O vwan-vpner-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-deploy.azcli
-chmod +xr vpner-deploy.sh
+chmod +xr vwan-vpner-deploy.sh
 ./vwan-vpner-deploy.sh
 ```
