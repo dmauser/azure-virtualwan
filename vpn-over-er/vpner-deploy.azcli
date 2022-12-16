@@ -18,10 +18,10 @@ firewallsku=Premium #Azure Firewall SKU Standard or Premium
 mypip=$(curl -4 ifconfig.io -s)
 
 #ExpressRoute specific variables
-ername1="er-ckt-$hubname" 
+ername1="$hubname-er-circuit" 
 perloc1="Dallas"
 providerloc1=Megaport
-ername2="er-ckt-branch" 
+ername2="branch-er-circuit"
 perloc2="Dallas"
 providerloc2=Megaport
 
