@@ -56,7 +56,7 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --no-wait
 
 sleep 5
-echo check Branch VNET provisioning state
+echo Checking Branch VNET provisioning state
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
