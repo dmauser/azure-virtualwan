@@ -56,7 +56,7 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --no-wait
 
 sleep 5
-Echo check Branch VNET provisioning state
+echo check Branch VNET provisioning state
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
@@ -289,5 +289,3 @@ do
 done
 
 echo Deployment has finished
-echo Use Firewall Manager to enable Private Traffic under Security configuration
-echo Automation to enable Secured-vHub Prvate Traffic to be added soon...
