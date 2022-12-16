@@ -29,7 +29,7 @@ else
  echo $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv)
  echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
 fi
-connection-to-$ername1
+
 # Connect vuhb1 to ErCircuit1
 echo connecting vuhb1 to $ername1
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
