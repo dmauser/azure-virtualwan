@@ -79,7 +79,7 @@ az vm create -n extbranch1VM  -g $rg --image ubuntults --public-ip-sku Standard 
 az network vnet peering create -g $rg -n branch-to-extbranch --vnet-name branch --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n extbranch --query id --out tsv) --output none
 az network vnet peering create -g $rg -n extbranch-to-branch --vnet-name extbranch --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n branch  --query id --out tsv) --output none
 # UDR to reach Azure
-nvatrustedip=$(az network nic show -g $rg -n branch-opnnva-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
+nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
 ## Creating UDR + Disable BGP Propagation
 az network route-table create --name RT-to-extbranch-NVA  --resource-group $rg --location $region --disable-bgp-route-propagation true --output none
 ## Default route to NVA
@@ -223,7 +223,7 @@ fi
 echo Building VPN connections from VPN Gateways to the respective Branches...
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
 bgp1=169.254.0.1
-pip1=$(az network nic show -g $rg -n branch-opnnva-Untrusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
+pip1=$(az network nic show -g $rg -n $virtualMachineName-Untrusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
 
 # vwanbgp1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
 # vwanpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
@@ -283,5 +283,7 @@ do
     echo ExpressRoute Gateway $hubname-ergw "provisioningState="$prState
     sleep 5
 done
-
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
+az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
 echo Deployment has finished
