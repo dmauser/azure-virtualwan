@@ -17,8 +17,14 @@ chmod +xr vwan-vpner-deploy.sh
 ./vwan-vpner-deploy.sh
 ```
 
-#### Step 2 - Provision ER Circuits with Provider 
+#### Step 2 - Provision ER Circuits with Provider
 
-Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-
+Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are provisioned. That is required to connect them to the respective ER Gateways.
 
 #### Step 3 - Connect ER Circuit
+
+```bash
+wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-deploy.azcli
+chmod +xr vwan-vpner-conn.sh
+./vwan-vpner-conn.sh
+```
