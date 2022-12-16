@@ -114,6 +114,15 @@ az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --si
 az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 
+echo Associating NSG on Spokes and Branch VNETs
+#Updating NSGs:
+az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
+# Adding my home public IP to NSG for SSH access
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+# Associating NSG to the VNET subnets (Spokes and Branches)
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
+
 #Enabling boot diagnostics for all VMs in the resource group (Serial console)
 echo Enabling boot diagnostics
 #Creating Storage Account (boot diagnostics + serial console)
@@ -137,14 +146,6 @@ do
  --no-wait
 done
 
-echo Associating NSG on Spokes and Branch VNETs
-#Updating NSGs:
-az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
-# Adding my home public IP to NSG for SSH access
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
-# Associating NSG to the VNET subnets (Spokes and Branches)
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
