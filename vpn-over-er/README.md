@@ -8,7 +8,6 @@
 
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following steps to build the entire lab:
 
-
 #### Step 1 - Deploy the Lab
 
 ```bash
@@ -19,9 +18,11 @@ chmod +xr vwan-vpner-deploy.sh
 
 #### Step 2 - Provision ER Circuits with Provider
 
-Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are provisioned. That is required to connect them to the respective ER Gateways.
+Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are provisioned. That is required to connect them to the respective ER Gateways on the Step 3.
 
 #### Step 3 - Connect ER Circuit
+
+In this step the script below connect branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
 
 ```bash
 wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-deploy.azcli
@@ -31,3 +32,4 @@ chmod +xr vwan-vpner-conn.sh
 
 ### Validation
 
+Coming soon...
