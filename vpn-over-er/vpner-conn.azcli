@@ -34,6 +34,7 @@ az network vpn-connection create --name Connection-to-branch \
  --routing-weight 0 \
  &>/dev/null &
 
+sleep 5
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
