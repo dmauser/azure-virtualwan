@@ -14,20 +14,20 @@ providerloc2=Megaport
 
 # Validating Circuits Provider privisionaing status:
 echo Validating Circuits Provider privisionaing status...
-echo $ername1
+# $ername1
 if  [ $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
- echo "Provisioned"
+ echo "$ername1=Provisioned"
 else
  echo $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv)
- echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
+ echo "Please proceeed with the ER Circuit $ername1 provisioning with your Service Provider before proceed"
 fi
 echo Validating Circuits Provider privisionaing status...
-echo $ername2
+# $ername2
 if  [ $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
- echo "Provisioned"
+ echo "$ername2=Provisioned"
 else
  echo $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv)
- echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
+ echo "Please proceeed with the ER Circuit $ername2 provisioning with your Service Provider before proceed"
 fi
 
 # Connect vuhb1 to ErCircuit1
