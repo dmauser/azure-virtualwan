@@ -28,3 +28,6 @@ wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtu
 chmod +xr vwan-vpner-conn.sh
 ./vwan-vpner-conn.sh
 ```
+
+### Validation
+

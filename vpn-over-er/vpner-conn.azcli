@@ -5,10 +5,10 @@ vwanname=vwan-vpner
 hubname=vhub1
 
 #ExpressRoute specific variables
-ername1="er-ckt-$hubname" 
+ername1="$hubname-er-circuit" 
 perloc1="Dallas"
 providerloc1=Megaport
-ername2="er-ckt-branch" 
+ername2="branch-er-circuit"
 perloc2="Dallas"
 providerloc2=Megaport
 
