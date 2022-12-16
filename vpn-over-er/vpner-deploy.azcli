@@ -146,7 +146,6 @@ do
  --no-wait
 done
 
-
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
 prState=''
