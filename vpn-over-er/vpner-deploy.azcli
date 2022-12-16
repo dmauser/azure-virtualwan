@@ -12,10 +12,7 @@ hubname=vhub1
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_B1s #VM Size
-firewallsku=Premium #Azure Firewall SKU Standard or Premium
-
-#Variables
-mypip=$(curl -4 ifconfig.io -s)
+mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
 
 #ExpressRoute specific variables
 ername1="$hubname-er-circuit" 
