@@ -27,7 +27,7 @@ vmsize=Standard_B1s #VM Size
 mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
 ```
 
-Note that OPNSense used as VPN Server has username: root and password': opnsense
+Note that **OPNsense** used as VPN Server has **username:root** and **password:opnsense**
 
 Please, run the following steps to build the entire lab:
 
@@ -45,7 +45,7 @@ Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are pro
 
 #### Step 3 - Connect ER Circuit
 
-In this step the script below connect branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
+In this step, the script below connect branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
 
 ```bash
 wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-deploy.azcli
