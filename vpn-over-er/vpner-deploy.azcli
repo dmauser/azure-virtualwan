@@ -64,7 +64,8 @@ do
     echo "Branch VNET provisioning state provisioningState="$prState
     sleep 5
 done
-# Deply On-premises VM:
+echo Creating Branch VMs...
+# Depoly On-premises VM:
 # Subnet1
 az network vnet subnet create -g $rg --vnet-name branch -n subnet1 --address-prefixes $subnet1  --output none
 az vm create -n branch-vm1  -g $rg --image ubuntults --public-ip-sku Standard --size $virtualMachineSize -l $region --subnet subnet1 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
@@ -103,11 +104,6 @@ echo Creating ExpressRoute Circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
 az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
 
-#Create ExpressRoute Gateway
-az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
-az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
-az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
-
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
 az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
@@ -145,6 +141,12 @@ do
  --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
  --no-wait
 done
+
+#Create ExpressRoute Gateway
+echo Creating Branch ExpressRoute Gateway
+az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
+az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
+az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
