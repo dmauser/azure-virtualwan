@@ -29,7 +29,7 @@ else
  echo $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv)
  echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
 fi
-
+connection-to-$ername1
 # Connect vuhb1 to ErCircuit1
 echo connecting vuhb1 to $ername1
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
@@ -39,7 +39,7 @@ az network express-route gateway connection create --name connection-to-$ername1
 # Connect branch to ErCircuit2
 echo connecting branch to $ername2
 erid=$(az network express-route show -g $rg --name $ername2 --query id -o tsv)
-az network vpn-connection create --name connection-to-$ercircuit2 \
+az network vpn-connection create --name connection-to-$ername2 \
  --resource-group $rg --vnet-gateway1 branch-ergw \
  --express-route-circuit2 $erid \
  --routing-weight 0 \
@@ -51,8 +51,8 @@ sleep 5
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vpn-connection show --name connection-to-$ercircuit2 -g $rg --query 'provisioningState' -o tsv)
-    echo "ER connection connection-to-$ercircuit2 provisioningState="$prState
+    prState=$(az network vpn-connection show --name connection-to-$ername2 -g $rg --query 'provisioningState' -o tsv)
+    echo "ER connection connection-to-$ername2 provisioningState="$prState
     sleep 5
 done
 
