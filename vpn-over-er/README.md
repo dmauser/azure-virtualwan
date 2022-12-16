@@ -48,7 +48,7 @@ Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are pro
 In this step, the script below connect branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
 
 ```bash
-wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-deploy.azcli
+wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vwan-vpner-conn.azcli
 chmod +xr vwan-vpner-conn.sh
 ./vwan-vpner-conn.sh
 ```
