@@ -55,6 +55,7 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \
 --no-wait
 
+sleep 5
 Echo check Branch VNET provisioning state
 prState=''
 while [[ $prState != 'Succeeded' ]];
@@ -97,15 +98,6 @@ az network vnet create --address-prefixes 172.16.1.0/24 -n spoke1 -g $rg -l $reg
 az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.2.0/27 --output none
 az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.3.0/27 --output none
 
-echo Associating NSG on Spokes and Branch VNETs
-#Updating NSGs:
-az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
-# Adding my home public IP to NSG for SSH access
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
-# Associating NSG to the VNET subnets (Spokes and Branches)
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
-
 #Create ER circuits
 echo Creating ExpressRoute Circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
@@ -142,6 +134,15 @@ do
  --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
  --no-wait
 done
+
+echo Associating NSG on Spokes and Branch VNETs
+#Updating NSGs:
+az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
+# Adding my home public IP to NSG for SSH access
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+# Associating NSG to the VNET subnets (Spokes and Branches)
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
