@@ -55,6 +55,14 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \
 --no-wait
 
+Echo check Branch VNET provisioning state
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vnet show -n branch -g $rg  --query 'provisioningState' -o tsv)
+    echo "Branch VNET provisioning state provisioningState="$prState
+    sleep 5
+done
 # Deply On-premises VM:
 # Subnet1
 az network vnet subnet create -g $rg --vnet-name branch -n subnet1 --address-prefixes $subnet1  --output none

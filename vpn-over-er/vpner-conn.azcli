@@ -3,10 +3,6 @@ region=southcentralus
 rg=lab-vwan-vpner
 vwanname=vwan-vpner
 hubname=vhub1
-username=azureuser
-password="Msft123Msft123" #Please change your password
-vmsize=Standard_B1s #VM Size
-firewallsku=Premium #Azure Firewall SKU Standard or Premiume
 
 #ExpressRoute specific variables
 ername1="er-ckt-$hubname" 
