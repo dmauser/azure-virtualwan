@@ -122,7 +122,7 @@ echo Enabling boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
-echo "Installing net utilities inside VMs (tracroute, tcptraceroute, iperf3, nmap3, and others)"
+echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, nmap3, and others)"
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
 do
