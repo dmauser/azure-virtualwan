@@ -334,12 +334,6 @@
       <type>none</type>
       <virtual>1</virtual>
     </enc0>
-    <ipsec2>
-      <internal_dynamic>1</internal_dynamic>
-      <enable>1</enable>
-      <if>ipsec2</if>
-      <type>none</type>
-    </ipsec2>
     <ipsec1>
       <internal_dynamic>1</internal_dynamic>
       <enable>1</enable>
@@ -524,7 +518,7 @@
       </destination>
       <updated>
         <username>root@47.187.99.34</username>
-        <time>1671230074.1976</time>
+        <time>1670981580.6157</time>
         <description>/firewall_rules_edit.php made changes</description>
       </updated>
       <created>
@@ -585,9 +579,9 @@
     <column_count>2</column_count>
   </widgets>
   <revision>
-    <username>root@47.187.99.34</username>
-    <time>1671310757.7693</time>
-    <description>/api/quagga/bgp/set made changes</description>
+    <username>(system)</username>
+    <time>1671052978.7709</time>
+    <description>/usr/local/opnsense/mvc/script/run_migrations.php made changes</description>
   </revision>
   <OPNsense>
     <captiveportal version="1.0.1">
@@ -1116,33 +1110,6 @@
             <linkedRoutemapIn/>
             <linkedRoutemapOut/>
           </neighbor>
-          <neighbor uuid="fbf03b37-d708-4ba9-a58c-c33cd3aa045b">
-            <enabled>1</enabled>
-            <description/>
-            <address>169.254.21.2</address>
-            <remoteas>65515</remoteas>
-            <password/>
-            <weight/>
-            <localip/>
-            <updatesource/>
-            <linklocalinterface/>
-            <nexthopself>0</nexthopself>
-            <nexthopselfall>0</nexthopselfall>
-            <multihop>0</multihop>
-            <multiprotocol>0</multiprotocol>
-            <rrclient>0</rrclient>
-            <bfd>0</bfd>
-            <keepalive/>
-            <holddown/>
-            <connecttimer/>
-            <defaultoriginate>0</defaultoriginate>
-            <asoverride>0</asoverride>
-            <disable_connected_check>0</disable_connected_check>
-            <linkedPrefixlistIn/>
-            <linkedPrefixlistOut/>
-            <linkedRoutemapIn/>
-            <linkedRoutemapOut/>
-          </neighbor>
         </neighbors>
         <aspaths/>
         <prefixlists/>
@@ -1225,35 +1192,6 @@
           <description>/firewall_nat_out_edit.php made changes</description>
         </updated>
       </rule>
-      <rule>
-        <source>
-          <network>any</network>
-        </source>
-        <destination>
-          <any>1</any>
-        </destination>
-        <descr/>
-        <category/>
-        <interface>wan</interface>
-        <tag/>
-        <tagged/>
-        <poolopts/>
-        <poolopts_sourcehashkey/>
-        <ipprotocol>inet</ipprotocol>
-        <target/>
-        <targetip_subnet>0</targetip_subnet>
-        <sourceport/>
-        <updated>
-          <username>root@47.187.99.34</username>
-          <time>1671226686.9701</time>
-          <description>/firewall_nat_out_edit.php made changes</description>
-        </updated>
-        <created>
-          <username>root@47.187.99.34</username>
-          <time>1671226686.9701</time>
-          <description>/firewall_nat_out_edit.php made changes</description>
-        </created>
-      </rule>
       <mode>hybrid</mode>
     </outbound>
   </nat>
@@ -1269,10 +1207,15 @@
       <descr/>
       <monitor_disable>1</monitor_disable>
     </gateway_item>
-    <gateway_group/>
   </gateways>
   <vlans version="1.0.0"/>
   <staticroutes version="1.0.0">
+    <route uuid="c4bafc0f-eaf0-4ba5-b8f6-b1892e27e778">
+      <network>192.168.1.4/32</network>
+      <gateway>WAN_DHCP</gateway>
+      <descr/>
+      <disabled>0</disabled>
+    </route>
     <route uuid="63ec64c1-4178-47da-bc9b-d2c3e53552c6">
       <network>10.3.0.0/24</network>
       <gateway>LAN_GW</gateway>
@@ -1302,27 +1245,6 @@
       <private-key/>
       <remote-gateway>192.168.1.4</remote-gateway>
     </phase1>
-    <phase1>
-      <iketype>ikev2</iketype>
-      <interface>wan</interface>
-      <protocol>inet</protocol>
-      <myid_type>myaddress</myid_type>
-      <peerid_type>peeraddress</peerid_type>
-      <encryption-algorithm>
-        <name>aes</name>
-        <keylen>256</keylen>
-      </encryption-algorithm>
-      <lifetime>28800</lifetime>
-      <pre-shared-key>abc123</pre-shared-key>
-      <authentication_method>pre_shared_key</authentication_method>
-      <nat_traversal>on</nat_traversal>
-      <dhgroup>2,14</dhgroup>
-      <hash-algorithm>sha256</hash-algorithm>
-      <noinstallpolicy>1</noinstallpolicy>
-      <private-key/>
-      <remote-gateway>192.168.1.5</remote-gateway>
-      <ikeid>2</ikeid>
-    </phase1>
     <phase2>
       <ikeid>1</ikeid>
       <uniqid>639923c2541e4</uniqid>
@@ -1336,20 +1258,6 @@
       </encryption-algorithm-option>
       <hash-algorithm-option>hmac_sha256</hash-algorithm-option>
       <reqid>1</reqid>
-    </phase2>
-    <phase2>
-      <ikeid>2</ikeid>
-      <uniqid>639cdd5f0ab5b</uniqid>
-      <mode>route-based</mode>
-      <lifetime>3600</lifetime>
-      <protocol>esp</protocol>
-      <tunnel_local>169.254.0.1</tunnel_local>
-      <tunnel_remote>169.254.21.2</tunnel_remote>
-      <encryption-algorithm-option>
-        <name>aes256</name>
-      </encryption-algorithm-option>
-      <hash-algorithm-option>hmac_sha256</hash-algorithm-option>
-      <reqid>2</reqid>
     </phase2>
     <client/>
     <enable>1</enable>
