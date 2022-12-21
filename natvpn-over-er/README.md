@@ -33,9 +33,9 @@ Please, run the following steps to build the entire lab:
 #### Step 1 - Deploy the Lab
 
 ```bash
-wget -O vwan-vpner-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-deploy.azcli
-chmod +xr vwan-vpner-deploy.sh
-./vwan-vpner-deploy.sh
+wget -O vwan-natvpner-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/natvpner-deploy.azcli
+chmod +xr vwan-natvpner-deploy.sh
+./vwan-natvpner-deploy.sh
 ```
 
 #### Step 2 - Provision ER Circuits with Provider
@@ -47,9 +47,9 @@ Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are pro
 In this step, the script below connect branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
 
 ```bash
-wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-conn.azcli
-chmod +xr vwan-vpner-conn.sh
-./vwan-vpner-conn.sh
+wget -O vwan-natvpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/natvpner-conn.azcli
+chmod +xr vwan-natvpner-conn.sh
+./vwan-natvpner-conn.sh
 ```
 
 ### Validation
