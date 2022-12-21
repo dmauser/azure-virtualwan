@@ -40,7 +40,7 @@ elif [ "$2" = "TwoNics" ]; then
     sed -i "" "s_zzz.zzz.zzz.zzz_$4_" confignat.xml
     sed -i "" "s_aaa.aaa.aaa.aaa_$5_" confignat.xml
     sed -i "" "s_bbb.bbb.bbb.bbb_$6_" confignat.xml
-    cp config.xml /usr/local/etc/config.xml
+    cp confignat.xml /usr/local/etc/config.xml
 fi
 
 #OPNSense default configuration template
