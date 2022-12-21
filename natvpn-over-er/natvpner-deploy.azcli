@@ -37,7 +37,7 @@ subnet1=10.100.0.96/27
 subnet2=10.100.0.160/27
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
-OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/opnsense/
+OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
 
 # Creating rg
 az group create -n $rg -l $region --output none
@@ -155,7 +155,7 @@ bgpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettin
 echo "Deploying OPNsense NVA1 on the branch"
 az vm image terms accept --urn thefreebsdfoundation:freebsd-13_0:13_0-release:13.0.0 -o none
 az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
---template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/main.json" \
 --parameters bgpip1=$bgpip1 bgpip2=$bgpip2 OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \
 --no-wait
 
