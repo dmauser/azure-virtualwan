@@ -151,11 +151,11 @@
       },
       "bgpip1": {
         "type": "string",
-        "defaultValue": "192.168.1.13"
+        "defaultValue": "192.168.1.14"
       },
       "bgpip2": {
         "type": "string",
-        "defaultValue": "192.168.1.14"
+        "defaultValue": "192.168.1.15"
       }      
     },
     "variables": {
