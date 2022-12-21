@@ -8,7 +8,18 @@ The goal of this lab is to validate IPSec over Express Route using Virtual WAN l
 
 ![network diagram](./media/vpnnatoverer-vwan.png)
 
+### Considerations
+
+- An Extended-Branch with prefix range 10.3.0.0/24 overlaps with Spoke4 VNET connected to the vHUB.
+ - 100.64.1.0/24 is the NAT address prefix associated to the Spoke4 VNET.
+ - 100.64.2.0/24 is the NAT address prefix associated to the extended branch.
+- Traffic between Extended-Branch and all vWAN-connected spokes (1,2,3 and 4) will always go over IPSec over ER and get translated to 100.64.2.0/24 (as source) when hits any of those VNETS. On the other way, vWAN-connected spokes will reach Extended-Branch using IPSec over ER but only Spoke4 VNET gets translated to 100.64.2.0/24. The remain spoke VNETs 1,2 and 3 will retains their address space (see connectivity tests output for more information)
+
 ### Deploy this solution
+
+#### Requirements
+
+- This lab creates two Expressroute circuits and requires you to provision them with the provider. In this particular lab, I used MegaPort Cloud Router (MCR) to connect both ER circuit.
 
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com).
 

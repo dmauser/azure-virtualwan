@@ -6,8 +6,8 @@ az extension update --name virtual-wan
 
 #Parameters
 region=southcentralus
-rg=lab-vwan-vpner
-vwanname=vwan-vpner
+rg=lab-vwan-natvpner
+vwanname=vwan-natvpner
 hubname=vhub1
 username=azureuser
 password="Msft123Msft123" #Please change your password
@@ -22,7 +22,7 @@ ername2="branch-er-circuit"
 perloc2="Dallas"
 providerloc2=Megaport
 
-# OPNsense NVA1 parameters
+# OPNsense NVA parameters
 ShellScriptName=configureopnsense.sh
 scenarioOption="TwoNics"
 virtualMachineSize=Standard_B2s
@@ -45,11 +45,12 @@ echo Creating vwan hubs..
 az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region --type Standard --output none
 az network vhub create -g $rg --name $hubname --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region --sku Standard --no-wait
 
-# region
+# Create VNETs
 az network vnet create --address-prefixes 172.16.1.0/24 -n spoke1 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.1.0/27 --output none
 az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.2.0/27 --output none
 az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.3.0/27 --output none
 az network vnet create --address-prefixes 10.3.0.0/24 -n spoke4 -g $rg -l $region --subnet-name main --subnet-prefixes 10.3.0.0/27 --output none
+
 #Create ER circuits
 echo Creating ExpressRoute Circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
@@ -61,12 +62,6 @@ az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --si
 az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg "" --no-wait
-
-#Create ExpressRoute Gateway
-echo Creating Branch ExpressRoute Gateway
-az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
-az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
-az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
@@ -90,25 +85,6 @@ az network vpn-gateway create -n $hubname-vpngw -g $rg --location $region --vhub
 # az network vpn-gateway show -n $hubname-vpngw -g $rg
 echo Creating vHub ExpressRoute Gateway...
 az network express-route gateway create -g $rg -n $hubname-ergw --location $region --min-val 1 --virtual-hub $hubname --output none &>/dev/null &
-
-echo Validating ER Gateways provisioning...
-#Branches VPN Gateways provisioning status
-prState=$(az network vnet-gateway show -g $rg -n branch-ergw --query provisioningState -o tsv)
-if [[ $prState == 'Failed' ]];
-then
-    echo ER Gateway is in fail state. Deleting and rebuilding.
-    az network vnet-gateway delete -n branch-ergw -g $rg
-    az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
-    sleep 5
-else
-    prState=''
-    while [[ $prState != 'Succeeded' ]];
-    do
-        prState=$(az network vnet-gateway show -g $rg -n branch-ergw --query provisioningState -o tsv)
-        echo "branch-ergw provisioningState="$prState
-        sleep 5
-    done
-fi
 
 echo Validating vHubs VPN Gateways provisioning...
 #vWAN Hubs VPN Gateway Status
@@ -150,7 +126,7 @@ else
 fi
 
 bgpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
-bgpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[1]' -o tsv)
+bgpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
 
 echo "Deploying OPNsense NVA1 on the branch"
 az vm image terms accept --urn thefreebsdfoundation:freebsd-13_0:13_0-release:13.0.0 -o none
@@ -195,7 +171,7 @@ az network route-table route create --resource-group $rg --name default --route-
 --next-hop-type VirtualAppliance \
 --next-hop-ip-address $nvatrustedip \
 --output none
-## Associated RT-Hub-to-NVA to Spoke 5 and 6.
+## Associate RT-Hub-to-NVA
 az network vnet subnet update -n main -g $rg --vnet-name extbranch --route-table RT-to-extbranch-NVA --output none
 
 echo Associating NSG on Spokes and Branch VNETs
@@ -226,6 +202,11 @@ do
  --no-wait
 done
 
+#Create ExpressRoute Gateway
+echo Creating Branch ExpressRoute Gateway
+az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
+az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
+az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
 
 echo Building VPN connections from VPN Gateways to the respective Branches...
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
@@ -259,8 +240,6 @@ az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg --vh
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hubname --no-wait
 # Spoke4 vnet connection
 az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg --vhub-name $hubname --no-wait
-
-
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
@@ -297,4 +276,24 @@ done
 # Misc remove NSG from OPNSense NICs 
 az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
 az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
+
+echo Validating ER Gateways provisioning...
+#Branches VPN Gateways provisioning status
+prState=$(az network vnet-gateway show -g $rg -n branch-ergw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo ER Gateway is in fail state. Deleting and rebuilding.
+    az network vnet-gateway delete -n branch-ergw -g $rg
+    az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vnet-gateway show -g $rg -n branch-ergw --query provisioningState -o tsv)
+        echo "branch-ergw provisioningState="$prState
+        sleep 5
+    done
+fi
+
 echo Deployment has finished

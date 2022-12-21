@@ -1928,7 +1928,7 @@
                   "settings": {
                     "fileUris": [
                       "[format('{0}{1}', parameters('OPNScriptURI'), parameters('ShellScriptName'))]"
-                    ],1
+                    ],
                     "commandToExecute": "[format('sh {0} {1} {2} {3} {4} {5} {6}', parameters('ShellScriptName'), parameters('ShellScriptObj').OpnScriptURI, parameters('ShellScriptObj').OpnType, if(not(empty(parameters('ShellScriptObj').TrustedSubnetName)), reference(resourceId('Microsoft.Network/virtualNetworks/subnets', split(parameters('ShellScriptObj').TrustedSubnetName, '/')[0], split(parameters('ShellScriptObj').TrustedSubnetName, '/')[1]), '2020-11-01').addressPrefix, ''), if(not(empty(parameters('ShellScriptObj').WindowsSubnetName)), reference(resourceId('Microsoft.Network/virtualNetworks/subnets', split(parameters('ShellScriptObj').WindowsSubnetName, '/')[0], split(parameters('ShellScriptObj').WindowsSubnetName, '/')[1]), '2020-11-01').addressPrefix, '1.1.1.1/32'), parameters('ShellScriptObj').bgpip1, parameters('ShellScriptObj').bgpip2)]"
                   }
                 },
