@@ -50,7 +50,7 @@ In this step, the script below connect branch-er-circuit to the Branch ER Gatewa
 wget -O vwan-natvpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/natvpner-conn.azcli
 chmod +xr vwan-natvpner-conn.sh
 ./vwan-natvpner-conn.sh
-```
+```gi
 
 ### Validation
 
