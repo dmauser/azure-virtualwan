@@ -1,7 +1,7 @@
 # variables (make changes based on your requirements)
 region=southcentralus
-rg=lab-vwan-vpner
-vwanname=vwan-vpner
+rg=lab-vwan-natvpner
+vwanname=vwan-natvpner
 hubname=vhub1
 
 #ExpressRoute specific variables
