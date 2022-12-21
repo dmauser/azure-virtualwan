@@ -7,7 +7,7 @@ You can find the official Microsoft reference for that functionality in: [Expres
 
 ### Lab diagram
 
-![network diagram](./media/vpnoverer-vwan.png)
+![network diagram](./media/vpnnatoverer-vwan.png)
 
 ### Deploy this solution
 
