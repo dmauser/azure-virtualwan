@@ -307,5 +307,5 @@ do
     echo ExpressRoute Gateway $hubname-ergw "provisioningState="$prState
     sleep 5
 done
-
 echo Deployment has finished
+echo Start ExpressRoute provisioning with your Service Provider.
