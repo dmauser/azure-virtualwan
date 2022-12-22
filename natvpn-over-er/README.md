@@ -2,16 +2,18 @@
 
 ### Intro
 
-The goal of this lab is to validate IPSec over Express oute using Virtual WAN leveraging only Azure to emulate On-premises.
-There are two networks using the same IP prefix (10.3.0.0/24), one the on-premises (extended branch) and another in Azure VNET (Spoke4) connected to Virtual WAN.
+The goal of this lab is to validate IPSec over ExpressRoute using Virtual WAN to address overlapping IP prefixes by leveraging vWAN VPN Gateway NAT feature.
+You may be familiar with the official vWAN documentation on this subject. However, the scenario covered over the official documentation is two remote branches with the same overlapping IP, for more information consult: [Configure NAT rules for your Virtual WAN VPN gateway](https://learn.microsoft.com/en-us/azure/virtual-wan/nat-rules-vpn-gateway). The intention here is to address scenarios where there's Azure and an On-premises with overlapping IP prefixes.
+For the scenario covered in this lab, there are two networks using the same IP prefix (10.3.0.0/24), one the on-premises (extended branch) and another in Azure VNET (Spoke4) connected to Virtual WAN.
 That is to demonstrate that you can use IPSec + NAT VPN Gateway functionality to handle overlapping IP scenarios usually common on Vendor integration or merging and acquisitions.
 Another important point to highlight for the context of this lab is the overlapping traffic goes over IPSec VPN the other non-overlapping traffic goes over regular ExpressRoute.
 
 ### Lab Diagram
 
-On the diagram below extended branch VM (10.3.0.4) always goes over IPSec over ExpressRoute when communicating with any Spoke Azure VM. It will always show it with source IP
-
 ![network diagram](./media/vpnnatoverer-vwan.png)
+
+On the diagram above, the extended branch, VM (10.3.0.4) always goes over IPSec over ExpressRoute when communicating with any Spoke Azure VM. It will always show it with source IP 100.64.2.4.
+Azure VM on the spoke 4 (10.3.0.4) will reach the extended branch VM using 100.64.2.4 but it will show its source IP as 100.64.1.4.
 
 ### Considerations and requirements
 

@@ -203,6 +203,7 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --no-wait
 
 echo Building VPN connections from VPN Gateways to the respective Branches...
+sleep 5
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
 bgp1=10.200.0.1 #pre configured BGP IP for the OPNSense NVA.
 pip1=$(az network nic show -g $rg -n $virtualMachineName-Untrusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
@@ -260,13 +261,13 @@ do
     sleep 5
 done
 
-# Misc remove NSG from OPNSense NICs 
-az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
-az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
-
 #Enabling boot diagnostics for all VMs in the resource group (Serial console)
 echo Enabling boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
+
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
+az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
 
 echo extented branch VM UDR to OPNSense internal interface
 nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
