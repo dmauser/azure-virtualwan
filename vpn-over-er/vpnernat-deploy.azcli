@@ -255,7 +255,6 @@ az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vh
 az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg --vhub-name $hubname --no-wait
 
 
-
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do

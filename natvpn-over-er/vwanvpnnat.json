@@ -1,0 +1,101 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.13.1.58284",
+      "templateHash": "5720912158951738971"
+    }
+  },
+  "parameters": {
+    "vpngwname": {
+      "type": "string",
+      "defaultValue": "vhub1-vpngw"
+    },
+    "overlapiprange": {
+      "type": "string",
+      "defaultValue": "10.3.0.0/24"
+    },
+    "spoke4natrange": {
+      "type": "string",
+      "defaultValue": "100.64.1.0/24"
+    },
+    "extbranchrange": {
+      "type": "string",
+      "defaultValue": "100.64.2.0/24"
+    },
+    "vhubnatname": {
+      "type": "string",
+      "defaultValue": "vhub"
+    },
+    "extbranchnatname": {
+      "type": "string",
+      "defaultValue": "extbranch"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]"
+    },
+    "vpngwid": {
+      "type": "string",
+      "defaultValue": "[resourceId('Microsoft.Network/vpnGateways', 'vhub1-vpngw')]"
+    },
+    "vhubname": {
+      "type": "string",
+      "defaultValue": "vhub1"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/vpnGateways",
+      "apiVersion": "2022-07-01",
+      "name": "[parameters('vpngwname')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "virtualHub": {
+          "id": "[resourceId('Microsoft.Network/virtualHubs', parameters('vhubname'))]"
+        },
+        "enableBgpRouteTranslationForNat": true,
+        "natRules": [
+          {
+            "name": "[parameters('vhubnatname')]",
+            "id": "[format('{0}/natRules/{1}', parameters('vpngwid'), parameters('vhubnatname'))]",
+            "properties": {
+              "type": "Static",
+              "mode": "EgressSnat",
+              "internalMappings": [
+                {
+                  "addressSpace": "[parameters('overlapiprange')]"
+                }
+              ],
+              "externalMappings": [
+                {
+                  "addressSpace": "[parameters('spoke4natrange')]"
+                }
+              ]
+            }
+          },
+          {
+            "name": "[parameters('extbranchnatname')]",
+            "id": "[format('{0}/natRules/{1}', parameters('vpngwid'), parameters('extbranchnatname'))]",
+            "properties": {
+              "mode": "IngressSnat",
+              "type": "Static",
+              "internalMappings": [
+                {
+                  "addressSpace": "[parameters('overlapiprange')]"
+                }
+              ],
+              "externalMappings": [
+                {
+                  "addressSpace": "[parameters('extbranchrange')]"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
