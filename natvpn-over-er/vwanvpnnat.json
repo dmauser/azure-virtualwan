@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.13.1.58284",
-      "templateHash": "5720912158951738971"
+      "templateHash": "16266822573089118782"
     }
   },
   "parameters": {
@@ -44,6 +44,10 @@
     "vhubname": {
       "type": "string",
       "defaultValue": "vhub1"
+    },
+    "sitename": {
+      "type": "string",
+      "defaultValue": "site-branch"
     }
   },
   "resources": [
@@ -54,9 +58,60 @@
       "location": "[parameters('location')]",
       "properties": {
         "virtualHub": {
-          "id": "[resourceId('Microsoft.Network/virtualHubs', parameters('vhubname'))]"
+          "id": "[format('{0}', resourceId('Microsoft.Network/virtualHubs', parameters('vhubname')))]"
         },
         "enableBgpRouteTranslationForNat": true,
+        "connections": [
+          {
+            "name": "Connection-site-branch",
+            "properties": {
+              "remoteVpnSite": {
+                "id": "[format('{0}', resourceId('Microsoft.Network/vpnSites', parameters('sitename')))]"
+              },
+              "routingConfiguration": {
+                "associatedRouteTable": {
+                  "id": "[format('{0}/hubRouteTables/defaultRouteTable', resourceId('Microsoft.Network/virtualHubs', parameters('vhubname')))]"
+                },
+                "propagatedRouteTables": {
+                  "labels": [
+                    "default"
+                  ],
+                  "ids": [
+                    {
+                      "id": "[format('{0}/hubRouteTables/defaultRouteTable', resourceId('Microsoft.Network/virtualHubs', parameters('vhubname')))]"
+                    }
+                  ]
+                }
+              },
+              "vpnLinkConnections": [
+                {
+                  "name": "[parameters('sitename')]",
+                  "properties": {
+                    "connectionBandwidth": 10,
+                    "vpnConnectionProtocolType": "IKEv2",
+                    "sharedKey": "abc123",
+                    "enableBgp": true,
+                    "vpnSiteLink": {
+                      "id": "[format('{0}/vpnSiteLinks/{1}', resourceId('Microsoft.Network/vpnSites', parameters('sitename')), parameters('sitename'))]"
+                    },
+                    "useLocalAzureIpAddress": true,
+                    "vpnLinkConnectionMode": "Default",
+                    "ingressNatRules": [
+                      {
+                        "id": "[format('{0}/natRules/extbranch', resourceId('Microsoft.Network/vpnGateways', parameters('vpngwname')))]"
+                      }
+                    ],
+                    "egressNatRules": [
+                      {
+                        "id": "[format('{0}/natRules/vhub', resourceId('Microsoft.Network/vpnGateways', parameters('vpngwname')))]"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
         "natRules": [
           {
             "name": "[parameters('vhubnatname')]",

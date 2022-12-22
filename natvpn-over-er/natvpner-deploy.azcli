@@ -63,15 +63,6 @@ az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --si
 az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg "" --no-wait
 
-VNETAddress=10.100.0.0/24 
-UntrustedSubnetCIDR=10.100.0.0/28
-TrustedSubnetCIDR=10.100.0.16/28
-GatewaySubnet=10.100.0.32/27
-subnet1=10.100.0.96/27
-subnet2=10.100.0.160/27
-existingUntrustedSubnetName=untrusted
-existingTrustedSubnetName=trusted
-
 echo Creating Branch VNET
 az network vnet create --address-prefixes $VNETAddress -n $virtualNetworkName -g $rg -l $region --subnet-name untrusted --subnet-prefixes $UntrustedSubnetCIDR --output none
 az network vnet subnet create -g $rg --vnet-name $virtualNetworkName -n trusted --address-prefixes $TrustedSubnetCIDR  --output none
@@ -94,17 +85,6 @@ az vm create -n extbranch1VM  -g $rg --image ubuntults --public-ip-sku Standard 
 az network vnet peering create -g $rg -n branch-to-extbranch --vnet-name branch --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n extbranch --query id --out tsv) --output none
 az network vnet peering create -g $rg -n extbranch-to-branch --vnet-name extbranch --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n branch  --query id --out tsv) --output none
 
-echo Associating NSG on Spokes and Branch VNETs
-#Updating NSGs:
-az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
-# Adding my home public IP to NSG for SSH access
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
-az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-vnetoutany' --direction Inbound --priority 120 --source-address-prefixes VirtualNetwork --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges '*' --access Allow --protocol '*' --description "Allow inbound VNET to Any for NVA Routing out" --output none
-# Associating NSG to the VNET subnets (Spokes and Branches)
-# az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
-# az network vnet subnet update --id $(az network vnet list -g $rg --query '[].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[].subnets[].id' -o tsv) --network-security-group default-nsg-$region -o none
 
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, nmap3, and others)"
@@ -120,11 +100,17 @@ do
  --no-wait
 done
 
-#Create Branch ExpressRoute Gateway
-echo Creating Branch ExpressRoute Gateway
-az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
-az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
-az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
+#echo Subnet provisioning state:
+#for state in $(az network vnet list -g $rg --query '[].subnets[].provisioningState' -o tsv)
+#do 
+# prState=''
+# while [[ $prState != 'Succeeded' ]];
+# do
+#    prState=$state
+#    echo subnet provisioningState=$prState
+#    sleep 5
+# done
+#done 
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
@@ -142,6 +128,24 @@ do
     echo "$hubname routingState="$rtState
     sleep 5
 done
+
+echo Associating NSG on Spokes and Branch VNETs
+#Updating NSGs:
+az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
+# Adding my home public IP to NSG for SSH access
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-vnetoutany' --direction Inbound --priority 120 --source-address-prefixes VirtualNetwork --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges '*' --access Allow --protocol '*' --description "Allow inbound VNET to Any for NVA Routing out" --output none
+# Associating NSG to the VNET subnets (Spokes and Branches)
+# az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
+# az network vnet subnet update --id $(az network vnet list -g $rg --query '[].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[].subnets[].id' -o tsv) --network-security-group default-nsg-$region -o none
+
+#Create Branch ExpressRoute Gateway
+echo Creating Branch ExpressRoute Gateway
+az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
+az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
+az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
 
 echo Creating vHub VPN Gateway...
 az network vpn-gateway create -n $hubname-vpngw -g $rg --location $region --vhub $hubname --no-wait 
@@ -214,11 +218,12 @@ az network vpn-site create --ip-address $pip1 -n site-branch -g $rg --asn 65510 
 # az network local-gateway create -g $rg -n site-$hubname-LG --gateway-ip-address $vwanpip1 --asn 65515 --bgp-peering-address $vwanbgp1 -l $region --output none
 # az network vpn-connection create -n branch-to-site-$hubname -g $rg -l $region --vnet-gateway1 branch-vpngw --local-gateway2 site-$hubname-LG --enable-bgp --shared-key 'abc123' --output none
 
-echo Creating NAT Rules and building vpn connection...
-
+echo Creating NAT Rules and building S2S VPN connection...
+az deployment group create --name vhub-natvpngw-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/vwanvpnnat.json" \
+--no-wait
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
-
 # **** Configuring vWAN route default route table to send traffic to the NVA and reach indirect spokes: *****
 echo Configuring spoke connections to their respective hubs...
 echo Creating spoke 1 and 3 connection to their respective hubs...
