@@ -202,6 +202,7 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --parameters bgpip1=$bgpip1 bgpip2=$bgpip2 OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \
 --no-wait
 
+sleep 5
 echo Validating OPNsense Untrusted NIC provisioning status:
 prState=''
 while [[ $prState != 'Succeeded' ]];
