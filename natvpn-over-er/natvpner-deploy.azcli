@@ -211,7 +211,6 @@ do
     sleep 5
 done
 
-
 echo Building VPN connections from VPN Gateways to the respective Branches...
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
 bgp1=10.200.0.1 #pre configured BGP IP for the OPNSense NVA.
