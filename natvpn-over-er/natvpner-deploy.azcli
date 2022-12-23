@@ -202,8 +202,17 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --parameters bgpip1=$bgpip1 bgpip2=$bgpip2 OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \
 --no-wait
 
+echo Validating OPNsense Untrusted NIC provisioning status:
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network nic show -g $rg -n $virtualMachineName-Untrusted-NIC --query provisioningState -o tsv)
+    echo "$virtualMachineName-Untrusted-NIC provisioningState="$prState
+    sleep 5
+done
+
+
 echo Building VPN connections from VPN Gateways to the respective Branches...
-sleep 5
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
 bgp1=10.200.0.1 #pre configured BGP IP for the OPNSense NVA.
 pip1=$(az network nic show -g $rg -n $virtualMachineName-Untrusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
