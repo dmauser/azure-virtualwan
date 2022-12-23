@@ -24,7 +24,8 @@ Azure VM on the spoke 4 (10.3.0.4) will reach the extended branch VM using 100.6
 - Traffic between Extended-Branch and all vWAN-connected spokes (1,2,3 and 4) will always go over IPSec over ER and get translated to 100.64.2.0/24 (as source) when hits any of those VNETS. On the other way, vWAN-connected spokes will reach Extended-Branch using IPSec over ER but only Spoke4 VNET gets translated to 100.64.2.0/24. The remaining spoke VNETs 1,2 and 3 will retain their address space (see connectivity tests output for more information)
 - Branch (10.100.0.0/24) has an NVA OPNSense preconfigured with S2S VPN reaching both vWAN VPN Gateway instances using private IPs 192.168.1.4 and 192.168.1.5.
   - Note that **OPNsense** used as VPN Server has **username:root** and **password:opnsense** and its accessible via HTTPS over its public IP associated to the untrusted NIC.
-  - A BGP session is configured between the VTI interfaces (10.200.0.1) and both vWAN VPN Gateway instances BGP IPs 192.168.1.14 and 192.168.1.15.
+  - A BGP session is configured between the VTI interfaces (10.200.0.1) and both vWAN VPN Gateway instances BGP IPs 192.168.1.14 and 192.168.1.15.  **Note** that VPN GW BGP IPs may be different during your provisioning. There are cases that those IPs can be set to 192.168.1.12 and 192.168.1.13.
+  - OPNSense advertises 10.3.0.0/24 and 10.0.0.0/8 and has ASN set to 65510.
   - You have to advertise the 10.3.0.0/24 (overlapping with Azure) in order to vWAN VPN Gateway NAT rule to translate it to 100.64.2.0/24.
   - **Special note** BGP over APIPA does not work over NAT, you have to use default BGP IP addresses vWAN VPN Gateway .14 and .15
  - This lab creates two Expressroute circuits and requires you to provision them with an ER connectivity provider. In this particular lab, I used MegaPort Cloud Router (MCR) to connect both ER circuits.
@@ -84,14 +85,26 @@ Via the networking insights, we can get a good view of the vWAN topology and its
 
 ![vWAN insights](./media/vwan-insights.png)
 
+
 #### vHUB VPN Gateway configuration
 VPN Gateways, a special highlight for the Private IP addresses and the default BGP IP Address. For NAT you must use Default BGP IP addresses. It does not work with Custom BGP IP addresses listed below as APIPA.
 
 ![VPN Gateway Configuration](./media/vpngateway.png)
 
+#### VPN Site connection
+
+This screen shows the VPN Site with the connection reaching over OPNsense private IP 10.100.0.4 where the IPSec tunnel is terminated and BGP private IP 10.200.0.1 is associated with the IPSec interface.
+
+![VPNsite](./media/vwanvpnsite.png)
+
 #### vHUB VPN Gateway NAT rules
 
+There are two NAT rules:
 
+1. **Vhub** EgressSnat static NAT rule that applies to all traffic going towards on-premises extended branch 10.3.0.0/24 which will get translated to 100.64.1.0/24.
+2. **Extbranch** IngressSnat static NAT rule that applies to all traffic from on-premises extended branch 10.3.0.0/24 which will get translated to 100.64.2.0/24.
+
+![natrules](./media/vpngwnatrules.png)
 
 #### VPN Gateway BGP Dashboard
 
@@ -109,6 +122,60 @@ The connected Spoke4 VNET which has 10.3.0.0/24 will be advertised as 100.64.1.0
 
 3. VPN Gateway learned routes
 
+- 10.3.0.0/24 is a local route entry that represents the Spoke4 VNET.
+- 100.64.2.0/24 represents NAT for the extended branch 10.3.0.0/24. You will see multiple times this entry because there's a BGP peer between both VPN Gateway instances (192.168.1.14 and 192.168.1.15), vHUB Virtual Router instances (192.168.1.68 and 192.168.1.69). Also, the source peer is the VPN Gateway instances themselves. That is expected because VPN Gateway is responsible for the translation based on the extbranch IngressSnat rule observed on the NAT rules above.
+- 10.0.0.0/8 is a summary advertised by the on-premises OPNsense via BGP with AS path 65510.
+
 ![BGP Learn](./media/bgplearned.png)
 
 #### Azure vWAN Effective Routes
+
+1. **100.64.2.0/24** is the extended branch 10.3.0.0/24 translated prefix.
+2. OPNSense also advertises **10.0.0.0/8** prefix via BGP and you can see the AS path 65510.
+3. The Spoke4 VNET **10.3.0.0/24** has a VNET connection entry as expected.
+
+![vhubeffectiverouts](./media/vhub1effectiveroutes.png)
+
+### OPNSense 
+
+#### FRR configuration
+
+- Below we 
+
+```Text
+Building configuration...
+
+Current configuration:
+!
+frr version 7.5.1
+frr defaults traditional
+hostname OPNsense.localhost
+log syslog notifications
+!
+router bgp 65510
+ no bgp ebgp-requires-policy
+ no bgp default ipv4-unicast
+ neighbor 192.168.1.14 remote-as 65515
+ neighbor 192.168.1.14 ebgp-multihop 255
+ neighbor 192.168.1.15 remote-as 65515
+ neighbor 192.168.1.15 ebgp-multihop 255
+ !
+ address-family ipv4 unicast
+  network 10.0.0.0/8
+  network 10.3.0.0/24
+  neighbor 192.168.1.14 activate
+  neighbor 192.168.1.15 activate
+ exit-address-family
+!
+line vty
+!
+end
+```
+
+#### BGP route table
+
+![BGP route](./media/opnbgproutetable.png)
+
+### Connectivity validation
+
+Coming soon...
