@@ -14,7 +14,7 @@ password="Msft123Msft123" #Please change your password
 vmsize=Standard_B1s #VM Size
 mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
 
-#ExpressRoute specific variables
+#ExpressRoute specific parameters
 ername1="$hubname-er-circuit" 
 perloc1="Dallas"
 providerloc1=Megaport
@@ -136,6 +136,7 @@ az network nsg create --resource-group $rg --name default-nsg-$region --location
 az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
 az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
 az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-vnetoutany' --direction Inbound --priority 120 --source-address-prefixes VirtualNetwork --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges '*' --access Allow --protocol '*' --description "Allow inbound VNET to Any for NVA Routing out" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'DC-Cidr-allow-vnetoutany' --direction Outbound --priority 130 --source-address-prefixes 100.64.0.0/10  --source-port-ranges '*' --destination-address-prefixes VirtualNetwork --destination-port-ranges '*' --access Allow --protocol '*' --description "Allow DC Cidr NVA out for NAT rule" --output none
 # Associating NSG to the VNET subnets (Spokes and Branches)
 # az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
 # az network vnet subnet update --id $(az network vnet list -g $rg --query '[].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
@@ -284,6 +285,8 @@ az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o 
 # Misc remove NSG from OPNSense NICs 
 az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
 az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
+# Ensure default NSG is on OPNSense Trusted and Untrusted Networks
+az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'trust'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
 
 echo extented branch VM UDR to OPNSense internal interface
 nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)

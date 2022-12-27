@@ -73,6 +73,10 @@ chmod +xr vwan-natvpner-conn.sh
 ./vwan-natvpner-conn.sh
 ```
 
+After 3-5 minutes that you complete the step, the Site-Branch VPN connection should show up and running on the Azure vWAN Portal under vHub1 VPN (Site-to-Site) as shown:
+
+![Site Branch VPN Status](./media/site-branch-vpnstatus.png)
+
 ## Validation
 
 In the below sections, we have a breakdown of the vWAN configuration highlighting some important points of this solution.
@@ -140,7 +144,7 @@ The connected Spoke4 VNET which has 10.3.0.0/24 will be advertised as 100.64.1.0
 
 #### FRR configuration
 
-- Below we 
+- Below we have the full dump of the OPNsense BGP configuration:
 
 ```Text
 Building configuration...
@@ -174,8 +178,35 @@ end
 
 #### BGP route table
 
+In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as 100.64.1.0/24 translated by BGP on the Azure VPN Gateway side based on the [NAT rule configuration](#vhub-vpn-gateway-nat-rules).
+
 ![BGP route](./media/opnbgproutetable.png)
 
 ### Connectivity validation
 
-Coming soon...
+#### Extended Branch VM to Azure Spoke1 VM (172.16.1.4) and Spoke4 VM (100.64.1.4).
+
+```Bash
+
+```
+
+
+What Spoke1 VMs receives based on tcpdump. You can see extended branch VM arrives with IP 100.64.2.4 because of the NAT rule.
+
+```Bash
+azureuser@spoke1VM:~$ hostname -I
+172.16.1.4 
+azureuser@spoke1VM:~$ sudo tcpdump -n icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+18:23:51.020464 IP 100.64.2.4 > 172.16.1.4: ICMP echo request, id 4904, seq 1, length 64
+18:23:51.020507 IP 172.16.1.4 > 100.64.2.4: ICMP echo reply, id 4904, seq 1, length 64
+18:23:52.020856 IP 100.64.2.4 > 172.16.1.4: ICMP echo request, id 4904, seq 2, length 64
+18:23:52.020899 IP 172.16.1.4 > 100.64.2.4: ICMP echo reply, id 4904, seq 2, length 64
+18:23:53.020526 IP 100.64.2.4 > 172.16.1.4: ICMP echo request, id 4904, seq 3, length 64
+18:23:53.020568 IP 172.16.1.4 > 100.64.2.4: ICMP echo reply, id 4904, seq 3, length 64
+18:23:54.020006 IP 100.64.2.4 > 172.16.1.4: ICMP echo request, id 4904, seq 4, length 64
+18:23:54.020069 IP 172.16.1.4 > 100.64.2.4: ICMP echo reply, id 4904, seq 4, length 64
+18:23:55.019763 IP 100.64.2.4 > 172.16.1.4: ICMP echo request, id 4904, seq 5, length 64
+18:23:55.019824 IP 172.16.1.4 > 100.64.2.4: ICMP echo reply, id 4904, seq 5, length 64
+```
