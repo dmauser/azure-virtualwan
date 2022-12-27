@@ -10,10 +10,20 @@ In this article
   - [Azure Virtual WAN](#azure-virtual-wan)
     - [Topology](#topology)
     - [VPN Gateway configuration](#vpn-gateway-configuration)
-    - []
+    - [VPN Gateway NAT rules](#vpn-gateway-nat-rules)
+    - [VPN Site connection](#vpn-site-connection)
+    - [VPN Gateway BGP Dashboard](#vpn-gateway-bgp-dashboard)
+    - [vHub Effective Routes](#vhub-effective-routes)
   - [OPNsense](#opnsense)
+    - [BGP configuration](#bgp-configuration)
+    - [BGP route table](#bgp-route-table)
   - [Connectivity](#connectivity)
+    - [Summary](#summary)
+    - [VM connectivity test example](#vm-connectivity-test-example)
+    - [How to know if traffic goes over ER only or IPSec VPN over ER?](#how-to-know-if-traffic-goes-over-er-only-or-ipsec-vpn-over-er)
 
+
+   
 ## Intro
 
 The goal of this lab is to validate IPSec over ExpressRoute using Virtual WAN to address overlapping IP prefixes by leveraging vWAN VPN Gateway NAT feature.
@@ -110,13 +120,7 @@ VPN Gateways, a special highlight for the Private IP addresses and the default B
 
 ![VPN Gateway Configuration](./media/vpngateway.png)
 
-#### VPN Site connection
-
-This screen shows the VPN Site with the connection reaching over OPNsense private IP 10.100.0.4 where the IPSec tunnel is terminated and BGP private IP 10.200.0.1 is associated with the IPSec interface.
-
-![VPNsite](./media/vwanvpnsite.png)
-
-#### vHUB VPN Gateway NAT rules
+#### VPN Gateway NAT rules
 
 There are two NAT rules:
 
@@ -124,6 +128,12 @@ There are two NAT rules:
 2. **Extbranch** IngressSnat static NAT rule that applies to all traffic from on-premises extended branch 10.3.0.0/24 which will get translated to 100.64.2.0/24.
 
 ![natrules](./media/vpngwnatrules.png)
+
+#### VPN Site connection
+
+This screen shows the VPN Site with the connection reaching over OPNsense private IP 10.100.0.4 where the IPSec tunnel is terminated and BGP private IP 10.200.0.1 is associated with the IPSec interface.
+
+![VPNsite](./media/vwanvpnsite.png)
 
 #### VPN Gateway BGP Dashboard
 
@@ -147,7 +157,7 @@ The connected Spoke4 VNET which has 10.3.0.0/24 will be advertised as 100.64.1.0
 
 ![BGP Learn](./media/bgplearned.png)
 
-#### Azure vWAN Effective Routes
+#### vHub Effective Routes
 
 1. **100.64.2.0/24** is the extended branch 10.3.0.0/24 translated prefix.
 2. OPNSense also advertises **10.0.0.0/8** prefix via BGP and you can see the AS path 65510.
@@ -157,7 +167,7 @@ The connected Spoke4 VNET which has 10.3.0.0/24 will be advertised as 100.64.1.0
 
 ### OPNSense 
 
-#### FRR configuration
+#### BGP configuration
 
 - Below we have the full dump of the OPNsense BGP configuration:
 
@@ -199,7 +209,6 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 
 ### Connectivity
 
-
 #### Summary
 
 | Source | Destination | Path | What destination sees as source |
@@ -215,11 +224,9 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 
 (1) - You can propagate 10.100.0.0/24 over VPN and BranchVM will be able to reach Spoke4VM using IPSec over ER.
 
-#### Example:
+#### VM connectivity test example
 
 From Extended Branch VM to Azure Spoke4 VM (172.16.1.4) and Spoke4 VM (100.64.1.4). 
-
-
 
 ```Bash
 azureuser@extbranch1VM:~$ hostname -I
@@ -258,6 +265,8 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
 ```
 
 ##### How to know if traffic goes over ER only or IPSec VPN over ER?
+
+There are complex or simpler ways to determine where the traffic between on-premises and Azure goes. The complex way is to take multiple captures in the OPNsense, VPN Gateways, as well as source and target VMs. However, I will explain the simplest way which is just taking a look in the ICMP TTL using a simple ping test.
 
 In the previous example, you see NAT is triggered only using IPsec VPN and it will show a higher TTL which is 63. When traffic goes over ER it will decrement TTL to 60 based on the number of hops that the traffic goes thru.
 
