@@ -220,8 +220,8 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 | ExtBranchVM (10.3.0.4/100.64.2.4) | Spoke2VM (172.16.2.4)  | IPSec over ER | 100.64.2.4
 | ExtBranchVM (10.3.0.4/100.64.2.4) | Spoke3VM (172.16.2.4)  | IPSec over ER | 100.64.2.4
 | BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100
-| BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100
-| BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100
+| BranchVM (10.100.0.100) | Spoke2VM (172.16.2.4)  | ER | 10.100.0.100
+| BranchVM (10.100.0.100) | Spoke3VM (172.16.3.4)  | ER | 10.100.0.100
 | BranchVM (10.100.0.100) | Spoke4VM(10.3.0.4/100.64.1.4 NAT)   | Unreachable/NA only reachable over IPSec (See 1)
 
 (1) - You can propagate 10.100.0.0/24 over VPN and BranchVM will be able to reach Spoke4VM using IPSec over ER.
@@ -301,9 +301,9 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
 
 There are complex or simpler ways to determine where the traffic between on-premises and Azure goes. The complex way is to take multiple captures in the OPNsense, VPN Gateways, as well as source and target VMs. However, I will explain the simplest way which is just taking a look at the ICMP TTL using a simple ping test.
 
-In the previous example, you see NAT is triggered only using IPsec VPN and it will show a higher TTL which is 63. When traffic goes over ER it will decrement TTL to 60 based on the number of hops that the traffic goes thru.
+In the previous example, you see NAT is triggered only using IPsec VPN and it will show a higher **TTL** which is **63**. When traffic goes over ER it will decrement **TTL to 60** based on the number of hops that the traffic goes thru.
 
-Here is an example when Spoke1VM reaches extended branchVM (10.3.0.4/NAT IP 100.64.2.4) and BranchVM (10.100.0.100) and you will see **TTL is 60** because it goes over multiple hops (customer router, provider, ER Gateways, etc.).
+Here is an example when Spoke1VM reaches extended branchvm (10.3.0.4/NAT IP 100.64.2.4) and branchvm (10.100.0.100) and you will see **TTL is 60** because it goes over multiple hops (customer router, provider, ER Gateways, etc.).
 
 ```Bash
 azureuser@spoke1VM:~$ hostname -I
