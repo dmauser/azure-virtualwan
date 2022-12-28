@@ -6,6 +6,9 @@ In this article
 - [Lab Diagram](#lab-diagram)
 - [Considerations and requirements](#considerations-and-requirements)
 - [Deploy this solution](#deploy-this-solution)
+  - [Step 1 - Deploy the Lab](#step-1---deploy-the-lab)
+  - [Step 2 - Provision ER Circuits with the Provider](#step-2---provision-er-circuits-with-the-provider)
+  - [Step 3 - Connect ER Circuits to respective ER Gateway](#step-3---connect-er-circuits-to-respective-er-gateway)
 - [Validation](#validation)
   - [Azure Virtual WAN](#azure-virtual-wan)
     - [Topology](#topology)
@@ -83,11 +86,11 @@ chmod +xr vwan-natvpner-deploy.sh
 ./vwan-natvpner-deploy.sh
 ```
 
-### Step 2 - Provision ER Circuits with Provider
+### Step 2 - Provision ER Circuits with the Provider
 
 Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are provisioned. That is required to connect them to the respective ER Gateways in Step 3.
 
-### Step 3 - Connect ER Circuit
+### Step 3 - Connect ER Circuits to respective ER Gateway
 
 In this step, the script below connects branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
 
@@ -211,12 +214,12 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 
 #### Summary
 
-| Source | Destination | Path | What destination sees as source |
+| Source | Destination | Path | What destination sees as source IP |
 |------|------|------|------|
-| ExtBranchVM (10.3.0.4/100.64.2.4 NAT) | Spoke4VM (10.3.0.4/100.64.1.4 NAT) | IPSec over ER |  100.64.2.4
-| ExtBranchVM (10.3.0.4/100.64.2.4 NAT) | Spoke1VM (172.16.1.4)  | IPSec over ER | 100.64.2.4
-| ExtBranchVM (10.3.0.4/100.64.2.4 NAT) | Spoke2VM (172.16.2.4)  | IPSec over ER | 100.64.2.4
-| ExtBranchVM (10.3.0.4/100.64.2.4 NAT) | Spoke3VM (172.16.2.4)  | IPSec over ER | 100.64.2.4
+| ExtBranchVM (10.3.0.4/100.64.2.4) | Spoke4VM (10.3.0.4/100.64.1.4) | IPSec over ER |  100.64.2.4
+| ExtBranchVM (10.3.0.4/100.64.2.4) | Spoke1VM (172.16.1.4)  | IPSec over ER | 100.64.2.4
+| ExtBranchVM (10.3.0.4/100.64.2.4) | Spoke2VM (172.16.2.4)  | IPSec over ER | 100.64.2.4
+| ExtBranchVM (10.3.0.4/100.64.2.4) | Spoke3VM (172.16.2.4)  | IPSec over ER | 100.64.2.4
 | BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100
 | BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100
 | BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100
@@ -226,25 +229,36 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 
 #### VM connectivity test example
 
-From Extended Branch VM to Azure Spoke4 VM (172.16.1.4) and Spoke4 VM (100.64.1.4). 
+From Extended Branch VM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4) and Spoke4 VM (100.64.1.4).
 
 ```Bash
 azureuser@extbranch1VM:~$ hostname -I
 10.3.0.4 
-azureuser@extbranch1VM:~$ ping 100.16.1.4 -c 5
-PING 100.16.1.4 (100.16.1.4) 56(84) bytes of data.
-64 bytes from 100.16.1.4: icmp_seq=1 ttl=48 time=45.3 ms
-64 bytes from 100.16.1.4: icmp_seq=2 ttl=48 time=42.2 ms
-64 bytes from 100.16.1.4: icmp_seq=3 ttl=48 time=42.6 ms
-64 bytes from 100.16.1.4: icmp_seq=4 ttl=48 time=43.6 ms
-64 bytes from 100.16.1.4: icmp_seq=5 ttl=48 time=45.4 ms
+azureuser@extbranch1VM:~$ ping 172.16.1.4 -c 5
+PING 172.16.1.4 (172.16.1.4) 56(84) bytes of data.
+64 bytes from 172.16.1.4: icmp_seq=1 ttl=63 time=20.5 ms
+64 bytes from 172.16.1.4: icmp_seq=2 ttl=63 time=22.8 ms
+64 bytes from 172.16.1.4: icmp_seq=3 ttl=63 time=21.1 ms
+64 bytes from 172.16.1.4: icmp_seq=4 ttl=63 time=20.6 ms
+64 bytes from 172.16.1.4: icmp_seq=5 ttl=63 time=20.7 ms
 
---- 100.16.1.4 ping statistics ---
+--- 172.16.1.4 ping statistics ---
 5 packets transmitted, 5 received, 0% packet loss, time 4006ms
-rtt min/avg/max/mdev = 42.238/43.874/45.421/1.359 ms
+rtt min/avg/max/mdev = 20.558/21.190/22.808/0.852 ms
+azureuser@extbranch1VM:~$ ping 100.64.1.4 -c 5
+PING 100.64.1.4 (100.64.1.4) 56(84) bytes of data.
+64 bytes from 100.64.1.4: icmp_seq=1 ttl=63 time=21.2 ms
+64 bytes from 100.64.1.4: icmp_seq=2 ttl=63 time=19.5 ms
+64 bytes from 100.64.1.4: icmp_seq=3 ttl=63 time=18.8 ms
+64 bytes from 100.64.1.4: icmp_seq=4 ttl=63 time=19.4 ms
+64 bytes from 100.64.1.4: icmp_seq=5 ttl=63 time=20.6 ms
+
+--- 100.64.1.4 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4006ms
+rtt min/avg/max/mdev = 18.895/19.933/21.234/0.870 ms
 ```
 
-Below is what Spoke1 VMs receives based on tcpdump. You can see extended branch VM arrives with IP **100.64.2.4** because of the NAT rule.
+Below is what Spoke1 VMs receives based on the tcpdump capture. You can see extended branch VM arrives with IP **100.64.2.4** because of the NAT rule processed by vWAN VPN Gateway.
 
 ```Bash
 azureuser@spoke1VM:~$ hostname -I
@@ -264,9 +278,29 @@ listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
 18:23:55.019824 IP 172.16.1.4 > 100.64.2.4: ICMP echo reply, id 4904, seq 5, length 64
 ```
 
+In the same way, here is what Spoke4VM (10.3.0.4/100.64.1.4) receives from extended branch VM (10.3.0.4/100.64.2.4).
+
+```Bash
+azureuser@spoke4VM:~$ hostname -I
+10.3.0.4 
+azureuser@spoke4VM:~$ sudo tcpdump -n icmp
+tcpdump: verbose output suppressed, use -v or -vv for full protocol decode
+listening on eth0, link-type EN10MB (Ethernet), capture size 262144 bytes
+02:28:52.825625 IP 100.64.2.4 > 10.3.0.4: ICMP echo request, id 9076, seq 1, length 64
+02:28:52.825691 IP 10.3.0.4 > 100.64.2.4: ICMP echo reply, id 9076, seq 1, length 64
+02:28:53.826594 IP 100.64.2.4 > 10.3.0.4: ICMP echo request, id 9076, seq 2, length 64
+02:28:53.826652 IP 10.3.0.4 > 100.64.2.4: ICMP echo reply, id 9076, seq 2, length 64
+02:28:54.827154 IP 100.64.2.4 > 10.3.0.4: ICMP echo request, id 9076, seq 3, length 64
+02:28:54.827196 IP 10.3.0.4 > 100.64.2.4: ICMP echo reply, id 9076, seq 3, length 64
+02:28:55.830203 IP 100.64.2.4 > 10.3.0.4: ICMP echo request, id 9076, seq 4, length 64
+02:28:55.830244 IP 10.3.0.4 > 100.64.2.4: ICMP echo reply, id 9076, seq 4, length 64
+02:28:56.831013 IP 100.64.2.4 > 10.3.0.4: ICMP echo request, id 9076, seq 5, length 64
+02:28:56.831047 IP 10.3.0.4 > 100.64.2.4: ICMP echo reply, id 9076, seq 5, length 64
+```
+
 ##### How to know if traffic goes over ER only or IPSec VPN over ER?
 
-There are complex or simpler ways to determine where the traffic between on-premises and Azure goes. The complex way is to take multiple captures in the OPNsense, VPN Gateways, as well as source and target VMs. However, I will explain the simplest way which is just taking a look in the ICMP TTL using a simple ping test.
+There are complex or simpler ways to determine where the traffic between on-premises and Azure goes. The complex way is to take multiple captures in the OPNsense, VPN Gateways, as well as source and target VMs. However, I will explain the simplest way which is just taking a look at the ICMP TTL using a simple ping test.
 
 In the previous example, you see NAT is triggered only using IPsec VPN and it will show a higher TTL which is 63. When traffic goes over ER it will decrement TTL to 60 based on the number of hops that the traffic goes thru.
 
