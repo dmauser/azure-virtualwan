@@ -93,21 +93,26 @@ This screen shows the VPN Site with the connection reaching over OPNsense with p
 
 1. BGP peer status
 
-There are two BGP sessions (VPN Gateway instances 0 and 1 with respective APIPA IPs 169.254.21.1 and 169.254.21.2) over IPSec with the remote OPNsense BGP IP 169.254.0.1 as shown:
+There are two BGP sessions from both VPN Gateway Instances over IPSec with the remote OPNsense BGP IP 169.254.0.1. Note that the local address in the table below shows default BGP addresses, 192.168.1.14 and 192.168.1.15). However, each instance but APIPAs, 169.254.21.1 and 169.254.21.2, are the ones OPNsense is establishing with.
 
 ![BGP peer status](./media/bgpdash-peerstatus.png)
 
+That peer status screen also shows the remote ASN 65510 for the OPNSense and two routes received which are 10.0.0.0/8 and 10.3.0.0/24.
+
 2. VPN Gateway advertised routes
 
-The connected Spoke4 VNET which has 10.3.0.0/24 will be advertised as 100.64.1.0/24 as shown:
+It will show all connected Spoke VNETs prefixes (172.16.1.0/24,172.16.2.0/24,172.16.3.0/24) as well as the vHUB address space (192.168.1.0/24). All of them with the ASN set 65515 associated with the vHUB VPN Gateway.
 
 ![BGP advertised](./media/bgpadvertised.png)
 
+Here you will see that advertised networks will have next hop the vHUB VPN Gateway APIPA 169.254.21.1 and 169.254.21.2 addresses.
+
 3. VPN Gateway learned routes
 
-- 10.3.0.0/24 is a local route entry that represents the Spoke4 VNET.
-- 100.64.2.0/24 represents NAT for the extended branch 10.3.0.0/24. You will see multiple times this entry because there's a BGP peer between both VPN Gateway instances (192.168.1.14 and 192.168.1.15), vHUB Virtual Router instances (192.168.1.68 and 192.168.1.69). Also, the source peer is the VPN Gateway instances themselves. That is expected because VPN Gateway is responsible for the translation based on the extbranch IngressSnat rule observed on the NAT rules above.
-- 10.0.0.0/8 is a summary advertised by the on-premises OPNsense via BGP with AS path 65510.
+Below we see how VPN Gateway is learning 10.0.0.0/8 and 10.3.0.0/24 from OPNsense BGP APIPA 169.254.0.1.
+
+You might question yourself why do we have other entries to other IPs other than the OPNsense?
+Both 192.168.14 and 15 represent an IBG session between the VPN Gateway instances and the other 192.168.1.68 and 69 represent another iBGP session between VPN Gateway and vHUB Virtual Router where we total of four iBGP sessions (two from each VPN Gateway instance).
 
 ![BGP Learn](./media/bgplearned.png)
 

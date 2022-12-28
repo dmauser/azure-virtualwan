@@ -140,7 +140,7 @@ az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'DC-Cidr-all
 # Associating NSG to the VNET subnets (Spokes and Branches)
 # az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
 # az network vnet subnet update --id $(az network vnet list -g $rg --query '[].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
-az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'main'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(subnets[].name,`'main'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
 
 #Create Branch ExpressRoute Gateway
 echo Creating Branch ExpressRoute Gateway
