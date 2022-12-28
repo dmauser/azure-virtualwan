@@ -118,9 +118,9 @@ Both 192.168.14 and 15 represent an IBG session between the VPN Gateway instance
 
 #### vHub Effective Routes
 
-1. **100.64.2.0/24** is the extended branch 10.3.0.0/24 translated prefix.
-2. OPNsense also advertises **10.0.0.0/8** prefix via BGP and you can see the AS path 65510.
-3. The Spoke4 VNET **10.3.0.0/24** has a VNET connection entry as expected.
+1. **10.100.0.0/24** is the learned route that comes over ExpressRoute connection.
+2. **172.16.1.0/24,172.16.2.0/24,172.16.3.0/24** are Spoke VNETs connected to the vHUB.
+3. **10.3.0.0/24 and 10.0.0.0/8** are the networks learned via S2S VPN. ASN 65510 is set to the OPNsense.
 
 ![vhubeffectiverouts](./media/vhub1effectiveroutes.png)
 
@@ -131,11 +131,35 @@ Both 192.168.14 and 15 represent an IBG session between the VPN Gateway instance
 - Below we have the full dump of the OPNsense BGP configuration:
 
 ```Text
+Current configuration:
+!
+frr version 7.5.1
+frr defaults traditional
+hostname OPNsense.localhost
+log syslog notifications
+!
+router bgp 65510
+ no bgp ebgp-requires-policy
+ no bgp default ipv4-unicast
+ neighbor 169.254.21.1 remote-as 65515
+ neighbor 169.254.21.2 remote-as 65515
+ !
+ address-family ipv4 unicast
+  network 10.0.0.0/8
+  network 10.3.0.0/24
+  neighbor 169.254.21.1 activate
+  neighbor 169.254.21.2 activate
+ exit-address-family
+!
+line vty
+!
+end
 ```
 
 #### BGP route table
 
-In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as 100.64.1.0/24 translated by BGP on the Azure VPN Gateway side based on the [NAT rule configuration](#vhub-vpn-gateway-nat-rules).
+The BGP route table below shows both OPNSense advertised routes **10.3.0.0/24 and 10.0.0.0/8** to the vHUB VPN Gateway. 
+The other routes are learned from vHUB (**192.168.1.0/24**) and the respective connected spoke VNETs (**172.16.1.0/24,172.16.2.0/24,172.16.3.0/24**). We see them listed twice because we have two IPSec tunnels and each with the respective APIPA BGP IP associated with the vHUB VPN Gateway instances.
 
 ![BGP route](./media/opnbgproutetable.png)
 
@@ -143,34 +167,30 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 
 #### Summary
 
-| Source | Destination | Path | What destination sees as source IP |
-|------|------|------|------|
-| ExtBranchVM (10.3.0.4) | Spoke1VM (10.3.0.4) | IPSec over ER |  
-| ExtBranchVM (10.3.0.4) | Spoke1VM (172.16.1.4)  | IPSec over ER |
+| Source | Destination | Path |
+|------|------|------|
+| ExtBranchVM (10.3.0.4) | Spoke1VM (172.16.1.4) | IPSec over ER |  
 | ExtBranchVM (10.3.0.4) | Spoke2VM (172.16.2.4)  | IPSec over ER |
-| ExtBranchVM (10.3.0.4/) | Spoke3VM (172.16.2.4)  | IPSec over ER |
-| BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER | 10.100.0.100 |
-| BranchVM (10.100.0.100) | Spoke2VM (172.16.2.4)  | ER | 10.100.0.100 |
-| BranchVM (10.100.0.100) | Spoke3VM (172.16.3.4)  | ER | 10.100.0.100 |
-
-
-(1) - You can propagate 10.100.0.0/24 over VPN and BranchVM will be able to reach Spoke1VM using IPSec over ER.
+| ExtBranchVM (10.3.0.4) | Spoke3VM (172.16.3.4)  | IPSec over ER |
+| BranchVM (10.100.0.100) | Spoke1VM (172.16.1.4)  | ER |
+| BranchVM (10.100.0.100) | Spoke2VM (172.16.2.4)  | ER |
+| BranchVM (10.100.0.100) | Spoke3VM (172.16.3.4)  | ER |
 
 #### VM connectivity test example
 
-From Extended Branch VM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4) and Spoke4 VM ().
+From Extended-BranchVM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4)
 
 ```Bash
 
 ```
 
-Below is what Spoke1 VMs receives based on the tcpdump capture. You can see extended branch VM arrives with IP **** because of the NAT rule processed by vWAN VPN Gateway.
+From  BranchVM (10.100.0.100) to Azure Spoke1 VM (172.16.1.4)
 
 ```Bash
 
 ```
 
-In the same way, here is what Spoke1VM (10.3.0.4/) receives from extended branch VM (10.3.0.4/).
+In the same way, here is what Spoke1VM (10.3.0.4/) receives from Extended-BranchVM (10.3.0.4/).
 
 ```Bash
 
@@ -182,7 +202,7 @@ There are complex or simpler ways to determine where the traffic between on-prem
 
 In the previous example, you see NAT is triggered only using IPsec VPN and it will show a higher **TTL** which is **63**. When traffic goes over ER it will decrement **TTL to 60** based on the number of hops that the traffic goes thru.
 
-Here is an example when Spoke1VM reaches extended branchvm (10.3.0.4/NAT IP ) and branchvm (10.100.0.100) and you will see **TTL is 60** because it goes over multiple hops (customer router, provider, ER Gateways, etc.).
+Here is an example when Spoke1VM reaches Extended-BranchVM (10.3.0.4) and BranchVM (10.100.0.100) and you will see **TTL is 60** because it goes over multiple hops (customer router, provider, ER Gateways, etc.).
 
 ```Bash
 
