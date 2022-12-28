@@ -1,6 +1,5 @@
 # Lab - Virtual WAN Scenario: IPsec VPN over ER
 
-
 In this article
 
 - [Intro](#intro)
@@ -28,7 +27,7 @@ In this article
 ## Intro
 
 The goal of this lab is to validate IPSec over Express Route using Virtual WAN leveraging only Azure to emulate On-premises.
-You can find the official Microsoft reference for that functionality in [ExpressRoute encryption](https://learn.microsoft.com/en-us/azure/virtual-wan/vpn-over-expressroute): IPsec over ExpressRoute for Virtual WAN](https://learn.microsoft.com/en-us/azure/virtual-wan/vpn-over-expressroute)
+You can find the official Microsoft reference for that functionality in [ExpressRoute encryption: IPsec over ExpressRoute for Virtual WAN](https://learn.microsoft.com/en-us/azure/virtual-wan/vpn-over-expressroute).
 
 ## Lab diagram
 
