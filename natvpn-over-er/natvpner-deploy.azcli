@@ -71,11 +71,11 @@ echo Creating Branch VMs...
 # Depoly On-premises VM:
 # Subnet1
 az network vnet subnet create -g $rg --vnet-name branch -n subnet1 --address-prefixes $subnet1  --output none
-az vm create -n branch-vm1  -g $rg --image ubuntults --public-ip-sku Standard --size $virtualMachineSize -l $region --subnet subnet1 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch-vm1  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet subnet1 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
 
 # Subnet2
 #az network vnet subnet create -g $rg --vnet-name branch -n subnet2 --address-prefixes $subnet2  --output none
-#az vm create -n branch-vm2  -g $rg --image ubuntults --public-ip-sku Standard --size $virtualMachineSize -l $region --subnet subnet2 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
+#az vm create -n branch-vm2  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet subnet2 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
 
 # Indirect VNET connected to the Branch VNET
 az network vnet create --address-prefixes 10.3.0.0/24 -n extbranch -g $rg -l $region --subnet-name main --subnet-prefixes 10.3.0.0/27 --output none
@@ -140,7 +140,7 @@ az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'DC-Cidr-all
 # Associating NSG to the VNET subnets (Spokes and Branches)
 # az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
 # az network vnet subnet update --id $(az network vnet list -g $rg --query '[].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[].subnets[].id' -o tsv) --network-security-group default-nsg-$region -o none
+az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'main'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
 
 #Create Branch ExpressRoute Gateway
 echo Creating Branch ExpressRoute Gateway

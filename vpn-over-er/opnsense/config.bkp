@@ -586,7 +586,7 @@
   </widgets>
   <revision>
     <username>root@47.187.99.34</username>
-    <time>1672261874.5793</time>
+    <time>1671310757.7693</time>
     <description>/api/quagga/bgp/set made changes</description>
   </revision>
   <OPNsense>
@@ -1279,12 +1279,12 @@
       <descr/>
       <disabled>0</disabled>
     </route>
-    <route uuid="e6d717e9-d481-432c-9749-8d7aa4d16cef">
+    <route uuid="e29cad42-299a-47a9-80ac-98257ae5bc2b">
       <network>10.0.0.0/8</network>
       <gateway>LAN_GW</gateway>
       <descr/>
       <disabled>0</disabled>
-    </route>
+    </route>    
   </staticroutes>
   <ipsec>
     <phase1>

@@ -15,11 +15,11 @@ You can find the official Microsoft reference for that functionality in [Express
 - An on-premises emulated in Azure using two networks 10.100.0.0/24 and 10.3.0.0/24.
 - This solution requires two ExpressRoute (ER) circuits connected via an ER Service Provider. This lab uses Megaport and MCR (Megaport Cloud Router) and connected both circuits to the same MCR (ASN 65001).
 - An Extended-Branch with prefix range 10.3.0.0/24 was created to avoid the routing leaking over ExpressRoute. Therefore, there's no need to configure route filters.
- - The Extended-Branch has a UDR 0.0.0.0/0 next hop to the OPNsense internal interface (10.100.0.20).
+  - The Extended-Branch has a UDR 0.0.0.0/0 next hop to the OPNsense internal interface (10.100.0.20).
 - The Branch (10.100.0.0/24) has an NVA OPNsense preconfigured with S2S VPN reaching both vWAN VPN Gateway instances using private IPs 192.168.1.4 and 192.168.1.5.
- - Note that **OPNsense** used as VPN Server has **username:root** and **password:opnsense** and its accessible via HTTPS over its public IP associated with the untrusted NIC.
- - A BGP session is configured between the VTI interfaces (10.200.0.1) and both vWAN VPN Gateway instances BGP IPs 192.168.1.14 and 192.168.1.15.  **Note** that VPN GW BGP IPs may be different during your provisioning. There are cases that those IPs can be set to 192.168.1.12 and 192.168.1.13.
-  - OPNSense advertises 10.3.0.0/24 and 10.0.0.0/8 and has ASN set to 65510.
+  - Note that **OPNsense** used as VPN Server has **username:root** and **password:opnsense** and its accessible via HTTPS over its public IP associated with the untrusted NIC.
+  - A BGP session is configured between the VTI interfaces (10.200.0.1) and both vWAN VPN Gateway instances BGP IPs 192.168.1.14 and 192.168.1.15.  **Note** that VPN GW BGP IPs may be different during your provisioning. There are cases that those IPs can be set to 192.168.1.12 and 192.168.1.13.
+  - OPNsense advertises 10.3.0.0/24 and 10.0.0.0/8 and has ASN set to 65510.
 - All VMs are Linux Ubuntu accessible via SSH restricted by your Public IP (see $mypip parameter) or using Serial Console.
 
 ## Deploy this solution
@@ -40,9 +40,6 @@ vmsize=Standard_B1s #VM Size
 mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
 ```
 
-Note that **OPNsense** used as VPN Server has **username:root** and **password:opnsense**
-
-
 Please, run the following steps to build the entire lab:
 
 ### Step 1 - Deploy the Lab
@@ -59,7 +56,7 @@ Ensure that ExpressRoute Circuits er-circuit-vhub1 and er-circuit-branch are pro
 
 ### Step 3 - Connect ER Circuits to respective ER Gateway
 
-In this step, the script below connect branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
+In this step, the script below connects branch-er-circuit to the Branch ER Gateway and vhub1-er-circuit to the vHub ER Gateway.
 
 ```bash
 wget -O vwan-vpner-conn.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/vpner-conn.azcli
@@ -82,13 +79,13 @@ Via the networking insights, we can get a good view of the vWAN topology and its
 
 #### VPN Gateway configuration
 
-VPN Gateways, a special highlight for the Private IP addresses and the default BGP IP Address. For NAT you must use Default BGP IP addresses. It does not work with Custom BGP IP addresses listed below as APIPA.
+VPN Gateways with default ASN 65515, Private IP addresses and Custom BGP IP Address which has APIPA, 169.254.21.1 for VPN Gateway Instance 0 and 169.254.21.2 for Instance 2. OPNsense has APIPA assigned to 169.254.0.1.
 
 ![VPN Gateway Configuration](./media/vpngateway.png)
 
 #### VPN Site connection
 
-This screen shows the VPN Site with the connection reaching over OPNsense private IP 10.100.0.4 where the IPSec tunnel is terminated and BGP private IP 10.200.0.1 is associated with the IPSec interface.
+This screen shows the VPN Site with the connection reaching over OPNsense with private IP 10.100.0.4 (reachable via ER) and BGP peering with the private IP 169.254.0.1 with ASN 65510.
 
 ![VPNsite](./media/vwanvpnsite.png)
 
@@ -96,7 +93,7 @@ This screen shows the VPN Site with the connection reaching over OPNsense privat
 
 1. BGP peer status
 
-There are two BGP sessions over IPSec with the remote OPNSense BGP IP 10.200.0.1 as shown:
+There are two BGP sessions (VPN Gateway instances 0 and 1 with respective APIPA IPs 169.254.21.1 and 169.254.21.2) over IPSec with the remote OPNsense BGP IP 169.254.0.1 as shown:
 
 ![BGP peer status](./media/bgpdash-peerstatus.png)
 
@@ -117,12 +114,12 @@ The connected Spoke4 VNET which has 10.3.0.0/24 will be advertised as 100.64.1.0
 #### vHub Effective Routes
 
 1. **100.64.2.0/24** is the extended branch 10.3.0.0/24 translated prefix.
-2. OPNSense also advertises **10.0.0.0/8** prefix via BGP and you can see the AS path 65510.
+2. OPNsense also advertises **10.0.0.0/8** prefix via BGP and you can see the AS path 65510.
 3. The Spoke4 VNET **10.3.0.0/24** has a VNET connection entry as expected.
 
 ![vhubeffectiverouts](./media/vhub1effectiveroutes.png)
 
-### OPNSense 
+### OPNsense 
 
 #### BGP configuration
 
