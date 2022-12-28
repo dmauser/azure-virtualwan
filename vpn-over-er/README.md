@@ -1,5 +1,30 @@
 # Lab - Virtual WAN Scenario: IPsec VPN over ER
 
+
+In this article
+
+- [Intro](#intro)
+- [Lab Diagram](#lab-diagram)
+- [Considerations and requirements](#considerations-and-requirements)
+- [Deploy this solution](#deploy-this-solution)
+  - [Step 1 - Deploy the Lab](#step-1---deploy-the-lab)
+  - [Step 2 - Provision ER Circuits with the Provider](#step-2---provision-er-circuits-with-the-provider)
+  - [Step 3 - Connect ER Circuits to respective ER Gateway](#step-3---connect-er-circuits-to-respective-er-gateway)
+- [Validation](#validation)
+  - [Azure Virtual WAN](#azure-virtual-wan)
+    - [Topology](#topology)
+    - [VPN Gateway configuration](#vpn-gateway-configuration)
+    - [VPN Site connection](#vpn-site-connection)
+    - [VPN Gateway BGP Dashboard](#vpn-gateway-bgp-dashboard)
+    - [vHub Effective Routes](#vhub-effective-routes)
+  - [OPNsense](#opnsense)
+    - [BGP configuration](#bgp-configuration)
+    - [BGP route table](#bgp-route-table)
+  - [Connectivity](#connectivity)
+    - [Summary](#summary)
+    - [VM connectivity test example](#vm-connectivity-test-example)
+    - [How to know if traffic goes over ER only or IPSec VPN over ER?](#how-to-know-if-traffic-goes-over-er-only-or-ipsec-vpn-over-er)
+
 ## Intro
 
 The goal of this lab is to validate IPSec over Express Route using Virtual WAN leveraging only Azure to emulate On-premises.
@@ -181,13 +206,37 @@ The other routes are learned from vHUB (**192.168.1.0/24**) and the respective c
 From Extended-BranchVM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4)
 
 ```Bash
+azureuser@extbranch1VM:~$ hostname -I
+10.3.0.4 
+azureuser@extbranch1VM:~$ ping 172.16.1.4 -c 5
+PING 172.16.1.4 (172.16.1.4) 56(84) bytes of data.
+64 bytes from 172.16.1.4: icmp_seq=1 ttl=63 time=22.8 ms
+64 bytes from 172.16.1.4: icmp_seq=2 ttl=63 time=23.5 ms
+64 bytes from 172.16.1.4: icmp_seq=3 ttl=63 time=35.4 ms
+64 bytes from 172.16.1.4: icmp_seq=4 ttl=63 time=20.2 ms
+64 bytes from 172.16.1.4: icmp_seq=5 ttl=63 time=27.1 ms
 
+--- 172.16.1.4 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4005ms
+rtt min/avg/max/mdev = 20.223/25.840/35.425/5.284 ms
 ```
 
 From BranchVM (10.100.0.100) to Azure Spoke1 VM (172.16.1.4)
 
 ```Bash
+azureuser@branch-vm1:~$ hostname -I
+10.100.0.100 
+azureuser@branch-vm1:~$ ping 172.16.1.4 -c 5
+PING 172.16.1.4 (172.16.1.4) 56(84) bytes of data.
+64 bytes from 172.16.1.4: icmp_seq=1 ttl=60 time=19.1 ms
+64 bytes from 172.16.1.4: icmp_seq=2 ttl=60 time=17.9 ms
+64 bytes from 172.16.1.4: icmp_seq=3 ttl=60 time=18.5 ms
+64 bytes from 172.16.1.4: icmp_seq=4 ttl=60 time=17.4 ms
+64 bytes from 172.16.1.4: icmp_seq=5 ttl=60 time=17.3 ms
 
+--- 172.16.1.4 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4005ms
+rtt min/avg/max/mdev = 17.322/18.077/19.168/0.688 ms
 ```
 
 ##### How to know if traffic goes over ER only or IPSec VPN over ER?
@@ -199,5 +248,29 @@ In the previous example, you see NAT is triggered only using IPsec VPN and it wi
 Here is an example when Spoke1VM reaches Extended-BranchVM (10.3.0.4) and BranchVM (10.100.0.100) and you will see **TTL is 60** because it goes over multiple hops (customer router, provider, ER Gateways, etc.).
 
 ```Bash
+azureuser@spoke1VM:~$ hostname -I
+172.16.1.4 
+azureuser@spoke1VM:~$ ping 10.3.0.4 -c 5
+PING 10.3.0.4 (10.3.0.4) 56(84) bytes of data.
+64 bytes from 10.3.0.4: icmp_seq=1 ttl=63 time=22.6 ms
+64 bytes from 10.3.0.4: icmp_seq=2 ttl=63 time=21.8 ms
+64 bytes from 10.3.0.4: icmp_seq=3 ttl=63 time=21.6 ms
+64 bytes from 10.3.0.4: icmp_seq=4 ttl=63 time=20.8 ms
+64 bytes from 10.3.0.4: icmp_seq=5 ttl=63 time=23.8 ms
 
+--- 10.3.0.4 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4006ms
+rtt min/avg/max/mdev = 20.849/22.158/23.881/1.046 ms
+
+azureuser@spoke1VM:~$ ping 10.100.0.100 -c 5
+PING 10.100.0.100 (10.100.0.100) 56(84) bytes of data.
+64 bytes from 10.100.0.100: icmp_seq=1 ttl=60 time=18.1 ms
+64 bytes from 10.100.0.100: icmp_seq=2 ttl=60 time=17.9 ms
+64 bytes from 10.100.0.100: icmp_seq=3 ttl=60 time=23.2 ms
+64 bytes from 10.100.0.100: icmp_seq=4 ttl=60 time=17.8 ms
+64 bytes from 10.100.0.100: icmp_seq=5 ttl=60 time=17.5 ms
+
+--- 10.100.0.100 ping statistics ---
+5 packets transmitted, 5 received, 0% packet loss, time 4007ms
+rtt min/avg/max/mdev = 17.534/18.947/23.218/2.144 ms
 ```
