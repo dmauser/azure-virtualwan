@@ -184,13 +184,7 @@ From Extended-BranchVM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4)
 
 ```
 
-From  BranchVM (10.100.0.100) to Azure Spoke1 VM (172.16.1.4)
-
-```Bash
-
-```
-
-In the same way, here is what Spoke1VM (10.3.0.4/) receives from Extended-BranchVM (10.3.0.4/).
+From BranchVM (10.100.0.100) to Azure Spoke1 VM (172.16.1.4)
 
 ```Bash
 
