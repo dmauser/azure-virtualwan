@@ -25,7 +25,6 @@ In this article
     - [VM connectivity test example](#vm-connectivity-test-example)
     - [How to know if traffic goes over ER only or IPSec VPN over ER?](#how-to-know-if-traffic-goes-over-er-only-or-ipsec-vpn-over-er)
 
-
    
 ## Intro
 
