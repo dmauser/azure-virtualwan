@@ -282,12 +282,6 @@ done
 echo Enabling boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
-# Misc remove NSG from OPNSense NICs 
-az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
-az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
-# Ensure default NSG is on OPNSense Trusted and Untrusted Networks
-az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'trust'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
-
 echo extented branch VM UDR to OPNSense internal interface
 nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
 ## Creating UDR + Disable BGP Propagation
@@ -327,5 +321,10 @@ do
     echo ExpressRoute Gateway $hubname-ergw "provisioningState="$prState
     sleep 5
 done
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
+az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
+# Ensure default NSG is on OPNSense Trusted and Untrusted Networks
+az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'trust'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
 echo Deployment has finished
 echo Start ExpressRoute provisioning with your Service Provider.
