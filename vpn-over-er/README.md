@@ -3,7 +3,7 @@
 In this article
 
 - [Intro](#intro)
-- [Lab Diagram](#lab-diagram)
+- [Lab diagram](#lab-diagram)
 - [Considerations and requirements](#considerations-and-requirements)
 - [Deploy this solution](#deploy-this-solution)
   - [Step 1 - Deploy the Lab](#step-1---deploy-the-lab)
