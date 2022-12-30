@@ -289,14 +289,14 @@ echo Checking subnet status...
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vnet subnet show --name trusted -g $rg --vnet-name branch --query provisioningState -o tsv)
+    prState=$(az network vnet subnet show --name Trusted-Subnet -g $rg --vnet-name branch --query provisioningState -o tsv)
     echo Trusted subnet "provisioningState="$prState
     sleep 5
 done
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vnet subnet show --name untrusted -g $rg --vnet-name branch --query provisioningState -o tsv)
+    prState=$(az network vnet subnet show --name Untrusted-Subnet -g $rg --vnet-name branch --query provisioningState -o tsv)
     echo Unrusted subnet "provisioningState="$prState
     sleep 5
 done
