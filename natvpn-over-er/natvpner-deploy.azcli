@@ -196,7 +196,7 @@ fi
 bgpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
 bgpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
 
-echo "Deploying OPNsense NVA1 on the branch"
+echo "Deploying OPNsense NVA on the branch"
 az vm image terms accept --urn thefreebsdfoundation:freebsd-13_0:13_0-release:13.0.0 -o none
 az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/main.json" \
@@ -282,7 +282,7 @@ done
 echo Enabling boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
-echo extented branch VM UDR to OPNSense internal interface
+echo Creating extented-branch UDR to OPNSense internal interface
 nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
 ## Creating UDR + Disable BGP Propagation
 az network route-table create --name RT-to-extbranch-NVA  --resource-group $rg --location $region --disable-bgp-route-propagation true --output none
@@ -325,6 +325,7 @@ done
 az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
 az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
 # Ensure default NSG is on OPNSense Trusted and Untrusted Networks
+az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'trust'`)].id' -o tsv) --network-security-group "" -o none
 az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'trust'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
 echo Deployment has finished
 echo Start ExpressRoute provisioning with your Service Provider.
