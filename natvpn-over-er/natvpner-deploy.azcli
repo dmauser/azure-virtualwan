@@ -87,7 +87,7 @@ az network vnet peering create -g $rg -n extbranch-to-branch --vnet-name extbran
 
 
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
-echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, nmap3, and others)"
+echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, hping3, and others)"
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
 do
@@ -204,7 +204,7 @@ az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --no-wait
 
 echo Waiting on OPNsense Untrusted NIC provision...
-seconds=20
+seconds=30
 # Display the countdown
 for i in $(seq $seconds -1 1)
 do
