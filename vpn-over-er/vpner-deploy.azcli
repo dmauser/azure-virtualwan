@@ -64,8 +64,8 @@ done
 echo Creating Branch VMs...
 # Depoly On-premises VM:
 # Subnet1
-az network vnet subnet create -g $rg --vnet-name branch -n subnet1 --address-prefixes $subnet1  --output none
-az vm create -n branch-vm1  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet subnet1 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
+az network vnet subnet create -g $rg --vnet-name branch -n main --address-prefixes $subnet1  --output none
+az vm create -n branch-vm1  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
 
 # Subnet2
 #az network vnet subnet create -g $rg --vnet-name branch -n subnet2 --address-prefixes $subnet2  --output none
