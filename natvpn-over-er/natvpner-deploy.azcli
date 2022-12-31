@@ -341,9 +341,9 @@ done
 az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
 az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
 # Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
-az network vnet subnet update --name trusted --network-security-group "" -o none
-az network vnet subnet update --name untrusted --network-security-group "" -o none
-az network vnet subnet update --name trusted --network-security-group default-nsg-$region -o none
-az network vnet subnet update --name untrusted --network-security-group default-nsg-$region -o none
+az network vnet subnet update -g $rg --name trusted --vnet-name branch --network-security-group "" -o none
+az network vnet subnet update -g $rg --name untrusted --vnet-name branch --network-security-group "" -o none
+az network vnet subnet update -g $rg --name trusted --vnet-name branch --network-security-group default-nsg-$region -o none
+az network vnet subnet update -g $rg --name untrusted --vnet-name branch --network-security-group default-nsg-$region -o none
 echo Deployment has finished
 echo Start ExpressRoute provisioning with your Service Provider.
