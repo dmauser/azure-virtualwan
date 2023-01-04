@@ -251,13 +251,13 @@ rt_red_hub2=$(az network vhub route-table show --name rt_red --vhub-name $hub2na
 rt_blue_hub2=$(az network vhub route-table show --name rt_blue --vhub-name $hub2name -g $rg --query id -o tsv)
 
 ## Create Isolated Red VNETs (rt_red) on both Hubs
-echo Creating Isolated Red VNETs (rt_red) on both Hubs
+echo "Creating Isolated Red VNETs (rt_red) on both Hubs"
 az network vhub connection update --name spoke1conn --resource-group $rg --associated-route-table $rt_red_hub1 --vhub-name $hub1name --propagated-route-tables $rt_red_hub1 $default_hub1 --labels rt_red default --no-wait
 az network vhub connection update --name spoke4conn --resource-group $rg --associated-route-table $rt_red_hub2 --vhub-name $hub2name --propagated-route-tables $rt_red_hub2 $default_hub2 --labels rt_red default --no-wait
 az network vhub connection update --name spoke6conn --resource-group $rg --associated-route-table $rt_red_hub2 --vhub-name $hub2name --propagated-route-tables $rt_red_hub2 $default_hub2 --labels rt_red default --no-wait
 
 ## Create Isolated Blue VNETs (rt_blue) on both Hubs
-echo Creating Isolated Blue VNETs (rt_red) on both Hubs
+echo "Creating Isolated Blue VNETs (rt_red) on both Hubs"
 az network vhub connection update --name spoke2conn --resource-group $rg --associated-route-table $rt_blue_hub1 --vhub-name $hub1name --propagated-route-tables $rt_blue_hub1 $default_hub1 --labels rt_blue default --no-wait
 az network vhub connection update --name spoke3conn --resource-group $rg --associated-route-table $rt_blue_hub1 --vhub-name $hub1name --propagated-route-tables $rt_blue_hub1 $default_hub1 --labels rt_blue default --no-wait
 az network vhub connection update --name spoke5conn --resource-group $rg --associated-route-table $rt_blue_hub2 --vhub-name $hub2name --propagated-route-tables $rt_blue_hub2 $default_hub2 --labels rt_blue default --no-wait
