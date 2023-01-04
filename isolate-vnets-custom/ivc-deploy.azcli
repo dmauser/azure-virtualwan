@@ -267,3 +267,4 @@ echo Configuring labels for Braches
 az network vpn-gateway connection update --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --propagated $rt_red_hub1 $rt_blue_hub1 $default_hub1 --label default rt_blue rt_red --output none
 az network vpn-gateway connection update --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --propagated $rt_red_hub2 $rt_blue_hub2 $default_hub2 --label default rt_blue rt_red --output none
 
+echo Deployment has finished
