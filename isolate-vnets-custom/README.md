@@ -44,7 +44,6 @@ chmod +xr ivc-deploy.sh
 ```
 
 ### Validate
-
 ```bash
 # Parameters 
 rg=lab-vwan-rb #set resource group
