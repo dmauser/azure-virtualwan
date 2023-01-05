@@ -14,11 +14,9 @@ vwanname=vwan-rb
 hub1name=hub1
 hub2name=hub2
 username=azureuser
-password="Msft123Msft123"
-vmsize=Standard_DS1_v2
-
-#Variables
-mypip=$(curl -4 ifconfig.io -s)
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #VM Size
+mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
 
 # create rg
 az group create -n $rg -l $loc1 --output none
