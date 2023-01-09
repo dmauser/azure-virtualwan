@@ -22,10 +22,10 @@ In this article
     - [BGP route table](#bgp-route-table)
   - [Connectivity](#connectivity)
     - [Summary](#summary)
-    - [VM connectivity test](#vm-connectivity-test)
+    - [Effective Route Table](#effective-route-table)
+    - [Connectivity Test](#connectivity-validation)
     - [How to know if traffic goes over ER only or IPSec VPN over ER?](#how-to-know-if-traffic-goes-over-er-only-or-ipsec-vpn-over-er)
 
-   
 ## Intro
 
 The goal of this lab is to validate IPSec over ExpressRoute using Virtual WAN to address overlapping IP prefixes by leveraging vWAN VPN Gateway NAT feature.
@@ -227,7 +227,7 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 (1) - You can propagate 10.100.0.0/24 over VPN and BranchVM will be able to reach Spoke4VM using IPSec over ER.
 
 
-#### VMs effective route table
+#### Effective route table
 
 Below you can see the effective routes for Spoke1VM and Extended-Branch.
 
@@ -263,7 +263,7 @@ Default   Invalid  0.0.0.0/0         Internet
 User      Active   0.0.0.0/0         VirtualAppliance  10.100.0.20 => UDR to force all traffic to the OPNsense trusted interface
 ```
 
-#### VMs connectivity test
+#### Connectivity validation
 
 From Extended Branch VM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4) and Spoke4 VM (100.64.1.4).
 
