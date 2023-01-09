@@ -1,4 +1,4 @@
-# variables (make changes based on your requirements)
+# Parameters
 region=southcentralus
 rg=lab-vwan-natvpner
 vwanname=vwan-natvpner

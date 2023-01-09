@@ -22,7 +22,7 @@ In this article
     - [BGP route table](#bgp-route-table)
   - [Connectivity](#connectivity)
     - [Summary](#summary)
-    - [VM connectivity test example](#vm-connectivity-test-example)
+    - [VM connectivity test](#vm-connectivity-test)
     - [How to know if traffic goes over ER only or IPSec VPN over ER?](#how-to-know-if-traffic-goes-over-er-only-or-ipsec-vpn-over-er)
 
    
@@ -226,7 +226,44 @@ In the screenshot below you can see Spoke 4 original prefix 10.3.0.0/24 comes as
 
 (1) - You can propagate 10.100.0.0/24 over VPN and BranchVM will be able to reach Spoke4VM using IPSec over ER.
 
-#### VM connectivity test example
+
+#### VMs effective route table
+
+Below you can see the effective routes for Spoke1VM and Extended-Branch.
+
+**Spoke1VM effective routes:**
+See comments on each prefix destination.
+
+```Bash
+
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  -------------
+Default                Active   172.16.1.0/24     VnetLocal
+Default                Active   192.168.1.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  40.74.161.110 => vHub Virtual Router (Spoke2 VNET prefix)
+VirtualNetworkGateway  Active   10.100.0.0/24     VirtualNetworkGateway  10.20.78.139 => ExpressRoute MSEE (Branch Prefix)
+VirtualNetworkGateway  Active   100.64.2.0/24     VirtualNetworkGateway  192.168.1.15 => vHub VPN Gateway (Extended Branch Prefix)
+VirtualNetworkGateway  Active   100.64.2.0/24     VirtualNetworkGateway  192.168.1.14 => vHub VPN Gateway (Extended Branch Prefix)
+VirtualNetworkGateway  Active   10.3.0.0/24       VirtualNetworkGateway  40.74.161.110 => vHub Virtual Router (Spoke4 VNET prefix)
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  40.74.161.110 => vHub Virtual Router (Spoke3 VNET prefix)
+VirtualNetworkGateway  Active   10.0.0.0/8        VirtualNetworkGateway  192.168.1.15 => vHub VPN Gateway (10/8 prefix advertised by OPNSense)
+VirtualNetworkGateway  Active   10.0.0.0/8        VirtualNetworkGateway  192.168.1.14 => vHub VPN Gateway (10/8 prefix advertised by OPNSense)
+Default                Active   0.0.0.0/0         Internet
+```
+
+**Extend-branch VM effective routes:**
+
+```Bash
+extbranch1VMVMNic effective routes:
+Source    State    Address Prefix    Next Hop Type     Next Hop IP
+--------  -------  ----------------  ----------------  -------------
+Default   Active   10.3.0.0/24       VnetLocal
+Default   Active   10.100.0.0/24     VNetPeering
+Default   Invalid  0.0.0.0/0         Internet
+User      Active   0.0.0.0/0         VirtualAppliance  10.100.0.20 => UDR to force all traffic to the OPNsense trusted interface
+```
+
+#### VMs connectivity test
 
 From Extended Branch VM (10.3.0.4) to Azure Spoke1 VM (172.16.1.4) and Spoke4 VM (100.64.1.4).
 

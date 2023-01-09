@@ -1,0 +1,13 @@
+# Stop Firewall 
+rgs=$(az network firewall list --query [].resourceGroup -o tsv)
+azfwname=$(az network firewall list --query [].name -o tsv)
+for rg in $rgs
+do
+ prState1=''
+ while [[ $prState1 != 'Succeeded' ]];
+ do
+    prState1=$(az network firewall show -g $rg -n $azfwname --query 'provisioningState' -o tsv)
+    echo "$azfwname provisioningState="$prState1
+    sleep 5
+ done
+done
