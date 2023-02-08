@@ -89,7 +89,7 @@ az network vnet subnet update --name main --vnet-name Spoke2 --resource-group $r
 ### Make exception to remote SSH Spoke3VM from Home Public IP
 az network route-table create --name Spoke3VM-RT --resource-group $rg --location $location2 -o none
 az network route-table route create --resource-group $rg --name to-HomePIP --route-table-name Spoke3VM-RT --address-prefix $mypip/32 --next-hop-type Internet -o none
-az network vnet subnet update --name main --vnet-name Spoke2 --resource-group $rg --route-table Spoke3VM-RT -o none
+az network vnet subnet update --name main --vnet-name Spoke3 --resource-group $rg --route-table Spoke3VM-RT -o none
 
 ## Waiting vHUB Hub and routing state to Provisioned before proceeding with the next steps.
 
@@ -127,12 +127,22 @@ done
 
 # az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name
 lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+# vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
+az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none --no-wait
 az network vhub connection create --name conn-to-spoke2 --resource-group $rg --remote-vnet Spoke2 --vhub-name $hub1name -o none --no-wait
-vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
-az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet $vnetid --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none --no-wait
-connid=$(az network vhub connection show -g $rg -n conn-to-spoke1 --vhub-name $hub1name --query id -o tsv)
-az network vhub route-table route add --name defaultRouteTable --vhub-name $hub1name --resource-group $rg --route-name default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
-#Hub2
 az network vhub connection create --name conn-to-spoke3 --resource-group $rg --remote-vnet Spoke3 --vhub-name $hub2name -o none --no-wait
-az network vhub route-table route add --name defaultRouteTable --vhub-name $hub2name --resource-group $rg --route-name default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n conn-to-spoke1 --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection conn-to-spoke1 provisioningState="$prState
+    sleep 5
+done
+#Hub1 static route
+connid=$(az network vhub connection show -g $rg -n conn-to-spoke1 --vhub-name $hub1name --query id -o tsv)
+az network vhub route-table route add --name defaultRouteTable --vhub-name $hub1name --resource-group $rg --route-name rt-default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
+#Hub2
+connid=$(az network vhub connection show -g $rg -n conn-to-spoke1 --vhub-name $hub1name --query id -o tsv)
+az network vhub route-table route add --name defaultRouteTable --vhub-name $hub2name --resource-group $rg --route-name rt-default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
 

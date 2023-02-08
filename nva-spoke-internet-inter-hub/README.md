@@ -1,55 +1,67 @@
-# LAB: Azure Virtual WAN using NVA on Spoke for Internet
+# LAB: Azure Virtual WAN using NVA on Spoke for Internet (Multi-Hub scenario)
 
 ### Diagram
 
 ![NVA Spoke to Internet](./media/nva-spoke-internet.png)
 
+### Learnings
+
+- By default 0.0.0.0/0 does not propagate across Virtual Hubs. _All information pertaining to 0.0.0.0/0 route is confined to a local hub's route table. This route doesn't propagate across hubs._ Reference: [About virtual hub routing](https://learn.microsoft.com/en-us/azure/virtual-wan/about-virtual-hub-routing#considerations).
+
+- This Lab shows that is possible to use a static route and make a VNET (Spoke3) connected to vHUB2 to break out the internet on NVA connected to vHUB1. This is ideal for scenarios where customers can deploy vHUB in the same region and use only one NVA for internet breakout.
 
 ### Lab steps:
 
 ```Bash
 ##Parameters (make changes based on your needs)
 rg="vwan-lxnva-lab"
-location="centralus"
-hubname="vhub1"
+location1="centralus"
+location2="centralus"
+hub1name="vhub1"
+hub2name="vhub2"
 username=azureuser
 password=Msft123Msft123
 
 #Variables
-let "randomIdentifier=$RANDOM*$RANDOM" #used to create unique storage account name.
 nvavnet=Spoke1 #NVA VNET Name
-connname=to-spoke1 #vWAN connection name
+connname=conn-to-spoke1 #vWAN connection name
 mypip=$(curl -s -4 ifconfig.io)
 
 #Resource Group
-az group create --name $rg --location $location -o none
+az group create --name $rg --location $location1 -o none
 
 #Create VWAN Hub
-az network vwan create --name VWAN --resource-group $rg --branch-to-branch-traffic true --location $location -o none
-az network vhub create --address-prefix 192.168.0.0/24 --name $hubname --resource-group $rg --vwan VWAN --location $location --sku basic --no-wait
+az network vwan create --name VWAN --resource-group $rg --branch-to-branch-traffic true --location $location1 -o none
+az network vhub create --address-prefix 192.168.0.0/24 --name $hub1name --resource-group $rg --vwan VWAN --location $location1 --sku standard --no-wait
+az network vhub create --address-prefix 192.168.1.0/24 --name $hub2name --resource-group $rg --vwan VWAN --location $location1 --sku standard --no-wait
 
-#Create Spoke1 and linux-nva
-az network vnet create --resource-group $rg --name Spoke1 --location $location --address-prefixes 10.1.0.0/16 --subnet-name nvasubnet --subnet-prefix 10.1.0.0/24 -o none
-
+#Create Spoke1 and spoke1-nva
+az network vnet create --resource-group $rg --name Spoke1 --location $location1 --address-prefixes 10.1.0.0/16 --subnet-name nvasubnet --subnet-prefix 10.1.0.0/24 -o none
 #NVA + Config script to enable NAT
-az network public-ip create --name linux-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none
-az network nic create --name linux-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address linux-nva-pip --ip-forwarding true -o none
-az vm create --resource-group $rg --location $location --name linux-nva --size Standard_B1s --nics linux-nva-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+az network public-ip create --name spoke1-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none
+az network nic create --name spoke1-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address spoke1-nva-pip --ip-forwarding true -o none
+az vm create --resource-group $rg --location $location1 --name spoke1-nva --size Standard_B1s --nics spoke1-nva-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
 #Enable routing and NAT on Linux NVA:
 scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
-az vm extension set --resource-group $rg --vm-name linux-nva  --name customScript --publisher Microsoft.Azure.Extensions \
+az vm extension set --resource-group $rg --vm-name spoke1-nva  --name customScript --publisher Microsoft.Azure.Extensions \
 --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouter.sh\"}" \
 --no-wait
 
 ## Create Spoke2 VNET and Spoke2 VM
-az network vnet create --resource-group $rg --name Spoke2 --location $location --address-prefixes 10.2.0.0/16 --subnet-name Spoke2VM --subnet-prefix 10.2.10.0/24 -o none
-az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location $location --allocation-method Dynamic -o none
-az network nic create --resource-group $rg -n Spoke2VMNIC --location $location --subnet Spoke2VM --vnet-name Spoke2 --public-ip-address Spoke2VMPubIP --private-ip-address 10.2.10.4 -o none
-az VM create -n Spoke2VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password --nics Spoke2VMNIC --no-wait -o none
+az network vnet create --resource-group $rg --name Spoke2 --location $location1 --address-prefixes 10.2.0.0/16 --subnet-name main --subnet-prefix 10.2.10.0/24 -o none
+az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location $location1 --allocation-method Dynamic -o none
+az network nic create --resource-group $rg -n Spoke2VMNIC --location $location1 --subnet main --vnet-name Spoke2 --public-ip-address Spoke2VMPubIP --private-ip-address 10.2.10.4 -o none
+az VM create -n Spoke2VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke2VMNIC --no-wait -o none
+
+## Create Spoke3 VNET and Spoke3 VM
+az network vnet create --resource-group $rg --name Spoke3 --location $location2 --address-prefixes 10.3.0.0/16 --subnet-name main --subnet-prefix 10.3.10.0/24 -o none
+az network public-ip create --name Spoke3VMPubIP --resource-group $rg --location $location2 --allocation-method Dynamic -o none
+az network nic create --resource-group $rg -n Spoke3VMNIC --location $location2 --subnet main --vnet-name Spoke3 --public-ip-address Spoke3VMPubIP --private-ip-address 10.3.10.4 -o none
+az VM create -n Spoke3VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke3VMNIC --no-wait -o none
 
 #Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
-az network nsg create --resource-group $rg --name default-nsg --location $location -o none
-az network nsg rule create -g $rg --nsg-name default-nsg -n default-allow-ssh \
+az network nsg create --resource-group $rg --name $location1-default-nsg --location $location1 -o none
+az network nsg rule create -g $rg --nsg-name $location1-default-nsg -n default-allow-ssh \
     --direction Inbound \
     --priority 100 \
     --source-address-prefixes $mypip/32 \
@@ -60,7 +72,7 @@ az network nsg rule create -g $rg --nsg-name default-nsg -n default-allow-ssh \
     --protocol Tcp \
     --description "Allow inbound SSH" \
     --output none
-az network nsg rule create -g $rg --nsg-name default-nsg -n allow-RFC-1918 \
+az network nsg rule create -g $rg --nsg-name $location1-default-nsg -n allow-RFC-1918 \
     --direction Inbound \
     --priority 110 \
     --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
@@ -71,63 +83,83 @@ az network nsg rule create -g $rg --nsg-name default-nsg -n allow-RFC-1918 \
     --protocol '*' \
     --description "Allow-Traffic-RFC-1918" \
     --output none
-az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name $nvavnet --network-security-group default-nsg -o none
-az network vnet subnet update --name Spoke2VM --resource-group $rg --vnet-name Spoke2 --network-security-group default-nsg -o none
+az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name $nvavnet --network-security-group $location1-default-nsg -o none
+az network vnet subnet update --name main --resource-group $rg --vnet-name Spoke2 --network-security-group $location1-default-nsg -o none
+az network vnet subnet update --name main --resource-group $rg --vnet-name Spoke3 --network-security-group $location1-default-nsg -o none
 
-#Enable boot diagnostics for all VMs in the resource group (Serial console)
-#Create Storage Account (boot diagnostics + serial console)
-az storage account create -n sc$randomIdentifier -g $rg -l $location --sku Standard_LRS -o none
 #Enable boot diagnostics
-stguri=$(az storage account show -n sc$randomIdentifier -g $rg --query primaryEndpoints.blob -o tsv)
-az vm boot-diagnostics enable --storage $stguri --ids $(az vm list -g $rg --query "[].id" -o tsv) -o none
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query "[].id" -o tsv) -o none
 
 #UDRs
 ### UDR to force NVA go out the Internet (it does not get affected by 0/0 propagated by vHUB)
-az network route-table create --name linux-nva-RT --resource-group $rg --location $location -o none
-az network route-table route create --resource-group $rg --name to-Internet --route-table-name linux-nva-RT --address-prefix 0.0.0.0/0 --next-hop-type Internet -o none
-az network vnet subnet update --name nvasubnet --vnet-name Spoke1 --resource-group $rg --route-table linux-nva-RT -o none
+az network route-table create --name spoke1-nva-RT --resource-group $rg --location $location1 -o none
+az network route-table route create --resource-group $rg --name to-Internet --route-table-name spoke1-nva-RT --address-prefix 0.0.0.0/0 --next-hop-type Internet -o none
+az network vnet subnet update --name nvasubnet --vnet-name Spoke1 --resource-group $rg --route-table spoke1-nva-RT -o none
 
 ### Make exception to remote SSH Spoke2VM from Home Public IP
-az network route-table create --name Spoke2VM-RT --resource-group $rg --location $location -o none
+az network route-table create --name Spoke2VM-RT --resource-group $rg --location $location1 -o none
 az network route-table route create --resource-group $rg --name to-HomePIP --route-table-name Spoke2VM-RT --address-prefix $mypip/32 --next-hop-type Internet -o none
-az network vnet subnet update --name Spoke2VM --vnet-name Spoke2 --resource-group $rg --route-table Spoke2VM-RT -o none
+az network vnet subnet update --name main --vnet-name Spoke2 --resource-group $rg --route-table Spoke2VM-RT -o none
+
+### Make exception to remote SSH Spoke3VM from Home Public IP
+az network route-table create --name Spoke3VM-RT --resource-group $rg --location $location2 -o none
+az network route-table route create --resource-group $rg --name to-HomePIP --route-table-name Spoke3VM-RT --address-prefix $mypip/32 --next-hop-type Internet -o none
+az network vnet subnet update --name main --vnet-name Spoke3 --resource-group $rg --route-table Spoke3VM-RT -o none
 
 ## Waiting vHUB Hub and routing state to Provisioned before proceeding with the next steps.
 
 prState=''
 rtState=''
-start_time=`date +%s`
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub show -g $rg -n $hubname --query 'provisioningState' -o tsv)
-    echo "$hubname provisioningState="$prState
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
     sleep 5
 done
-run_time=$(expr `date +%s` - $start_time)
-((minutes=${run_time}/60))
-((seconds=${run_time}%60))
-echo "vWAN Hub $hubname provisioning state is $prState, wait time $minutes minutes and $seconds seconds"
 
-start_time=`date +%s`
 while [[ $rtState != 'Provisioned' ]];
 do
-    rtState=$(az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv)
-    echo "$hubname routingState="$rtState
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
     sleep 5
 done
-run_time=$(expr `date +%s` - $start_time)
-((minutes=${run_time}/60))
-((seconds=${run_time}%60))
-echo "vWAN Hub $hubname routing state is $prState, wait time $minutes minutes and $seconds seconds"
 
-# az network vhub connection create --name to-Spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hubname
-lxnvaip=$(az network nic show -n linux-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
-az network vhub connection create --name to-Spoke2 --resource-group $rg --remote-vnet Spoke2 --vhub-name $hubname -o none
-vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
-az network vhub connection create --name to-Spoke1 --resource-group $rg --remote-vnet $vnetid --vhub-name $hubname --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none
-connid=$(az network vhub connection show -g $rg -n to-Spoke1 --vhub-name $hubname --query id -o tsv)
-az network vhub route-table route add --name defaultRouteTable --vhub-name $hubname --resource-group $rg --route-name default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
 
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+# az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name
+lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+# vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
+az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none --no-wait
+az network vhub connection create --name conn-to-spoke2 --resource-group $rg --remote-vnet Spoke2 --vhub-name $hub1name -o none --no-wait
+az network vhub connection create --name conn-to-spoke3 --resource-group $rg --remote-vnet Spoke3 --vhub-name $hub2name -o none --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n conn-to-spoke1 --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection conn-to-spoke1 provisioningState="$prState
+    sleep 5
+done
+#Hub1 static route
+connid=$(az network vhub connection show -g $rg -n conn-to-spoke1 --vhub-name $hub1name --query id -o tsv)
+az network vhub route-table route add --name defaultRouteTable --vhub-name $hub1name --resource-group $rg --route-name rt-default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
+#Hub2
+connid=$(az network vhub connection show -g $rg -n conn-to-spoke1 --vhub-name $hub1name --query id -o tsv)
+az network vhub route-table route add --name defaultRouteTable --vhub-name $hub2name --resource-group $rg --route-name rt-default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
 ```
 
 ```bash
