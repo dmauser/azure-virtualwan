@@ -27,7 +27,7 @@ password=Msft123Msft123
 #Variables
 nvavnet=Spoke1 #NVA VNET Name
 connname=conn-to-spoke1 #vWAN connection name
-mypip=$(curl -s -4 ifconfig.io)
+mypip=$(curl -s -4 ifconfig.io) #or replace with your Home Public IP in case you deploy over Azure Cloud Shell.
 
 #Resource Group
 az group create --name $rg --location $location1 -o none
@@ -40,9 +40,9 @@ az network vhub create --address-prefix 192.168.1.0/24 --name $hub2name --resour
 #Create Spoke1 and spoke1-nva
 az network vnet create --resource-group $rg --name Spoke1 --location $location1 --address-prefixes 10.1.0.0/16 --subnet-name nvasubnet --subnet-prefix 10.1.0.0/24 -o none
 #NVA + Config script to enable NAT
-az network public-ip create --name spoke1-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none
-az network nic create --name spoke1-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address spoke1-nva-pip --ip-forwarding true -o none
-az vm create --resource-group $rg --location $location1 --name spoke1-nva --size Standard_B1s --nics spoke1-nva-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+az network public-ip create --name spoke1-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none --only-show-errors
+az network nic create --name spoke1-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address spoke1-nva-pip --ip-forwarding true -o none --only-show-errors
+az vm create --resource-group $rg --location $location1 --name spoke1-nva --size Standard_B1s --nics spoke1-nva-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none --only-show-errors
 #Enable routing and NAT on Linux NVA:
 scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
 az vm extension set --resource-group $rg --vm-name spoke1-nva  --name customScript --publisher Microsoft.Azure.Extensions \
@@ -51,15 +51,15 @@ az vm extension set --resource-group $rg --vm-name spoke1-nva  --name customScri
 
 ## Create Spoke2 VNET and Spoke2 VM
 az network vnet create --resource-group $rg --name Spoke2 --location $location1 --address-prefixes 10.2.0.0/16 --subnet-name main --subnet-prefix 10.2.10.0/24 -o none
-az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location $location1 --allocation-method Dynamic -o none
+az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location $location1 --allocation-method Dynamic -o none --only-show-errors
 az network nic create --resource-group $rg -n Spoke2VMNIC --location $location1 --subnet main --vnet-name Spoke2 --public-ip-address Spoke2VMPubIP --private-ip-address 10.2.10.4 -o none
-az VM create -n Spoke2VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke2VMNIC --no-wait -o none
+az VM create -n Spoke2VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke2VMNIC --no-wait -o none --only-show-errors
 
 ## Create Spoke3 VNET and Spoke3 VM
 az network vnet create --resource-group $rg --name Spoke3 --location $location2 --address-prefixes 10.3.0.0/16 --subnet-name main --subnet-prefix 10.3.10.0/24 -o none
-az network public-ip create --name Spoke3VMPubIP --resource-group $rg --location $location2 --allocation-method Dynamic -o none
+az network public-ip create --name Spoke3VMPubIP --resource-group $rg --location $location2 --allocation-method Dynamic -o none --only-show-errors
 az network nic create --resource-group $rg -n Spoke3VMNIC --location $location2 --subnet main --vnet-name Spoke3 --public-ip-address Spoke3VMPubIP --private-ip-address 10.3.10.4 -o none
-az VM create -n Spoke3VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke3VMNIC --no-wait -o none
+az VM create -n Spoke3VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke3VMNIC --no-wait -o none --only-show-errors
 
 #Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
 az network nsg create --resource-group $rg --name $location1-default-nsg --location $location1 -o none

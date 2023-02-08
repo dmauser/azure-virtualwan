@@ -10,7 +10,7 @@ password=Msft123Msft123
 #Variables
 nvavnet=Spoke1 #NVA VNET Name
 connname=conn-to-spoke1 #vWAN connection name
-mypip=$(curl -s -4 ifconfig.io)
+mypip=$(curl -s -4 ifconfig.io) #or replace with your Home Public IP in case you deploy over Azure Cloud Shell.
 
 #Resource Group
 az group create --name $rg --location $location1 -o none
