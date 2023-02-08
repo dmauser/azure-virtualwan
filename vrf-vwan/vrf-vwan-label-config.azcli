@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=eastus
+region3=eastus
+
+rg=lab-vwan-vrf
+vwanname=vwan-vrf
+hub1name=hub1
+hub2name=hub2
+hub3name=hub3
+
+# Create vHubs Labels
+az network vhub route-table update -n defaultroutetable -g $rg --vhub-name $hub1name --labels default prod --no-wait
+az network vhub route-table update -n defaultroutetable -g $rg --vhub-name $hub2name --labels default dev --no-wait
+az network vhub route-table update -n defaultroutetable -g $rg --vhub-name $hub3name --labels default shared --no-wait
+
+# Update VNET connections
+az network vhub connection update --name spoke1conn --vhub-name $hub1name  --resource-group $rg --labels prod shared --no-wait
+az network vhub connection update --name spoke2conn --vhub-name $hub1name  --resource-group $rg --labels prod shared --no-wait
+
+az network vhub connection update --name spoke3conn --vhub-name $hub2name  --resource-group $rg --labels dev shared --no-wait
+az network vhub connection update --name spoke4conn --vhub-name $hub2name  --resource-group $rg --labels dev shared --no-wait
+
+az network vhub connection update --name spoke5conn --vhub-name $hub3name  --resource-group $rg --labels prod dev --no-wait
+az network vhub connection update --name spoke6conn --vhub-name $hub3name  --resource-group $rg --labels prod dev --no-wait
+
+# VPN Connections Labels (This is required to isolate branches.)
+default_hub1=$(az network vhub route-table show --name defaultroutetable --vhub-name $hub1name -g $rg --query id -o tsv)
+default_hub2=$(az network vhub route-table show --name defaultroutetable --vhub-name $hub2name -g $rg --query id -o tsv)
+az network vpn-gateway connection update --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --propagated $default_hub1 --label prod shared --output none --no-wait
+az network vpn-gateway connection update --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --propagated $default_hub2 --label dev shared --output none --no-wait

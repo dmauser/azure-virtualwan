@@ -1,0 +1,47 @@
+#!/bin/bash
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=eastus
+region3=eastus
+
+rg=lab-vwan-vrf
+vwanname=vwan-vrf
+hub1name=hub1
+hub2name=hub2
+hub3name=hub3
+username=azureuser
+password="Msft123Msft123"
+vmsize=Standard_DS1_v2
+firewallsku=Premium #Azure Firewall SKU Standard or Premium
+
+#Enabling Secured-vHUB + Routing intenet
+echo "Enabling Secured-vHUB + Routing intent (Private Traffic Only)"
+nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
+az deployment group create --name $hub1name-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-intra-region/bicep/main.json \
+--parameters scenarioOption=PrivateOnly hubname=$hub1name nexthop=$nexthophub1 \
+--no-wait
+
+nexthophub2=$(az network vhub show -g $rg -n $hub2name --query azureFirewall.id -o tsv)
+az deployment group create --name $hub2name-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-intra-region/bicep/main.json \
+--parameters scenarioOption=PrivateOnly hubname=$hub2name nexthop=$nexthophub2 \
+--no-wait
+
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub1name routing intent provisioningState="$prState
+    sleep 5
+done
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub2name routing intent provisioningState="$prState
+    sleep 5
+done

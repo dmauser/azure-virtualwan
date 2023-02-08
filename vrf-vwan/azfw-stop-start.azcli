@@ -1,0 +1,55 @@
+# Stop all Firewalls in the subscription
+echo Stopping all Azure Firewalls
+az network firewall update --ids $(az network firewall list --query [].id -o tsv) --vhub '' --output none &>/dev/null &
+echo Checking Azure Firewall status...
+sleep 5
+for id in $(az network firewall list --query [].id -o tsv);
+do
+ prState1=''
+ while [[ $prState1 != 'Succeeded' ]];
+ do
+    prState1=$(az network firewall show --id $id --query 'provisioningState' -o tsv)
+    echo "$(az network firewall show --id $id --query 'name' -o tsv) provisioningState="$prState1
+    sleep 5
+ done
+done
+
+
+# Start Firewall
+
+# Add only vHub with Azure-Firewall 
+
+
+vhubnames=$(az network vhub list --query [].name -o tsv)
+for vhubname in $vhubnames; do
+ az network firewall update --ids $(az network firewall list --query "[?contains(name,'$vhubname')].id" -o tsv) --vhub $(az network vhub list --query "[?contains(name,'$vhubname')].id" -o tsv) --output none
+done
+
+vhubname=hub1
+
+
+for vhubname in $vhubnames; do
+ prState1=''
+ while [[ $prState1 != 'Succeeded' ]];
+ do
+    prState1=$(az network firewall list --query "[?contains(name,'$vhubname')].provisioningState" -o tsv)
+    echo "$vhubname-azfw provisioningState="$prState1
+    sleep 5
+ done
+done
+
+
+
+
+vhubnames=$(az network vhub list --query [].name -o tsv)
+for vhubname in $vhubnames; 
+do
+ az network vhub list --query "[?contains(name,'$vhubname')].id" -o tsv
+done
+
+
+
+
+if
+
+

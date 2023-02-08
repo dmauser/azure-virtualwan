@@ -1,0 +1,283 @@
+#!/bin/bash
+
+# Pre-Requisite
+az extension add --name virtual-wan 
+# or update
+az extension update --name virtual-wan
+
+# Parameters (make changes based on your requirements)
+region1=westus
+region2=westus
+region3=westus
+
+rg=lab-vwan-vrf 
+vwanname=vwan-vrf
+hub1name=hub4
+hub2name=hub5
+hub3name=hub6
+username=azureuser
+password="Msft123Msft123"
+vmsize=Standard_DS1_v2
+
+#Variables
+mypip=$(curl -4 ifconfig.io -s)
+
+echo Creating vwan and both hubs...
+# create virtual wan
+az network vhub create -g $rg --name $hub1name --address-prefix 192.168.4.0/24 --vwan $vwanname --location $region1 --sku Standard --no-wait
+az network vhub create -g $rg --name $hub2name --address-prefix 192.168.6.0/24 --vwan $vwanname --location $region2 --sku Standard --no-wait
+az network vhub create -g $rg --name $hub3name --address-prefix 192.168.6.0/24 --vwan $vwanname --location $region3 --sku Standard --no-wait
+
+echo Creating spoke VNETs...
+# create spokes virtual network
+# Region1
+az network vnet create --address-prefixes 172.16.11.0/24 -n spoke11 -g $rg -l $region1 --subnet-name main --subnet-prefixes 172.16.11.0/27 --output none
+az network vnet create --address-prefixes 172.16.12.0/24 -n spoke12 -g $rg -l $region1 --subnet-name main --subnet-prefixes 172.16.12.0/27 --output none
+# Region2
+az network vnet create --address-prefixes 172.16.13.0/24 -n spoke13 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.13.0/27 --output none
+az network vnet create --address-prefixes 172.16.14.0/24 -n spoke14 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.14.0/27 --output none
+# Region3
+az network vnet create --address-prefixes 172.16.15.0/24 -n spoke15 -g $rg -l $region3 --subnet-name main --subnet-prefixes 172.16.15.0/27 --output none
+az network vnet create --address-prefixes 172.16.16.0/24 -n spoke16 -g $rg -l $region3 --subnet-name main --subnet-prefixes 172.16.16.0/27 --output none
+
+echo Creating NSGs in both branches...
+#Update NSGs:
+az network nsg create --resource-group $rg --name default-nsg-$region1 --location $region1 -o none
+az network nsg create --resource-group $rg --name default-nsg-$region2 --location $region2 -o none
+az network nsg create --resource-group $rg --name default-nsg-$region3 --location $region3 -o none
+# Add my home public IP to NSG for SSH acess
+az network nsg rule create -g $rg --nsg-name default-nsg-$region1 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region3 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+
+# Associated NSG to the VNET subnets (Spokes and Branches)
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region1'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region2 -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region3'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region3 -o none
+
+echo Creating Spoke VMs...
+# create a VM in each connected spoke
+az vm create -n spoke11VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke11 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke12VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke12 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke13VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke13 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke14VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke14 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke15VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region3 --subnet main --vnet-name spoke15 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke16VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region3 --subnet main --vnet-name spoke16 --admin-username $username --admin-password $password --nsg "" --no-wait
+#Enable boot diagnostics for all VMs in the resource group (Serial console)
+#Enable boot diagnostics
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].id' -o tsv) -o none
+### Install tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
+do
+ az vm extension set \
+ --resource-group $rg \
+ --vm-name $vm \
+ --name customScript \
+ --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+done
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+echo Creating Hub1 vNET connections
+# create spoke to Vwan connections to hub1
+az network vhub connection create -n spoke1conn --remote-vnet spoke11 -g $rg --vhub-name $hub1name --no-wait
+az network vhub connection create -n spoke12conn --remote-vnet spoke12 -g $rg --vhub-name $hub1name --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke11conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke11conn provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke12conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke12conn provisioningState="$prState
+    sleep 5
+done
+
+echo Creating Hub1 VPN Gateway...
+# Creating VPN gateways in each Hub1
+az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
+
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
+
+# create spoke to Vwan connections to hub2
+az network vhub connection create -n spoke13conn --remote-vnet spoke13 -g $rg --vhub-name $hub2name --no-wait
+az network vhub connection create -n spoke14conn --remote-vnet spoke14 -g $rg --vhub-name $hub2name --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke13conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke13conn provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke14conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke14conn provisioningState="$prState
+    sleep 5
+done
+
+echo Creating Hub2 VPN Gateway...
+# Creating VPN gateways in each Hub2
+az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
+
+
+echo Checking Hub3 provisioning status...
+# Checking Hub3 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub3name --query 'provisioningState' -o tsv)
+    echo "$hub3name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub3name --query 'routingState' -o tsv)
+    echo "$hub3name routingState="$rtState
+    sleep 5
+done
+
+# create spoke to Vwan connections to hub3
+az network vhub connection create -n spoke15conn --remote-vnet spok15 -g $rg --vhub-name $hub3name --no-wait
+az network vhub connection create -n spoke16conn --remote-vnet spoke16 -g $rg --vhub-name $hub3name --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke15conn --vhub-name $hub3name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke15conn provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke16conn --vhub-name $hub3name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke6conn provisioningState="$prState
+    sleep 5
+done
+
+echo Validating vHubs VPN Gateways provisioning...
+#vWAN Hubs VPN Gateway Status
+prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub1name-vpngw -g $rg
+    az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
+        echo $hub1name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub2name-vpngw -g $rg
+    az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
+        echo $hub2name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+echo Building VPN connections from VPN Gateways to the respective Branches...
+# get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
+# Branch 1 and Hub1 VPN Gateway variables
+bgp1=$(az network vnet-gateway show -n branch1-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+pip1=$(az network vnet-gateway show -n branch1-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp1=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip1=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp2=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip2=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+
+# Branch 2 and Hub2 VPN Gateway variables
+bgp2=$(az network vnet-gateway show -n branch2-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+pip2=$(az network vnet-gateway show -n branch2-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh2gwbgp1=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+vwanh2gwpip1=$(az network vpn-gateway show -n $hub2name-vpngw  -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh2gwbgp2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
+vwanh2gwpip2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+
+# create virtual wan vpn site
+az network vpn-site create --ip-address $pip1 -n site-branch1 -g $rg --asn 65510 --bgp-peering-address $bgp1 -l $region1 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65509 --bgp-peering-address $bgp2 -l $region2 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+
+# create virtual wan vpn connection
+az network vpn-gateway connection create --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --enable-bgp true --remote-vpn-site site-branch1 --internet-security --shared-key 'abc123' --output none
+az network vpn-gateway connection create --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --enable-bgp true --remote-vpn-site site-branch2 --internet-security --shared-key 'abc123' --output none
+
+# create connection from vpn gw to local gateway and watch for connection succeeded
+az network local-gateway create -g $rg -n lng-$hub1name-gw1 --gateway-ip-address $vwanh1gwpip1 --asn 65515 --bgp-peering-address $vwanh1gwbgp1 -l $region1 --output none
+az network vpn-connection create -n branch1-to-$hub1name-gw1 -g $rg -l $region1 --vnet-gateway1 branch1-vpngw --local-gateway2 lng-$hub1name-gw1 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-$hub1name-gw2 --gateway-ip-address $vwanh1gwpip2 --asn 65515 --bgp-peering-address $vwanh1gwbgp2 -l $region1 --output none
+az network vpn-connection create -n branch1-to-$hub1name-gw2 -g $rg -l $region1 --vnet-gateway1 branch1-vpngw --local-gateway2 lng-$hub1name-gw2 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-$hub2name-gw1 --gateway-ip-address $vwanh2gwpip1 --asn 65515 --bgp-peering-address $vwanh2gwbgp1 -l $region2 --output none
+az network vpn-connection create -n branch2-to-$hub2name-gw1 -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 lng-$hub2name-gw1 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-$hub2name-gw2 --gateway-ip-address $vwanh2gwpip2 --asn 65515 --bgp-peering-address $vwanh2gwbgp2 -l $region2 --output none
+az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 lng-$hub2name-gw2 --enable-bgp --shared-key 'abc123' --output none
+
+# Note: at this point you can test connectivity and the expected behavior is to have any-to-any connectivity using the default route table (by design vWAN behavior).
+# Use instruction of validation section below if you want to test that connectivity.
+echo Deployment has finished

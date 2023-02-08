@@ -1,0 +1,65 @@
+
+#!/bin/bash
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=eastus
+region3=eastus
+
+rg=lab-vwan-vrf 
+vwanname=vwan-vrf
+hub1name=hub1
+hub2name=hub2
+hub3name=hub3
+username=azureuser
+password="Msft123Msft123"
+vmsize=Standard_DS1_v2
+
+#Create Spoke1 and spoke1-nva
+az network vnet subnet create --name nvasubnet --resource-group $rg --vnet-name Spoke1 --address-prefixes 172.16.1.32/27 -o none
+#NVA + Config script to enable NAT
+az network public-ip create --name spoke1-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none --sku Standard
+az network nic create --name spoke1-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address spoke1-nva-pip --ip-forwarding true -o none
+az vm create --resource-group $rg --location $region1 --name spoke1-nva --size $vmsize --nics spoke1-nva-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+#Enable routing and NAT on Linux NVA:
+scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
+az vm extension set --resource-group $rg --vm-name spoke1-nva  --name customScript --publisher Microsoft.Azure.Extensions \
+--protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouter.sh\"}" \
+--no-wait
+
+#Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
+az network nsg create --resource-group $rg --name $region1-nva-nsg --location $region1 -o none
+az network nsg rule create -g $rg --nsg-name $region1-nva-nsg -n default-allow-ssh \
+    --direction Inbound \
+    --priority 100 \
+    --source-address-prefixes $mypip/32 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges 22 \
+    --access Allow \
+    --protocol Tcp \
+    --description "Allow inbound SSH" \
+    --output none
+az network nsg rule create -g $rg --nsg-name $region1-nva-nsg -n allow-RFC-1918 \
+    --direction Inbound \
+    --priority 110 \
+    --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges '*' \
+    --access Allow \
+    --protocol '*' \
+    --description "Allow-Traffic-RFC-1918" \
+    --output none
+az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name spoke1 --network-security-group $region1-nva-nsg -o none
+
+# vHub Route table
+# az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name
+lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
+az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet $vnetid --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" --internet-security false -o none --no-wait
+connid=$(az network vhub connection show -g $rg -n spoke1conn --vhub-name $hub1name --query id -o tsv)
+az network vhub route-table route add --name defaultRouteTable --vhub-name $hub1name --resource-group $rg --route-name default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
+
+
+az network vhub connection show --name spoke1conn --resource-group $rg --vhub-name $hub1name 
