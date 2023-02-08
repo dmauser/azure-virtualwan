@@ -8,7 +8,7 @@
 
 - By default 0.0.0.0/0 does not propagate across Virtual Hubs. _All information pertaining to 0.0.0.0/0 route is confined to a local hub's route table. This route doesn't propagate across hubs._ Reference: [About virtual hub routing](https://learn.microsoft.com/en-us/azure/virtual-wan/about-virtual-hub-routing#considerations).
 
-- This Lab shows that is possible to use a static route and make a VNET (Spoke3) connected to vHUB2 to break out the internet on NVA connected to vHUB1. This is ideal for scenarios where customers can deploy vHUB in the same region and use only one NVA for internet breakout.
+- This Lab shows that is possible to use a static route and make a VNET (Spoke3) connected to vHUB2 to break out the internet on NVA connected to vHUB1. This is ideal for scenarios where customers can deploy two or more vHUBs in the same region and use only one NVA for internet breakout.
 
 ### Lab steps:
 
