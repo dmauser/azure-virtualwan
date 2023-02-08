@@ -2,7 +2,7 @@
 
 ### Diagram
 
-![NVA Spoke to Internet](./media/nva-spoke-internet.png)
+![NVA Spoke to Internet](./media/nva-spoke-internet-interhub.png)
 
 ### Learnings
 
