@@ -1,24 +1,24 @@
-### *************** SCRIPT ENDS HERE *******************************
-
 ### VALIDATIONS ####
 
 ##1) Display Linux NVA Public IP (linux-nva)
-az network public-ip show --name linux-nva-pip --resource-group $rg --query ipAddress -o tsv
-##2) SpokeVM2 Effective Route table - You should see 0/0 next hop VirtualNetwork Gateway which is the Route Service in vWAN.
+az network public-ip show --name spoke1-nva-pip --resource-group $rg --query ipAddress -o tsv
+##2) Spoke2VM/Spoke3VM Effective Route table - You should see 0/0 next hop VirtualNetwork Gateway which is the Route Service in vWAN.
 az network nic show-effective-route-table --resource-group $rg -n Spoke2VMNIC -o table
+az network nic show-effective-route-table --resource-group $rg -n Spoke3VMNIC -o table
 ##3) SSH to the VM and test the tools are present (traceroute and others)
+# Spoke2VM
 pip=$(az network public-ip show --name Spoke2VMPubIP --resource-group $rg --query ipAddress -o tsv)
 ssh $username@$pip
-## Note: if you have trouble over SSH for NSG restriction you can access Spoke2VM over Serial Console
+#Spoke3VM
+pip=$(az network public-ip show --name Spoke3VMPubIP --resource-group $rg --query ipAddress -o tsv)
+ssh $username@$pip
+## Note: if you have trouble over SSH for NSG restriction you can access Spoke VMs over Serial Console
 
 # 1) Check if you can ping a remote IP:
 Ping 8.8.8.8
 # 2) Run curl localhost and you should see your VM name.
 curl ifconfig.io
 # Expected output is Linux NVA Public IP (1 as shown above).
-
-#### Misc/Troubleshooting - Remove stale route tables based on error code: DuplicateRouteNames:
-az network vhub route-table route remove --name defaultRouteTable --vhub-name $hub1name --resource-group $rg --index 1
 
 ### Clean up
 az group delete -g $rg --no-wait 
