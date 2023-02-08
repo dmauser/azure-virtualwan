@@ -10,7 +10,9 @@
 
 - This Lab shows that is possible to use a static route and make a VNET (Spoke3) connected to vHUB2 to break out the internet on NVA connected to vHUB1. This is ideal for scenarios where customers can deploy two or more vHUBs in the same region and use only one NVA for internet breakout.
 
-### Lab steps:
+### Lab steps
+
+The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com).
 
 ```Bash
 ##Parameters (make changes based on your needs)
