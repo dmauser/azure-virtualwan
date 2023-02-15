@@ -7,7 +7,7 @@ param inNatname string = 'branch3'
 param vpngwid string = resourceId('Microsoft.Network/vpnGateways', 'hub2-vpngw')
 param vhubname string = 'hub2'
 param sitename string = 'site-branch3'
-param connname string = 'conn-site-branch3'
+param connname string = 'site-branch3-conn'
 param useLocalAzureIpAddress bool = false
 param location string
 

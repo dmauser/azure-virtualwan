@@ -71,6 +71,7 @@ az network vpn-connection create -n branch3-to-$hub2name-gw2 -g $rg -l $region2 
 
 echo Creating NAT Rules and building S2S VPN connection...
 az deployment group create --name vhub-natvpngw-$RANDOM --resource-group $rg \
- --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/vwanvpnnat.json" \
- --
+ --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vrf-vwan/scripts/vwanvpnnat.json" \
+ --parameters location=$region2 \
  --no-wait
+
