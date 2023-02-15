@@ -75,3 +75,7 @@ az deployment group create --name vhub-natvpngw-$RANDOM --resource-group $rg \
  --parameters location=$region2 \
  --no-wait
 
+#Update Label
+default_hub2=$(az network vhub route-table show --name defaultroutetable --vhub-name $hub2name -g $rg --query id -o tsv)
+# az network vpn-gateway connection update --gateway-name $hub2name-vpngw -n site-branch3-conn -g $rg --propagated $default_hub2 --label dev shared --output none --no-wait
+az network vpn-gateway connection update --gateway-name $hub2name-vpngw -n Connection-site-branch3 -g $rg --propagated $default_hub2 --label dev shared --output none --no-wait

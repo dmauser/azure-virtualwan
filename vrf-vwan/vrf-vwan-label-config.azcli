@@ -29,5 +29,5 @@ az network vhub connection update --name spoke6conn --vhub-name $hub3name  --res
 # VPN Connections Labels (This is required to isolate branches.)
 default_hub1=$(az network vhub route-table show --name defaultroutetable --vhub-name $hub1name -g $rg --query id -o tsv)
 default_hub2=$(az network vhub route-table show --name defaultroutetable --vhub-name $hub2name -g $rg --query id -o tsv)
-az network vpn-gateway connection update --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --propagated $default_hub1 --label prod shared --output none --no-wait
-az network vpn-gateway connection update --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --propagated $default_hub2 --label dev shared --output none --no-wait
+az network vpn-gateway connection update --gateway-name $hub1name-vpngw -n Connection-site-branch1 -g $rg --propagated $default_hub1 --label prod shared --output none --no-wait
+az network vpn-gateway connection update --gateway-name $hub2name-vpngw -n Connection-site-branch2 -g $rg --propagated $default_hub2 --label dev shared --output none --no-wait
