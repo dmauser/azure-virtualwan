@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Pre-Requisite
+az extension add --name virtual-wan 
+# or update
+az extension update --name virtual-wan
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=eastus
+region3=eastus
+
+rg=lab-vwan-vrf 
+vwanname=vwan-vrf
+hub1name=hub1
+hub2name=hub2
+hub3name=hub3
+username=azureuser
+password="Msft123Msft123"
+vmsize=Standard_DS1_v2
+
+
+echo Creating Hub3 VPN Gateway...
+# Creating VPN gateways in each Hub3
+az network vpn-gateway create -n $hub3name-vpngw -g $rg --location $region3 --vhub $hub3name --no-wait 
+
+#vWAN Hubs VPN Gateway Status
+prState=$(az network vpn-gateway show -g $rg -n $hub3name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub3name-vpngw -g $rg
+    az network vpn-gateway create -n $hub3name-vpngw -g $rg --location $region3 --vhub $hub3name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub3name-vpngw --query provisioningState -o tsv)
+        echo $hub3name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+# Remove labels between Hub2 and Hub3
+# Vnet and Branch connections.
