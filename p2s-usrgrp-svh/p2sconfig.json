@@ -1,0 +1,142 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups",
+            "apiVersion": "2022-07-01",
+            "name": "AzureVPNClient/Finance",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/vpnServerConfigurations', 'AzureVPNClient')]"
+            ],
+            "properties": {
+                "isDefault": false,
+                "priority": 2,
+                "policyMembers": [
+                    {
+                        "name": "Finance",
+                        "attributeType": "AADGroupId",
+                        "attributeValue": "ebe96142-3f32-4e4c-9e2f-7de6d4bfa91b"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups",
+            "apiVersion": "2022-07-01",
+            "name": "AzureVPNClient/HR",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/vpnServerConfigurations', 'AzureVPNClient')]"
+            ],
+            "properties": {
+                "isDefault": false,
+                "priority": 1,
+                "policyMembers": [
+                    {
+                        "name": "HR",
+                        "attributeType": "AADGroupId",
+                        "attributeValue": "1b07558b-50bc-4a75-b637-a1580215a38a"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups",
+            "apiVersion": "2022-07-01",
+            "name": "AzureVPNClient/IT",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/vpnServerConfigurations', 'AzureVPNClient')]"
+            ],
+            "properties": {
+                "isDefault": true,
+                "priority": 0,
+                "policyMembers": [
+                    {
+                        "name": "IT",
+                        "attributeType": "AADGroupId",
+                        "attributeValue": "81d070ce-f1c6-40af-9ae3-247c20862032"
+                    }
+                ]
+            }
+        },
+        {
+            "type": "Microsoft.Network/vpnServerConfigurations",
+            "apiVersion": "2022-07-01",
+            "name": "AzureVPNClient",
+            "location": "eastus",
+            "dependsOn": [
+                "[resourceId('Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups', 'AzureVPNClient', 'IT')]",
+                "[resourceId('Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups', 'AzureVPNClient', 'HR')]",
+                "[resourceId('Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups', 'AzureVPNClient', 'Finance')]"
+            ],
+            "properties": {
+                "vpnProtocols": [
+                    "OpenVPN"
+                ],
+                "vpnAuthenticationTypes": [
+                    "AAD"
+                ],
+                "vpnClientRootCertificates": [],
+                "vpnClientRevokedCertificates": [],
+                "radiusServers": [],
+                "radiusServerRootCertificates": [],
+                "radiusClientRootCertificates": [],
+                "aadAuthenticationParameters": {
+                    "aadTenant": "https://login.microsoftonline.com/f873b328-0748-4305-a13b-68743aa5a432",
+                    "aadAudience": "41b23e61-6c1e-4545-b367-cd054e0ed4b4",
+                    "aadIssuer": "https://sts.windows.net/f873b328-0748-4305-a13b-68743aa5a432/"
+                },
+                "configurationPolicyGroups": [
+                    {
+                        "name": "IT",
+                        "id": "[resourceId('Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups', 'AzureVPNClient', 'IT')]",
+                        "properties": {
+                            "isDefault": true,
+                            "priority": 0,
+                            "policyMembers": [
+                                {
+                                    "name": "IT",
+                                    "attributeType": "AADGroupId",
+                                    "attributeValue": "81d070ce-f1c6-40af-9ae3-247c20862032"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "HR",
+                        "id": "[resourceId('Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups', 'AzureVPNClient', 'HR')]",
+                        "properties": {
+                            "isDefault": false,
+                            "priority": 1,
+                            "policyMembers": [
+                                {
+                                    "name": "HR",
+                                    "attributeType": "AADGroupId",
+                                    "attributeValue": "1b07558b-50bc-4a75-b637-a1580215a38a"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "name": "Finance",
+                        "id": "[resourceId('Microsoft.Network/vpnServerConfigurations/configurationPolicyGroups', 'AzureVPNClient', 'Finance')]",
+                        "properties": {
+                            "isDefault": false,
+                            "priority": 2,
+                            "policyMembers": [
+                                {
+                                    "name": "Finance",
+                                    "attributeType": "AADGroupId",
+                                    "attributeValue": "ebe96142-3f32-4e4c-9e2f-7de6d4bfa91b"
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "vpnClientIpsecPolicies": []
+            }
+        }
+    ]
+}

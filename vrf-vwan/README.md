@@ -15,3 +15,7 @@
 ## Diagram 4
 
 ![](./media/diagram4.png)
+
+## Diagram 5
+
+![](./media/diagram5.png)

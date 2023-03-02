@@ -1,0 +1,108 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "variables": {},
+    "resources": [
+        {
+            "type": "Microsoft.Network/p2sVpnGateways",
+            "apiVersion": "2022-07-01",
+            "name": "1143c89be71246e1827d2a67077bd853-eastus-p2s-gw",
+            "location": "eastus",
+            "properties": {
+                "virtualHub": {
+                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub"
+                },
+                "vpnServerConfiguration": {
+                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/vpnServerConfigurations/AzureVPNClient"
+                },
+                "p2SConnectionConfigurations": [
+                    {
+                        "name": "pool1",
+                        "id": "[concat(resourceId('Microsoft.Network/p2sVpnGateways', '1143c89be71246e1827d2a67077bd853-eastus-p2s-gw'), '/p2sConnectionConfigurations/pool1')]",
+                        "properties": {
+                            "routingConfiguration": {
+                                "associatedRouteTable": {
+                                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub/hubRouteTables/defaultRouteTable"
+                                },
+                                "propagatedRouteTables": {
+                                    "labels": [
+                                        "none"
+                                    ],
+                                    "ids": [
+                                        {
+                                            "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub/hubRouteTables/noneRouteTable"
+                                        }
+                                    ]
+                                }
+                            },
+                            "vpnClientAddressPool": {
+                                "addressPrefixes": [
+                                    "10.254.0.0/24"
+                                ]
+                            },
+                            "enableInternetSecurity": false
+                        }
+                    },
+                    {
+                        "name": "pool2",
+                        "id": "[concat(resourceId('Microsoft.Network/p2sVpnGateways', '1143c89be71246e1827d2a67077bd853-eastus-p2s-gw'), '/p2sConnectionConfigurations/pool2')]",
+                        "properties": {
+                            "routingConfiguration": {
+                                "associatedRouteTable": {
+                                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub/hubRouteTables/defaultRouteTable"
+                                },
+                                "propagatedRouteTables": {
+                                    "labels": [
+                                        "none"
+                                    ],
+                                    "ids": [
+                                        {
+                                            "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub/hubRouteTables/noneRouteTable"
+                                        }
+                                    ]
+                                }
+                            },
+                            "vpnClientAddressPool": {
+                                "addressPrefixes": [
+                                    "10.254.1.0/24"
+                                ]
+                            },
+                            "enableInternetSecurity": false
+                        }
+                    },
+                    {
+                        "name": "pool3",
+                        "id": "[concat(resourceId('Microsoft.Network/p2sVpnGateways', '1143c89be71246e1827d2a67077bd853-eastus-p2s-gw'), '/p2sConnectionConfigurations/pool3')]",
+                        "properties": {
+                            "routingConfiguration": {
+                                "associatedRouteTable": {
+                                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub/hubRouteTables/defaultRouteTable"
+                                },
+                                "propagatedRouteTables": {
+                                    "labels": [
+                                        "none"
+                                    ],
+                                    "ids": [
+                                        {
+                                            "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-svh/providers/Microsoft.Network/virtualHubs/svhub/hubRouteTables/noneRouteTable"
+                                        }
+                                    ]
+                                }
+                            },
+                            "vpnClientAddressPool": {
+                                "addressPrefixes": [
+                                    "10.254.3.0/24"
+                                ]
+                            },
+                            "enableInternetSecurity": false
+                        }
+                    }
+                ],
+                "vpnGatewayScaleUnit": 1,
+                "customDnsServers": [],
+                "isRoutingPreferenceInternet": false
+            }
+        }
+    ]
+}

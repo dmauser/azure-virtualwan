@@ -1,0 +1,85 @@
+#!/bin/bash
+# Parameters 
+rg=lab-vwan-vrf #set resource group
+az extension update --name virtual-wan
+#### Validate connectivity between VNETs and Branches
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=eastus
+region3=eastus
+
+mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
+
+
+# OPNsense NVA parameters
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_B2s
+virtualMachineName=branch3-opnnva
+virtualNetworkName=branch3
+existingvirtualNetwork=existing
+VNETAddress=10.110.0.0/16 
+UntrustedSubnetCIDR=10.110.1.0/28
+TrustedSubnetCIDR=10.110.1.16/28
+GatewaySubnet=10.110.0.32/27
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+# OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Creating OPNsense trusted/untrusted subnets
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName -n untrusted --address-prefixes $UntrustedSubnetCIDR  --output none
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName -n trusted --address-prefixes $TrustedSubnetCIDR  --output none
+
+echo "Deploying OPNsense NVA on the branch3"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az deployment group create --name branch3-nva-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
+--no-wait
+
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
+az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
+az network vnet subnet update -g $rg --name trusted --vnet-name branch3 --network-security-group null -o none
+az network vnet subnet update -g $rg --name untrusted --vnet-name branch3 --network-security-group null -o none
+az network vnet subnet update -g $rg --name trusted --vnet-name branch3 --network-security-group default-nsg-$region2 -o none
+az network vnet subnet update -g $rg --name untrusted --vnet-name branch3 --network-security-group default-nsg-$region2 -o none
+
+# Route Table
+
+echo Creating extented-branch UDR to OPNSense internal interface
+nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
+## Creating UDR + Disable BGP Propagation
+az network route-table create --name branch3-rt-to-nva  --resource-group $rg --location $region2 --disable-bgp-route-propagation true --output none
+## Default route to NVA
+az network route-table route create --resource-group $rg --name default --route-table-name branch3-rt-to-nva \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $nvatrustedip \
+--output none
+## Associate RT-Hub-to-NVA
+az network vnet subnet update -n main -g $rg --vnet-name branch3 --route-table branch3-rt-to-nva --output none
+
+# VWAN Branch Site to OPNSense
+
+echo Building VPN connections from VPN Gateways to the respective Branches...
+# get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
+# Branch 3 and Hub2 VPN Gateway variables
+bgp1=$(az network vnet-gateway show -n branch3-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+pip1=$(az network vnet-gateway show -n branch3-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh2gwbgp1=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+vwanh2gwpip1=$(az network vpn-gateway show -n $hub2name-vpngw  -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh2gwbgp2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
+vwanh2gwpip2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+
+# create virtual wan vpn site
+az network vpn-site create --ip-address $pip1 -n site-branch3 -g $rg --asn 65510 --bgp-peering-address $bgp1 -l $region2 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+
+# create connection from vpn gw to local gateway and watch for connection succeeded
+az network local-gateway create -g $rg -n lng-branch3-$hub2name-gw1 --gateway-ip-address $vwanh2gwpip1 --asn 65515 --bgp-peering-address $vwanh2gwbgp1 -l $region2 --output none
+az network vpn-connection create -n branch3-to-$hub2name-gw1 -g $rg -l $region2 --vnet-gateway1 branch3-vpngw --local-gateway2 lng-branch3-$hub2name-gw1 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-branch3-$hub2name-gw2 --gateway-ip-address $vwanh2gwpip2 --asn 65515 --bgp-peering-address $vwanh2gwbgp2 -l $region2 --output none
+az network vpn-connection create -n branch3-to-$hub2name-gw2 -g $rg -l $region2 --vnet-gateway1 branch3-vpngw --local-gateway2 lng-branch3-$hub2name-gw2 --enable-bgp --shared-key 'abc123' --output none
+
