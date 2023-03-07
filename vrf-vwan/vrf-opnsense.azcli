@@ -39,6 +39,28 @@ az deployment group create --name branch3-nva-$RANDOM --resource-group $rg \
 
 # Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
 az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n allow-RFC-1918-in \
+    --direction Inbound \
+    --priority 120 \
+    --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges '*' \
+    --access Allow \
+    --protocol '*' \
+    --description "Allow-Traffic-RFC-1918-in" \
+    --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n allow-RFC-1918-out \
+    --direction Outbound \
+    --priority 130 \
+    --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes VirtualNetwork \
+    --destination-port-ranges '*' \
+    --access Allow \
+    --protocol '*' \
+    --description "Allow-Traffic-RFC-1918-out" \
+    --output none
 az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
 az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
 az network vnet subnet update -g $rg --name trusted --vnet-name branch3 --network-security-group null -o none
