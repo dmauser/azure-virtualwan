@@ -3,9 +3,9 @@
         "en"
     ],
     "spellright.documentTypes": [
-        "markdown",
         "latex",
-        "plaintext"
+        "plaintext",
+        "markdown"
     ],
     "spellright.parserByClass": {
         "azcli": {

@@ -3,7 +3,7 @@
 In this article
 
 - [Intro](#intro)
-- [Lab diagram](#lab-diagram)
+- [Lab Diagram](#lab-diagram)
 - [Considerations and requirements](#considerations-and-requirements)
 - [Deploy this solution](#deploy-this-solution)
   - [Step 1 - Deploy the Lab](#step-1---deploy-the-lab)
@@ -29,10 +29,9 @@ In this article
 The goal of this lab is to validate IPSec over Express Route using Virtual WAN leveraging only Azure to emulate On-premises.
 You can find the official Microsoft reference for that functionality in [ExpressRoute encryption: IPsec over ExpressRoute for Virtual WAN](https://learn.microsoft.com/en-us/azure/virtual-wan/vpn-over-expressroute).
 
-## Lab diagram
+## Lab Diagram
 
 ![network diagram](./media/vpnoverer-vwan.png)
-
 
 ## Considerations and requirements
 
@@ -41,7 +40,7 @@ You can find the official Microsoft reference for that functionality in [Express
 - An Extended-Branch with prefix range 10.3.0.0/24 was created to avoid the routing leaking over ExpressRoute. Therefore, there's no need to configure route filters.
   - The Extended-Branch has a UDR 0.0.0.0/0 next hop to the OPNsense internal interface (10.100.0.20).
 - The Branch (10.100.0.0/24) has an NVA OPNsense preconfigured with S2S VPN reaching both vWAN VPN Gateway instances using private IPs 192.168.1.4 and 192.168.1.5.
-  - Note that **OPNsense** used as VPN Server has **username:root** and **password:opnsense** and its accessible via HTTPS over its public IP associated with the untrusted NIC.
+  - Note that **OPNsense** used as VPN Server has **username:root** and **password:**opnsense** and it's accessible via HTTPS over its public IP associated with the untrusted NIC.
   - A BGP session is configured between the VTI interfaces (10.200.0.1) and both vWAN VPN Gateway instances BGP IPs 192.168.1.14 and 192.168.1.15.  **Note** that VPN GW BGP IPs may be different during your provisioning. There are cases that those IPs can be set to 192.168.1.12 and 192.168.1.13.
   - OPNsense advertises 10.3.0.0/24 and 10.0.0.0/8 and has ASN set to 65510.
 - All VMs are Linux Ubuntu accessible via SSH restricted by your Public IP (see $mypip parameter) or using Serial Console.
@@ -142,7 +141,7 @@ Both 192.168.14 and 15 represent an IBG session between the VPN Gateway instance
 
 #### vHub Effective Routes
 
-1. **10.100.0.0/24** is the learned route that comes over ExpressRoute connection.
+1. **10.100.0.0/24** is the learned route that comes over the ExpressRoute connection.
 2. **172.16.1.0/24,172.16.2.0/24,172.16.3.0/24** are Spoke VNETs connected to the vHUB.
 3. **10.3.0.0/24 and 10.0.0.0/8** are the networks learned via S2S VPN. ASN 65510 is set to the OPNsense.
 
