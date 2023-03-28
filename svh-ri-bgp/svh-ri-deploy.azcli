@@ -230,7 +230,7 @@ do
 done
 
 # Build Virtual Router BGP Peering to spoke 2 NVA
-spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
 echo Enabling BGP peer with Spoke 2 NVA
  az network vhub bgpconnection create --resource-group $rg \
  --vhub-name $hubname \

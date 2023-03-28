@@ -186,8 +186,8 @@ do
 done
 
 #Set NICs as variables
-spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
-spk4nvaip=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
+spk4nvaip=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
 
 echo Updating indirect spoke UDRs to use Firewall as next hop...
 #UDRs for Spoke 5 and 6
@@ -375,7 +375,7 @@ echo creating spoke 2 and spoke 4 vnet connections using static route to their r
 #Spoke2 vnet connection
 spokevnet=spoke2
 vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
-spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk2nvaip=$(az network nic show -n spoke2-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
 dstcidr=10.2.0.0/16
 conn=spoke2conn
 propagateStaticRoutes=true #Static Route propagation true or false
@@ -393,7 +393,7 @@ az rest --method put --uri https://management.azure.com/subscriptions/$subid/res
 #Spoke4 vnet connection 
 spokevnet=spoke4
 vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
-spk4nvaip=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk4nvaip=$(az network nic show -n spoke4-opnnva-Trusted-NIC -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
 dstcidr="10.4.0.0/16"
 conn=spoke4conn
 propagateStaticRoutes=true #Static Route propagation true or false

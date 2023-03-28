@@ -363,8 +363,8 @@ do
 done
 
 #Set NICs as variables
-spk2nvaip=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
-spk4nvaip=$(az network nic show -n spoke4-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIpAddress' -o tsv)
+spk2nvaip=$(az network nic show -n spoke2-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
+spk4nvaip=$(az network nic show -n spoke4-linux-nva1-nic -g $rg --query 'ipConfigurations[0].privateIPAddress' -o tsv)
 
 echo Updating indirect spoke UDRs to use Linux NVA as next hop...
 #UDRs for Spoke 5 and 6
