@@ -2,40 +2,41 @@
 
 # Script Params
 # $1 = OPNScriptURI
-# $2 = Primary/Secondary/SingNic/TwoNics
-# $3 = Trusted Nic subnet prefix - used to get the gw
-# $4 = Windows-VM-Subnet subnet prefix - used to route/nat allow internet access from Windows Management VM
-# $5 = ELB VIP Address
-# $6 = Private IP Secondary Server
+# $2 = OpnVersion
+# $3 = Primary/Secondary/SingNic/TwoNics
+# $4 = Trusted Nic subnet prefix - used to get the gw
+# $5 = Windows-VM-Subnet subnet prefix - used to route/nat allow internet access from Windows Management VM
+# $6 = ELB VIP Address
+# $7 = Private IP Secondary Server
 
 # Check if Primary or Secondary Server to setup Firewal Sync
 # Note: Firewall Sync should only be setup in the Primary Server
-if [ "$2" = "Primary" ]; then
+if [ "$3" = "Primary" ]; then
     fetch $1config-active-active-primary.xml
     fetch $1get_nic_gw.py
-    gwip=$(python get_nic_gw.py $3)
+    gwip=$(python get_nic_gw.py $4)
     sed -i "" "s/yyy.yyy.yyy.yyy/$gwip/" config-active-active-primary.xml
     sed -i "" "s_zzz.zzz.zzz.zzz_$4_" config-active-active-primary.xml
-    sed -i "" "s/www.www.www.www/$5/" config-active-active-primary.xml
-    sed -i "" "s/xxx.xxx.xxx.xxx/$6/" config-active-active-primary.xml
+    sed -i "" "s/www.www.www.www/$6/" config-active-active-primary.xml
+    sed -i "" "s/xxx.xxx.xxx.xxx/$7/" config-active-active-primary.xml
     sed -i "" "s/<hostname>OPNsense<\/hostname>/<hostname>OPNsense-Primary<\/hostname>/" config-active-active-primary.xml
     cp config-active-active-primary.xml /usr/local/etc/config.xml
-elif [ "$2" = "Secondary" ]; then
+elif [ "$3" = "Secondary" ]; then
     fetch $1config-active-active-secondary.xml
     fetch $1get_nic_gw.py
-    gwip=$(python get_nic_gw.py $3)
+    gwip=$(python get_nic_gw.py $4)
     sed -i "" "s/yyy.yyy.yyy.yyy/$gwip/" config-active-active-secondary.xml
     sed -i "" "s_zzz.zzz.zzz.zzz_$4_" config-active-active-secondary.xml
-    sed -i "" "s/www.www.www.www/$5/" config-active-active-secondary.xml
+    sed -i "" "s/www.www.www.www/$6/" config-active-active-secondary.xml
     sed -i "" "s/<hostname>OPNsense<\/hostname>/<hostname>OPNsense-Secondary<\/hostname>/" config-active-active-secondary.xml
     cp config-active-active-secondary.xml /usr/local/etc/config.xml
-elif [ "$2" = "SingNic" ]; then
+elif [ "$3" = "SingNic" ]; then
     fetch $1config-snic.xml
     cp config-snic.xml /usr/local/etc/config.xml
-elif [ "$2" = "TwoNics" ]; then
+elif [ "$3" = "TwoNics" ]; then
     fetch $1config.xml
     fetch $1get_nic_gw.py
-    gwip=$(python get_nic_gw.py $3)
+    gwip=$(python get_nic_gw.py $4)
     sed -i "" "s/yyy.yyy.yyy.yyy/$gwip/" config.xml
     sed -i "" "s_zzz.zzz.zzz.zzz_$4_" config.xml
     cp config.xml /usr/local/etc/config.xml
@@ -60,17 +61,17 @@ sed -i "" 's/#PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config
 
 #OPNSense
 sed -i "" "s/reboot/shutdown -r +1/g" opnsense-bootstrap.sh.in
-sh ./opnsense-bootstrap.sh.in -y -r "22.1"
+sh ./opnsense-bootstrap.sh.in -y -r "$2"
 
 # Add Azure waagent
-fetch https://github.com/Azure/WALinuxAgent/archive/refs/tags/v2.7.0.6.tar.gz
-tar -xvzf v2.7.0.6.tar.gz
-cd WALinuxAgent-2.7.0.6/
+fetch https://github.com/Azure/WALinuxAgent/archive/refs/tags/v2.8.0.11.tar.gz
+tar -xvzf v2.8.0.11.tar.gz
+cd WALinuxAgent-2.8.0.11/
 python3 setup.py install --register-service --lnx-distro=freebsd --force
 cd ..
 
 # Fix waagent by replacing configuration settings
-ln -s /usr/local/bin/python3.8 /usr/local/bin/python
+ln -s /usr/local/bin/python3.9 /usr/local/bin/python
 ##sed -i "" 's/command_interpreter="python"/command_interpreter="python3"/' /etc/rc.d/waagent
 ##sed -i "" 's/#!\/usr\/bin\/env python/#!\/usr\/bin\/env python3/' /usr/local/sbin/waagent
 sed -i "" 's/ResourceDisk.EnableSwap=y/ResourceDisk.EnableSwap=n/' /etc/waagent.conf
@@ -79,6 +80,7 @@ cp actions_waagent.conf /usr/local/opnsense/service/conf/actions.d
 
 # Installing bash - This is a requirement for Azure custom Script extension to run
 pkg install -y bash
+pkg install -y os-frr
 
 # Remove wrong route at initialization
 cat > /usr/local/etc/rc.syshook.d/start/22-remoteroute <<EOL
