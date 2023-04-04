@@ -143,7 +143,7 @@ do
  az vm boot-diagnostics enable --storage $stguri1 --name $nvaname -g $rg -o none
 
  #NVA BGP config variables (do not change)
- bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv)
+ bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
  routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
  routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
 
@@ -159,7 +159,7 @@ do
  --vhub-name $hubtopeer \
  --name $nvaname \
  --peer-asn $asn_quagga \
- --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIpAddress -o tsv) \
+ --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
  --vhub-conn $(az network vhub connection show --name $nvavnetname'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
  --no-wait
 done

@@ -197,7 +197,7 @@ bgpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettin
 bgpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
 
 echo "Deploying OPNsense NVA on the branch"
-az vm image terms accept --urn thefreebsdfoundation:freebsd-13_0:13_0-release:13.0.0 -o none
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
 az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/main.json" \
 --parameters bgpip1=$bgpip1 bgpip2=$bgpip2 OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \
@@ -223,7 +223,7 @@ done
 echo Building VPN connections from VPN Gateways to the respective Branches...
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
 bgp1=10.200.0.1 #pre configured BGP IP for the OPNSense NVA.
-pip1=$(az network nic show -g $rg -n $virtualMachineName-Untrusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
+pip1=$(az network nic show -g $rg -n $virtualMachineName-Untrusted-NIC --query ipConfigurations[0].privateIPAddress -o tsv)
 # vwanbgp1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
 # vwanpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
 # Creating virtual wan vpn site
@@ -283,7 +283,7 @@ echo Enabling boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
 echo Creating extented-branch UDR to OPNSense internal interface
-nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
+nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIPAddress -o tsv)
 ## Creating UDR + Disable BGP Propagation
 az network route-table create --name RT-to-extbranch-NVA  --resource-group $rg --location $region --disable-bgp-route-propagation true --output none
 ## Default route to NVA

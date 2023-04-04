@@ -71,7 +71,7 @@ az network vnet subnet update -g $rg --name untrusted --vnet-name branch3 --netw
 # Route Table
 
 echo Creating extented-branch UDR to OPNSense internal interface
-nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIpAddress -o tsv)
+nvatrustedip=$(az network nic show -g $rg -n $virtualMachineName-Trusted-NIC --query ipConfigurations[0].privateIPAddress -o tsv)
 ## Creating UDR + Disable BGP Propagation
 az network route-table create --name branch3-rt-to-nva  --resource-group $rg --location $region2 --disable-bgp-route-propagation true --output none
 ## Default route to NVA

@@ -1,0 +1,20 @@
+# Pre-Requisites
+echo validating pre-requisites
+az extension add --name virtual-wan 
+az extension add --name azure-firewall 
+# or updating vWAN and AzFirewall CLI extensions
+az extension update --name virtual-wan
+az extension update --name azure-firewall 
+
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=westus
+rg=lab-vwan-nvabgp
+vwanname=vwan-nvabgp
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2
+

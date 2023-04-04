@@ -58,7 +58,7 @@ az dns-resolver forwarding-ruleset create -g $rg --name spoke1-fwd-ruleset \
  --output none
 
 # Create forwarding-rule
-dnsvmip=$(az network nic show --name $dnsvmname-nic -g $rg  --query "ipConfigurations[0].privateIpAddress" -o tsv)
+dnsvmip=$(az network nic show --name $dnsvmname-nic -g $rg  --query "ipConfigurations[0].privateIPAddress" -o tsv)
 az dns-resolver forwarding-rule create -g $rg --name onprem-contoso \
  --ruleset-name spoke1-fwd-ruleset \
  --domain-name "onprem.contoso.corp." \
@@ -118,7 +118,7 @@ az network private-endpoint dns-zone-group create \
 dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
 fwdnsresolverip=$(az network firewall show --name $hubname-azfw --resource-group $rg --query "hubIpAddresses.privateIpAddress" -o tsv)
 globaldnsfwd=8.8.8.8 # Global/Server level DNS Forwarder
-branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIpAddress" -o tsv)
+branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIPAddress" -o tsv)
 az vm run-command invoke --command-id RunPowerShellScript \
  --name $dnsvmname \
  --resource-group $rg \
