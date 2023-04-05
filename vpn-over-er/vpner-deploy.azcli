@@ -203,7 +203,7 @@ else
 fi
 #Adding vWAN VPNGW BGP APIPA addresses
 echo Adding vWAN VPNGW BGP APIPA addresses
-az network vpn-gateway update -n $hubname-vpngw -g $rg --vhub $hubname --set properties.bgpSettings.bgpPeeringAddresses[0].customBgpIpAddresses=[\"169.254.21.1\"] properties.bgpSettings.bgpPeeringAddresses[1].customBgpIpAddresses=[\"169.254.21.2\"] --no-wait
+az network vpn-gateway update -n $hubname-vpngw -g $rg --vhub $hubname --set bgpSettings.bgpPeeringAddresses[0].customBgpIpAddresses=[\"169.254.21.1\"] bgpSettings.bgpPeeringAddresses[1].customBgpIpAddresses=[\"169.254.21.2\"] --no-wait
 #vWAN Hubs VPN Gateway Status
 prState=$(az network vpn-gateway show -g $rg -n $hubname-vpngw --query provisioningState -o tsv)
 if [[ $prState == 'Failed' ]];
