@@ -10,15 +10,15 @@ az extension update --name virtual-wan
 az extension update --name azure-firewall 
 
 # Parameters (make changes based on your requirements)
-region1=eastus2
-region2=westus2
+region1=southcentralus
+region2=centralus
 rg=lab-vwan-irazfw
 vwanname=vwan-irazfw
 hub1name=hub1
 hub2name=hub2
 username=azureuser
 password="Msft123Msft123" #Please change your password
-vmsize=Standard_B1s
+vmsize=Standard_DS1_v2
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
