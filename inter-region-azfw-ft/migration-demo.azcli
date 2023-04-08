@@ -1,0 +1,25 @@
+# Pre-Requisites
+echo validating pre-requisites
+az extension add --name virtual-wan 
+az extension add --name azure-firewall 
+# or updating vWAN and AzFirewall CLI extensions
+az extension update --name virtual-wan
+az extension update --name azure-firewall 
+
+# Parameters (make changes based on your requirements)
+region1=southcentralus
+region2=centralus
+rg=lab-vwan-irazfw
+vwanname=vwan-irazfw
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2
+
+#Variables
+mypip=$(curl -4 ifconfig.io -s)
+
+
+# Spoke5 vnet connection
+az network vhub connection create -n spoke5conn --remote-vnet spoke5 -g $rg --vhub-name $hub1name --no-wait

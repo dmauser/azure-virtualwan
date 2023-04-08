@@ -2,24 +2,22 @@
 #!/bin/bash
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=eastus
-region3=eastus
-
-rg=lab-vwan-vrf 
-vwanname=vwan-vrf
+# Parameters (make changes based on your requirements)
+region1=southcentralus
+region2=centralus
+rg=lab-vwan-irazfw
+vwanname=vwan-irazfw
 hub1name=hub1
 hub2name=hub2
-hub3name=hub3
 username=azureuser
-password="Msft123Msft123"
+password="Msft123Msft123" #Please change your password
 vmsize=Standard_DS1_v2
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
 
 #Create Spoke1 and spoke1-nva
-az network vnet subnet create --name nvasubnet --resource-group $rg --vnet-name Spoke1 --address-prefixes 172.16.1.32/27 -o none
+az network vnet subnet create --name nvasubnet --resource-group $rg --vnet-name Spoke1 --address-prefixes 10.1.0.32/27 -o none
 #NVA + Config script to enable NAT
 az network public-ip create --name spoke1-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none --sku Standard
 az network nic create --name spoke1-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address spoke1-nva-pip --ip-forwarding true -o none
@@ -58,9 +56,9 @@ az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name 
 
 # vHub Route table
 # az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name
-lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIPAddress" -o tsv)
 vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
-az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet $vnetid --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" --internet-security false -o none --no-wait
+az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet $vnetid --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" --internet-security false -o none
 connid=$(az network vhub connection show -g $rg -n spoke1conn --vhub-name $hub1name --query id -o tsv)
 az network vhub route-table route add --name defaultRouteTable --vhub-name $hub1name --resource-group $rg --route-name default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none --no-wait
 

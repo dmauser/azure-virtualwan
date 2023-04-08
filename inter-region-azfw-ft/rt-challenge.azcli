@@ -1,0 +1,93 @@
+# Parameters (make changes based on your requirements)
+region1=eastus2
+region2=westus2
+rg=lab-vwan-irazfw
+vwanname=vwan-irazfw
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_B1s
+
+# Add VMs+Nettools+boot diagnostics enabled on Azure Firewall spokes for each hub:
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg ""
+az vm extension set --resource-group $rg --vm-name spoke2VM --name customScript --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg ""
+az vm extension set --resource-group $rg --vm-name spoke4VM --name customScript --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+stguri1=$(az storage account list -g $rg --query '[?location==`'$region1'`].primaryEndpoints.blob' -o tsv)
+stguri2=$(az storage account list -g $rg --query '[?location==`'$region2'`].primaryEndpoints.blob' -o tsv)
+az vm boot-diagnostics enable -g $rg --storage $stguri1 --name spoke2VM -o none
+az vm boot-diagnostics enable -g $rg --storage $stguri2 --name spoke4VM -o none
+
+# Check if you can create those VMs from either Spoke1, Spoke3, Branch1 or Branch2 VMs before running the command below.
+
+#Spoke2 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
+ --vhub-name $hub1name \
+ --route-name $hub1name-indirect-spokes-rt \
+ --address-prefixes 10.2.0.0/16 \
+ --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+
+#Spoke4 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
+ --vhub-name $hub2name \
+ --route-name $hub2name-indirect-spokes-rt \
+ --address-prefixes 10.4.0.0/16 \
+ --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke4conn provisioningState="$prState
+    sleep 5
+done
+
+# Restore original routing behavior
+
+#Spoke2 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
+ --vhub-name $hub1name \
+ --route-name $hub1name-indirect-spokes-rt \
+ --address-prefixes 10.2.1.0/24 10.2.2.0/24 \
+ --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+
+#Spoke4 vnet connection and Static Route to Spoke2-azfw
+az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
+ --vhub-name $hub2name \
+ --route-name $hub2name-indirect-spokes-rt \
+ --address-prefixes 10.4.1.0/24 10.4.2.0/24 \
+ --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
+ --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke4conn provisioningState="$prState
+    sleep 5
+done
