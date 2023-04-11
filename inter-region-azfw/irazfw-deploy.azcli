@@ -379,7 +379,7 @@ echo creating spoke 2 and spoke 4 vnet connections using static route to their r
 az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
  --vhub-name $hub1name \
  --route-name $hub1name-indirect-spokes-rt \
- --address-prefixes 10.2.1.0/16 \
+ --address-prefixes 10.2.0.0/16 \
  --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
  --no-wait
 
@@ -395,7 +395,7 @@ done
 az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
  --vhub-name $hub2name \
  --route-name $hub2name-indirect-spokes-rt \
- --address-prefixes 10.4.1.0/16 \
+ --address-prefixes 10.4.0.0/16 \
  --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
  --no-wait
 
