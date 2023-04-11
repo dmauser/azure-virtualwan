@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram id="VUlZrNLKj0H3eoXomR7d" name="Page-1">
-        <mxGraphModel dx="1180" dy="508" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+        <mxGraphModel dx="1433" dy="617" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -160,17 +160,17 @@
                 <mxCell id="48" value="Inter-Hub" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontColor=#000000;fontSize=13;" vertex="1" parent="1">
                     <mxGeometry x="639.35" y="540" width="80" height="30" as="geometry"/>
                 </mxCell>
-                <mxCell id="51" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 10px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 Next Hop AZFW (10.2.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=10;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
-                    <mxGeometry x="284.35" y="140" width="20.65" height="20" as="geometry"/>
+                <mxCell id="51" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 11px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 &lt;br style=&quot;font-size: 11px;&quot;&gt;Next Hop AZFW (10.2.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=11;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
+                    <mxGeometry x="303.70000000000005" y="120" width="20.65" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="54" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 10px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 Next Hop AZFW (10.2.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=10;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
-                    <mxGeometry x="500.70000000000005" y="140" width="20.65" height="20" as="geometry"/>
+                <mxCell id="54" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 11px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 &lt;br style=&quot;font-size: 11px;&quot;&gt;Next Hop AZFW (10.2.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=11;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
+                    <mxGeometry x="521.35" y="120" width="20.65" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="55" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 10px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 Next Hop AZFW (10.4.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=10;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
-                    <mxGeometry x="840.45" y="140" width="20.65" height="20" as="geometry"/>
+                <mxCell id="55" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 11px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 &lt;br style=&quot;font-size: 11px;&quot;&gt;Next Hop AZFW (10.4.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=11;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
+                    <mxGeometry x="860.45" y="120" width="20.65" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="56" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 10px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 Next Hop AZFW (10.4.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=10;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
-                    <mxGeometry x="1060.45" y="140" width="20.65" height="20" as="geometry"/>
+                <mxCell id="56" value="&lt;span style=&quot;color: rgb(0, 0, 0); font-size: 11px; background-color: rgb(251, 251, 251);&quot;&gt;UDR - 0.0,0,0/0 &lt;br style=&quot;font-size: 11px;&quot;&gt;Next Hop AZFW (10.4.0.68)&lt;/span&gt;" style="aspect=fixed;html=1;points=[];align=left;image;fontSize=11;image=img/lib/azure2/networking/Route_Tables.svg;fontColor=#FF8000;fontStyle=1" vertex="1" parent="1">
+                    <mxGeometry x="1079.0000000000002" y="120" width="20.65" height="20" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>
