@@ -13,7 +13,7 @@ vwanname=vwan-svh
 hubname=svhub
 username=azureuser
 password="Msft123Msft123" #Please change your password
-vmsize=Standard_B1s #VM Size
+vmsize=Standard_DS1_v2 #VM Size
 firewallsku=Premium #Azure Firewall SKU Standard or Premium
 
 #Variables

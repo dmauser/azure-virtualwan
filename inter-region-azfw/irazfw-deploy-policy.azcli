@@ -1,49 +1,8 @@
-# Lab - Virtual WAN Scenario: Route traffic through an Azure Firewall spoke
-
-## Intro
-
-The goal of this lab is to demonstrate and validate the Azure Virtual WAN scenario to route traffic through an NVA (in this case, we will use an Azure Firewall instead of NVA), the same published by the vWAN official document [Scenario: Route traffic through an NVA](https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva).
-
-### Lab diagram
-
-The lab uses the same amount of VNETs (eight total) and two regions with Hubs, and the remote connectivity to two branches using site-to-site VPN using and BGP. Below is a diagram of what you should expect to get deployed:
-
-![net diagram](./media/networkdiagram.png)
-
-### Components
-
-- Two Virtual WAN Hubs in two different regions (default EastUS2 and WestUS2).
-- Eight VNETs (Spoke 1 to 8) where:
-    - Four VNETs (spoke 1, 2, 3, and 4) are connected directly to their respective vHUBs.
-    - The other four (indirect spokes) spoke 5, 6, 7, and 8.
-    - Transit between indirect  Spoke2 and Spoke4 with Azure Firewall instead of NVAs.
-- Each VNET (except 2 and 4) has a Linux VM accessible from SSH (need to adjust NSG to allow access) or serial console.
-- All Linux VMs include basic networking utilities such as: traceroute, tcptraceroute, hping3, nmap, curl.
-    - For connectivity tests, you can use curl <"Destnation IP"> and the output should be the VM name.
-    - All VMs have default username azureuser and password Msft123Msft123 (you can change it under parameters section).
-- There's UDRs associated to the indirect spoke VNETs 5, 6, 7, 8 with default route 0/0 to their respective Azure Firewall spoke.
-- Virtual WAN hubs have routes to Azure Firewall spokes using summaries routes (10.2.0.0/16 -> Spoke2conn, 10.4.0.0/16 -> Spoke4conn)
-- Spoke2conn and Spoke4conn have specific routes 10.2.0.0/16 next hop to spoke 2 Azure Firewall IP and 10.4.0.0/16next hop to spoke 4 Azure Firewall IP.
-- The outcome of the lab will be full transit between all ends (all VMs can reach each other).
-- Two remote branches emulated in Azure with Azure VPN Gateway on each site and S2S VPN using BGP to their respective vHUB. ASN 65010 is assigned to Branch 1 and ASN 65009 is assigned to Branch 2 while vHUBs VPN Gateways on both Hubs have fixed ASN 65515.
-
-### Deploy this solution
-
-The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) and run the following commands build the entire lab:
-
-```bash
-wget -O irazfw-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-azfw/irazfw-deploy.azcli
-chmod +xr irazfw-deploy.sh
-./irazfw-deploy.sh 
-```
-
-**Note:** the provisioning process will take around 60 minutes to complete.
-
-Alternatively (recommended), you can run step-by-step to get familiar with the provisioning process and the components deployed:
-
-```bash
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
+# Add script running time status from start to finish
+starttime=$(date +%s)
+echo "Script started at $(date)"
 
 # Pre-Requisites
 echo validating pre-requisites
@@ -63,9 +22,24 @@ hub2name=hub2
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_DS1_v2
+firewallsku=Standard #Azure Firewall SKU Basic, Standard or Premium
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
+
+# Add paramters to the script to change variable firewallsku 
+if [ "$1" == "Basic" ]; then
+    firewallsku=Basic
+elif [ "$1" == "Standard" ]; then
+    firewallsku=Standard
+elif [ "$1" == "Premium" ]; then
+    firewallsku=Premium
+fi
+# No parameter passed default to Standard and add echo message
+if [ -z "$1" ]; then
+    echo "No parameter passed, defaulting to Standard SKU"
+    firewallsku=Standard
+fi
 
 # Creating rg
 az group create -n $rg -l $region1 --output none
@@ -114,8 +88,8 @@ az network vnet peering create -g $rg -n spoke8-to-spoke4 --vnet-name spoke8 --a
 
 echo Creating VMs in both branches...
 # Creating a VM in each branch spoke
-az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Creating NSGs in both branches...
 #Updating NSGs:
@@ -139,25 +113,23 @@ az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vp
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 # Creating VMs on each indirect spoke.
-az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke7VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke8VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke7VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke8VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Continue only if all VMs are created
+echo Waiting for VMs to be created...
+az vm wait -g $rg --created --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) --only-show-errors -o none
 #Enabling boot diagnostics for all VMs in the resource group (Serial console)
-#Creating Storage Account (boot diagnostics + serial console)
-let "randomIdentifier1=$RANDOM*$RANDOM" 
-az storage account create -n sc$randomIdentifier1 -g $rg -l $region1 --sku Standard_LRS -o none
-let "randomIdentifier2=$RANDOM*$RANDOM" 
-az storage account create -n sc$randomIdentifier2 -g $rg -l $region2 --sku Standard_LRS -o none
-#Enablingboot diagnostics
-stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primaryEndpoints.blob -o tsv)
-stguri2=$(az storage account show -n sc$randomIdentifier2 -g $rg --query primaryEndpoints.blob -o tsv)
-az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?location==`'$region1'`].{id:id}' -o tsv) -o none
-az vm boot-diagnostics enable --storage $stguri2 --ids $(az vm list -g $rg --query '[?location==`'$region2'`].{id:id}' -o tsv) -o none
+echo Enabling boot diagnostics for all VMs in the resource group (Serial console)...
+# enable boot diagnostics for all VMs in the resource group
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+echo Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others...
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
 do
@@ -219,48 +191,78 @@ echo Deploying Azure Firewall...
 Workspacename1=AZFirewall-$region1-Logs 
 Workspacename2=AZFirewall-$region2-Logs 
 
+# Create Firewall Policy for each region:
+echo Creating Azure Firewall Policy for each region...
+az network firewall policy create -g $rg -n $region1-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region1 --sku $firewallsku 
+az network firewall policy create -g $rg -n $region2-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region2 --sku $firewallsku 
+
+# Create firewall policy rule collection group for each region:
+echo Creating Azure Firewall Policy Rule Collection Group for each region...
+az network firewall policy rule-collection-group create -g $rg --policy-name $region1-AZFW-Policy -n NetworkRuleCollectionGroup --priority 200 --output none
+az network firewall policy rule-collection-group create -g $rg --policy-name $region2-AZFW-Policy -n NetworkRuleCollectionGroup --priority 200 --output none
+
+# Create a any to any Network Rule Collection for each region:
+# For $region1-AZFW-Policy
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $region1-AZFW-Policy \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+# For $region1-AZFW-Policy
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $region2-AZFW-Policy\
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
 #Build Azure Firewall / Note this section takes few minutes to complete.
+echo Building Azure Firewall...
 #Spoke 2
 az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallSubnet --address-prefixes 10.2.0.64/26 --output none
-az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none
-az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --output none
+az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none --only-show-errors
+az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --output none
 az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --public-ip-address spoke2-azfw-pip --resource-group $rg --vnet-name spoke2 --output none
 az network firewall update --name spoke2-azfw --resource-group $rg --output none
 
 #Spoke4
 az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallSubnet --address-prefixes 10.4.0.64/26 --output none
-az network public-ip create --name spoke4-azfw-pip --resource-group $rg --location $region2 --allocation-method static --sku standard --output none
-az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --output none
+az network public-ip create --name spoke4-azfw-pip --resource-group $rg --location $region2  --allocation-method static --sku standard --output none --only-show-errors
+az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --output none
 az network firewall ip-config create --firewall-name spoke4-azfw --name FW-config --public-ip-address spoke4-azfw-pip  --resource-group $rg --vnet-name spoke4 --output none
 az network firewall update --name spoke4-azfw --resource-group $rg --output none
 
-#Creating firewall rule to allow all traffic
-#Spoke2-azfw
-az network firewall network-rule create --resource-group $rg \
---firewall-name spoke2-azfw \
---collection-name azfw-rules \
---priority 1000 \
---action Allow \
---name Allow-All \
---protocols Any \
---source-addresses "*" \
---destination-addresses "*" \
---destination-ports "*" \
---output none
-#spoke4-azfw
-az network firewall network-rule create --resource-group $rg \
---firewall-name spoke4-azfw \
---collection-name azfw-rules \
---priority 1000 \
---action Allow \
---name Allow-All \
---protocols Any \
---source-addresses "*" \
---destination-addresses "*" \
---destination-ports "*" \
---output none
-
 #Creating Log Analytics Workspaces
+echo Creating Log Analytics Workspaces...
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
 #Spoke2-azfw
 az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename1 --location $region1 --no-wait
 #Spoke4-azfw
@@ -394,14 +396,17 @@ vwanbgp2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSet
 vwanpip2=$(az network vpn-gateway show -n $hub2name-vpngw  -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
 
 # Creating virtual wan vpn site
+echo Creating VPN Sites...
 az network vpn-site create --ip-address $pip1 -n site-branch1 -g $rg --asn 65510 --bgp-peering-address $bgp1 -l $region1 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
 az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65509 --bgp-peering-address $bgp2 -l $region2 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
 
 # Creating virtual wan vpn connection
+echo Creating VPN Connections...
 az network vpn-gateway connection create --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --enable-bgp true --remote-vpn-site site-branch1 --internet-security --shared-key 'abc123' --output none
 az network vpn-gateway connection create --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --enable-bgp true --remote-vpn-site site-branch2 --internet-security --shared-key 'abc123' --output none
 
 # Creating connection from vpn gw to local gateway and watch for connection succeeded
+echo Creating VPN Connections from VPN Gateways to the respective Branches...
 az network local-gateway create -g $rg -n site-$hub1name-LG --gateway-ip-address $vwanpip1 --asn 65515 --bgp-peering-address $vwanbgp1 -l $region1 --output none
 az network vpn-connection create -n branch1-to-site-$hub1name -g $rg -l $region1 --vnet-gateway1 branch1-vpngw --local-gateway2 site-$hub1name-LG --enable-bgp --shared-key 'abc123' --output none
 
@@ -409,7 +414,6 @@ az network local-gateway create -g $rg -n site-$hub2name-LG --gateway-ip-address
 az network vpn-connection create -n branch2-to-site-$hub2name -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 site-$hub2name-LG --enable-bgp --shared-key 'abc123' --output none
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
-
 # **** Configuring vWAN route default route table to send traffic to Azure Firewall and reach indirect spokes: *****
 echo Configuring spoke connections to their respective hubs...
 echo Creating spoke 1 and 3 connection to their respective hubs...
@@ -492,98 +496,10 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --route-name to-spoke2-azfw \
  --no-wait
 echo Deployment has finished
-```
 
-### Validation
-
-```bash
-# Parameters 
-rg=lab-vwan-irazfw #set resource group
-
-#### Validate connectivity between VNETs and Branches
+# Add script statistics when started and finished
+echo "Script started at: $startTime"
+echo "Script finished at: $(date)"
+echo "Total time elapsed: $SECONDS seconds"
 
 
-# 1) Test connectivity between VMs (they can be accessible via SSH over Public IP or Serial Console)
-
-#List of VMs Public IP for SSH access
-az network public-ip list -g $rg --query "[].{name:name,ip:ipAddress}" -o table 
-
-#List of VMs Private IPs
-for nicname in `az network nic list -g $rg --query [].name -o tsv`
-do 
-echo -e $nicname private IP:
-az network nic show -g $rg --name $nicname --query "ipConfigurations[].privateIpAddress" --output tsv
-echo -e 
-done
-
-# For connectivity test you can also use curl or traceroute. For example from BranchVM1 or BranchVM2 run:
-curl 10.2.1.4 #expected output spoke5VM
-traceroute 10.2.1.4
-ping 10.2.1.4 -O
-
-# 2) Dump VMs route tables:
-for nicname in `az network nic list -g $rg --query [].name -o tsv`
-do 
-echo -e $nicname effective routes:
-az network nic show-effective-route-table -g $rg --name $nicname --output table
-echo -e 
-done
-
-# 3) Dump all vHUBs route tables.
-for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`
-do
-  for routetable in `az network vhub route-table list --vhub-name $vhubname -g $rg --query "[].id" -o tsv`
-   do
-   if [ "$(echo $routetable | rev | cut -d'/' -f1 | rev)" != "noneRouteTable" ]; then
-     echo -e vHUB: $vhubname 
-     echo -e Effective route table: $(echo $routetable | rev | cut -d'/' -f1 | rev)   
-     az network vhub get-effective-routes -g $rg -n $vhubname \
-     --resource-type RouteTable \
-     --resource-id $routetable \
-     --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
-     --output table
-     echo
-    fi
-   done
-done
-
-# Dump the Branches VPN Gateway routes:
-vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
-array=($vpngws)
-for vpngw in "${array[@]}"
- do 
- echo "*** $vpngw BGP peer status ***"
- az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw -o table
- echo "*** $vpngw BGP learned routes ***"
- az network vnet-gateway list-learned-routes -g $rg -n $vpngw -o table
- echo
-done
-
-# VPN Gateways advertised routes per BGP peer.
-vpngws=$(az network vnet-gateway list -g $rg --query [].name -o tsv) 
-array=($vpngws)
-for vpngw in "${array[@]}"
- do 
-  ips=$(az network vnet-gateway list-bgp-peer-status -g $rg -n $vpngw --query 'value[].{ip:neighbor}' -o tsv)
-  array2=($ips)
-   for ip in "${array2[@]}"
-   do
-   echo *** $vpngw advertised routes to peer $ip ***
-   az network vnet-gateway list-advertised-routes -g $rg -n $vpngw -o table --peer $ip
-  done
- echo
-done
-
-# Azure Firewall Rules 
-# Over portal check Log Analytics and check the Firewall activities using Network Rule query.
-```
-
-### Clean-up
-
-```bash
-# Parameters 
-rg=lab-vwan-irazfw #set resource group
-
-### Clean up
-az group delete -g $rg --no-wait 
-```
