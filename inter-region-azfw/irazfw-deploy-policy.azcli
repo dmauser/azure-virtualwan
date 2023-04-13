@@ -21,12 +21,17 @@ start=`date +%s`
 echo "Script started at $(date)"
 
 # Pre-Requisites
-echo validating pre-requisites
-az extension add --name virtual-wan 
-az extension add --name azure-firewall 
-# or updating vWAN and AzFirewall CLI extensions
-az extension update --name virtual-wan
-az extension update --name azure-firewall 
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
+# Check if azure-firewall extension is installed if not install it
+if ! az extension list | grep -q azure-firewall; then
+    echo "azure-firewall extension is not installed, installing it now..."
+    az extension add --name azure-firewall --only-show-errors
+fi
 
 # Parameters (make changes based on your requirements)
 region1=southcentralus
