@@ -1,5 +1,15 @@
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
+# Parameters (make changes based on your requirements)
+region1=southcentralus
+region2=centralus
+rg=lab-vwan-irazfw
+vwanname=vwan-irazfw
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2
 
 # Validate Firewall SKU
 if [ "$1" == "Basic" ]; then
@@ -32,18 +42,6 @@ if ! az extension list | grep -q azure-firewall; then
     echo "azure-firewall extension is not installed, installing it now..."
     az extension add --name azure-firewall --only-show-errors
 fi
-
-# Parameters (make changes based on your requirements)
-region1=southcentralus
-region2=centralus
-rg=lab-vwan-irazfw
-vwanname=vwan-irazfw
-hub1name=hub1
-hub2name=hub2
-username=azureuser
-password="Msft123Msft123" #Please change your password
-vmsize=Standard_DS1_v2
-firewallsku=Standard #Azure Firewall SKU Basic, Standard or Premium
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -428,6 +426,7 @@ echo Creating spoke 1 and 3 connection to their respective hubs...
 az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
 # Spoke3 vnet connection
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
+az network vhub connection list -g $rg --vhub-name $hub1name --query "[].name" -o tsv
 
 echo creating spoke 2 and spoke 4 vnet connections using static route to their respective Azure Firewalls...
 #Spoke2 vnet connection and Static Route to Spoke2-azfw
