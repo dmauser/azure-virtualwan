@@ -34,9 +34,10 @@ elif [ "$1" == "Standard" ]; then
     firewallsku=Standard
 elif [ "$1" == "Premium" ]; then
     firewallsku=Premium
-fi
-# No parameter passed default to Standard and add echo message
-if [ -z "$1" ]; then
+elif [ "$1" == "help" ]; then
+    echo "Usage: ./vwan-irazfw.sh [Basic|Standard|Premium]"
+    exit 0
+elif [ -z "$1" ]; then
     echo "No parameter passed, defaulting to Standard SKU"
     firewallsku=Standard
 fi
@@ -193,8 +194,8 @@ Workspacename2=AZFirewall-$region2-Logs
 
 # Create Firewall Policy for each region:
 echo Creating Azure Firewall Policy for each region...
-az network firewall policy create -g $rg -n $region1-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region1 --sku $firewallsku 
-az network firewall policy create -g $rg -n $region2-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region2 --sku $firewallsku 
+az network firewall policy create -g $rg -n $region1-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region1 --sku $firewallsku --output none
+az network firewall policy create -g $rg -n $region2-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region2 --sku $firewallsku --output none
 
 # Create firewall policy rule collection group for each region:
 echo Creating Azure Firewall Policy Rule Collection Group for each region...
