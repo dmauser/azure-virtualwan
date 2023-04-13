@@ -423,19 +423,28 @@ echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 echo Configuring spoke connections to their respective hubs...
 echo Creating spoke 1 and 3 connection to their respective hubs...
 # Spoke1 vnet connection
-az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
+az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --output none --no-wait
 # Spoke3 vnet connection
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
-az network vhub connection list -g $rg --vhub-name $hub1name --query "[].name" -o tsv
 
 echo creating spoke 2 and spoke 4 vnet connections using static route to their respective Azure Firewalls...
 #Spoke2 vnet connection and Static Route to Spoke2-azfw
-az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg \
- --vhub-name $hub1name \
- --route-name $hub1name-indirect-spokes-rt \
- --address-prefixes 10.2.0.0/16 \
- --next-hop $(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
- --no-wait
+spokevnet=spoke2
+vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
+spk2nvaip=$(az network firewall show --name spoke2-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+dstcidr=10.2.0.0/16
+conn=spoke2conn
+propagateStaticRoutes=false #Static Route propagation true or false
+vnetLocalRouteOverrideCriteria=Equal #possible values Equal = Onlink enabled or Contains=Onlink disabled
+apiversion='2022-01-01' #Set API version
+#SubID
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+#vHubRegion
+vhubregion=$(az network vhub show -g $rg -n $hub1name --query id --query location -o tsv)
+
+az rest --method put --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/hubVirtualNetworkConnections/$conn?api-version=$apiversion \
+ --body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub1name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk2nvaip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
+ --output none
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
@@ -446,12 +455,22 @@ do
 done
 
 #Spoke4 vnet connection and Static Route to Spoke2-azfw
-az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg \
- --vhub-name $hub2name \
- --route-name $hub2name-indirect-spokes-rt \
- --address-prefixes 10.4.0.0/16 \
- --next-hop $(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv) \
- --no-wait
+spokevnet=spoke4
+vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
+spk4nvaip=$(az network firewall show --name spoke4-azfw --resource-group $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+dstcidr="10.4.0.0/16"
+conn=spoke4conn
+propagateStaticRoutes=false #Static Route propagation true or false
+vnetLocalRouteOverrideCriteria=Equal #Equal = Onlink enabled Contains=Onlink disabled
+apiversion='2022-01-01' #Set API version
+#SubID
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+#vHubRegion
+vhubregion=$(az network vhub show -g $rg -n $hub2name --query id --query location -o tsv)
+
+az rest --method put --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/hubVirtualNetworkConnections/$conn?api-version=$apiversion \
+ --body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub2name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk4nvaip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
+ --output none
 
 prState=''
 while [[ $prState != 'Succeeded' ]];

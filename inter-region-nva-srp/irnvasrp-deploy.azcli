@@ -370,8 +370,6 @@ az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vh
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
 
 echo creating spoke 2 and spoke 4 vnet connections using static route to their respective NVAs...
-
-
 #Spoke2 vnet connection
 spokevnet=spoke2
 vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
