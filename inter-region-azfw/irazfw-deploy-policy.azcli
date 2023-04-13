@@ -157,8 +157,8 @@ Workspacename2=AZFirewall-$region2-Logs
 
 # Create Firewall Policy for each region:
 echo Creating Azure Firewall Policy for each region...
-az network firewall policy create -g $rg -n $region1-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region1 --sku $firewallsku --output none
-az network firewall policy create -g $rg -n $region2-AZFW-Policy --threat-intel-mode Alert --enable-dns-proxy true --location $region2 --sku $firewallsku --output none
+az network firewall policy create -g $rg -n $region1-AZFW-Policy --threat-intel-mode Alert --location $region1 --sku $firewallsku --output none
+az network firewall policy create -g $rg -n $region2-AZFW-Policy --threat-intel-mode Alert --location $region2 --sku $firewallsku --output none
 
 # Create firewall policy rule collection group for each region:
 echo Creating Azure Firewall Policy Rule Collection Group for each region...
