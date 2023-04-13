@@ -1,7 +1,8 @@
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
-# Add script running time status from start to finish
-starttime=$(date +%s)
+
+# Add script starting time and finish time
+start=`date +%s`
 echo "Script started at $(date)"
 
 # Pre-Requisites
@@ -497,10 +498,9 @@ az network vhub route-table route add --destination-type CIDR --resource-group $
  --route-name to-spoke2-azfw \
  --no-wait
 echo Deployment has finished
-
-# Add script statistics when started and finished
-echo "Script started at: $startTime"
-echo "Script finished at: $(date)"
-echo "Total time elapsed: $SECONDS seconds"
-
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
 
