@@ -1,7 +1,22 @@
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
 
-# Add script starting time and finish time
+# Validate Firewall SKU
+if [ "$1" == "Basic" ]; then
+    firewallsku=Basic
+elif [ "$1" == "Standard" ]; then
+    firewallsku=Standard
+elif [ "$1" == "Premium" ]; then
+    firewallsku=Premium
+elif [ "$1" == "help" ]; then
+    echo "Usage: ./vwan-irazfw.sh [Basic|Standard|Premium]"
+    exit 0
+elif [ -z "$1" ]; then
+    echo "No parameter passed, defaulting to Standard SKU"
+    firewallsku=Standard
+fi
+
+# Adding script starting time and finish time
 start=`date +%s`
 echo "Script started at $(date)"
 
@@ -27,21 +42,6 @@ firewallsku=Standard #Azure Firewall SKU Basic, Standard or Premium
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
-
-# Add paramters to the script to change variable firewallsku 
-if [ "$1" == "Basic" ]; then
-    firewallsku=Basic
-elif [ "$1" == "Standard" ]; then
-    firewallsku=Standard
-elif [ "$1" == "Premium" ]; then
-    firewallsku=Premium
-elif [ "$1" == "help" ]; then
-    echo "Usage: ./vwan-irazfw.sh [Basic|Standard|Premium]"
-    exit 0
-elif [ -z "$1" ]; then
-    echo "No parameter passed, defaulting to Standard SKU"
-    firewallsku=Standard
-fi
 
 # Creating rg
 az group create -n $rg -l $region1 --output none
