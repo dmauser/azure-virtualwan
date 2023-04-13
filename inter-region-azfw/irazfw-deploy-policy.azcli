@@ -124,8 +124,8 @@ az vm create -n spoke8VM  -g $rg --image ubuntults --public-ip-sku Standard --si
 # Continue only if all VMs are created
 echo Waiting for VMs to be created...
 az vm wait -g $rg --created --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) --only-show-errors -o none
-#Enabling boot diagnostics for all VMs in the resource group (Serial console)
-echo Enabling boot diagnostics for all VMs in the resource group (Serial console)...
+#Enabling boot diagnostics for all VMs in the resource group 
+echo Enabling boot diagnostics for all VMs in the resource group...
 # enable boot diagnostics for all VMs in the resource group
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
