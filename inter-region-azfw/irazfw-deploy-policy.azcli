@@ -201,14 +201,14 @@ echo Building Azure Firewall...
 #Spoke 2
 az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallSubnet --address-prefixes 10.2.0.64/26 --output none
 az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none --only-show-errors
-az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --output none
+az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --sku $firewallsku --output none
 az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --public-ip-address spoke2-azfw-pip --resource-group $rg --vnet-name spoke2 --output none
 az network firewall update --name spoke2-azfw --resource-group $rg --output none
 
 #Spoke4
 az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallSubnet --address-prefixes 10.4.0.64/26 --output none
 az network public-ip create --name spoke4-azfw-pip --resource-group $rg --location $region2  --allocation-method static --sku standard --output none --only-show-errors
-az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --output none --sku $firewallsku
+az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --sku $firewallsku --output none
 az network firewall ip-config create --firewall-name spoke4-azfw --name FW-config --public-ip-address spoke4-azfw-pip  --resource-group $rg --vnet-name spoke4 --output none
 az network firewall update --name spoke4-azfw --resource-group $rg --output none
 
