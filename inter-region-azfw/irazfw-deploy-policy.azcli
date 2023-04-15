@@ -149,9 +149,6 @@ done
 
 echo Deploying Azure Firewall...
 # Deploy Azure Firewall on Spoke2 and Spoke 4
-## Log Analytics workspace name. 
-Workspacename1=AZFirewall-$region1-Logs 
-Workspacename2=AZFirewall-$region2-Logs 
 
 # Create Firewall Policy for each region:
 echo Creating Azure Firewall Policy for each region...
@@ -199,49 +196,37 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 #Build Azure Firewall / Note this section takes few minutes to complete.
 echo Building Azure Firewall...
 #Spoke 2
+# Create Azure Firewall Subnet and Management Subnets
 az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallSubnet --address-prefixes 10.2.0.64/26 --output none
 az network public-ip create --name spoke2-azfw-pip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none --only-show-errors
 
 az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallManagementSubnet --address-prefixes 10.2.0.128/26 --output none
 az network public-ip create --name spoke2-azfw-mgmtpip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none --only-show-errors
 
-az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --tier $firewalltier --output none
-az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --public-ip-address spoke2-azfw-pip --m-public-ip-address spoke2-azfw-mgmtpip --m-vnet-name spoke2 --resource-group $rg --vnet-name spoke2 --output none
+# Create Azure Firewall
+az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --vnet-name spoke2 --sku AZFW_VNet --tier Basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip spoke2-azfw-mgmtpip --output none
+# Add Public IP to the firewall
+az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --m-name FW-mgmconfig --public-ip-address spoke2-azfw-pip --m-public-ip-address spoke2-azfw-mgmtpip --m-vnet-name spoke2 --resource-group $rg --vnet-name spoke2 --output none
 az network firewall update --name spoke2-azfw --resource-group $rg --output none --only-show-errors
 
 #Spoke4
+# Create Azure Firewall Subnet and Management Subnets
 az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallSubnet --address-prefixes 10.4.0.64/26 --output none
 az network public-ip create --name spoke4-azfw-pip --resource-group $rg --location $region2  --allocation-method static --sku standard --output none --only-show-errors
 
 az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallManagementSubnet --address-prefixes 10.4.0.128/26 --output none
 az network public-ip create --name spoke4-azfw-mgmtpip --resource-group $rg --location $region2 --allocation-method static --sku standard --output none --only-show-errors
-
-az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --tier $firewalltier --output none
+# Create Azure Firewall
+az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --vnet-name spoke4 --sku AZFW_VNet --tier Basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip spoke4-azfw-mgmtpip --output none
+# Add Public IP to the firewall
 az network firewall ip-config create --firewall-name spoke4-azfw --name FW-config --public-ip-address spoke4-azfw-pip --m-public-ip-address spoke4-azfw-mgmtpip --m-vnet-name spoke4 --resource-group $rg --vnet-name spoke4 --output none
 az network firewall update --name spoke4-azfw --resource-group $rg --output none
 
-# Add loop script to wait for Azure Firewall spoke2-azfw to be ready
-echo Waiting for Azure Firewall to be ready...
-azfwState='Creating'
-while [[ $azfwState != 'Succeeded' ]];
-do
-    azfwState=$(az network firewall show -g $rg -n spoke2-azfw --query provisioningState -o tsv)
-    echo "AZFW State="$azfwState
-    sleep 5
-done
-
-# Add loop script to wait for Azure Firewall spoke4-azfw to be ready
-azfwState='Creating'
-while [[ $azfwState != 'Succeeded' ]]; 
-do
-    azfwState=$(az network firewall show -g $rg -n spoke4-azfw --query provisioningState -o tsv)
-    echo "AZFW State="$azfwState
-    sleep 5
-done
-
-
-
 #Creating Log Analytics Workspaces
+## Log Analytics workspace name. 
+Workspacename1=AZFirewall-$region1-Logs 
+Workspacename2=AZFirewall-$region2-Logs 
+
 echo Creating Log Analytics Workspaces...
 msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
 if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
