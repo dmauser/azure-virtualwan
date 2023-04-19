@@ -12,18 +12,18 @@ password="Msft123Msft123" #Please change your password
 vmsize=Standard_DS1_v2
 
 # Validate Firewall SKU
-if [ "$1" == "Basic" ]; then
-    firewalltier=Basic
-elif [ "$1" == "Standard" ]; then
-    firewalltier=Standard
-elif [ "$1" == "Premium" ]; then
-    firewalltier=Premium
+if [ "$1" == "basic" ]; then
+    firewalltier=basic
+elif [ "$1" == "standard" ]; then
+    firewalltier=standard
+elif [ "$1" == "premium" ]; then
+    firewalltier=premium
 elif [ "$1" == "help" ]; then
-    echo "Usage: ./vwan-irazfw.sh [Basic|Standard|Premium]"
+    echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
     exit 0
 elif [ -z "$1" ]; then
-    echo "No parameter passed, defaulting Azure Firewall to Standard tier"
-    firewalltier=Standard
+    echo "No parameter passed, defaulting Azure Firewall to standard tier"
+    firewalltier=standard
 fi
 
 # Adding script starting time and finish time
@@ -51,9 +51,9 @@ az group create -n $rg -l $region1 --output none
 
 # Creating virtual wan
 echo Creating vwan and both hubs...
-az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region1 --type Standard --output none
-az network vhub create -g $rg --name $hub1name --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region1 --sku Standard --no-wait
-az network vhub create -g $rg --name $hub2name --address-prefix 192.168.2.0/24 --vwan $vwanname --location $region2 --sku Standard --no-wait
+az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region1 --type standard --output none
+az network vhub create -g $rg --name $hub1name --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region1 --sku standard --no-wait
+az network vhub create -g $rg --name $hub2name --address-prefix 192.168.2.0/24 --vwan $vwanname --location $region2 --sku standard --no-wait
 
 echo Creating branches VNETs...
 # Creating location1 branch virtual network
@@ -93,8 +93,8 @@ az network vnet peering create -g $rg -n spoke8-to-spoke4 --vnet-name spoke8 --a
 
 echo Creating VMs in both branches...
 # Creating a VM in each branch spoke
-az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Creating NSGs in both branches...
 #Updating NSGs:
@@ -109,8 +109,8 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?loca
 
 echo Creating VPN Gateways in both branches...
 # Creating pips for VPN GW's in each branch
-az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sku Basic --output none
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku Basic --output none
+az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sku basic --output none
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku basic --output none
 
 # Creating VPN gateways
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
@@ -118,13 +118,13 @@ az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vp
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 # Creating VMs on each indirect spoke.
-az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke7VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke8VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke7VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke8VM  -g $rg --image ubuntults --public-ip-sku standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 # Continue only if all VMs are created
 echo Waiting for VMs to be created...
@@ -204,7 +204,7 @@ az network vnet subnet create -g $rg --vnet-name spoke2 -n AzureFirewallManageme
 az network public-ip create --name spoke2-azfw-mgmtpip --resource-group $rg --location $region1 --allocation-method static --sku standard --output none --only-show-errors
 
 # Create Azure Firewall
-az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --vnet-name spoke2 --sku AZFW_VNet --tier Basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip spoke2-azfw-mgmtpip --output none
+az network firewall create --name spoke2-azfw --resource-group $rg --location $region1 --firewall-policy $region1-AZFW-Policy --vnet-name spoke2 --sku AZFW_VNet --tier basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip spoke2-azfw-mgmtpip --output none
 # Add Public IP to the firewall
 az network firewall ip-config create --firewall-name spoke2-azfw --name FW-config --m-name FW-mgmconfig --public-ip-address spoke2-azfw-pip --m-public-ip-address spoke2-azfw-mgmtpip --m-vnet-name spoke2 --resource-group $rg --vnet-name spoke2 --output none
 az network firewall update --name spoke2-azfw --resource-group $rg --output none --only-show-errors
@@ -217,7 +217,7 @@ az network public-ip create --name spoke4-azfw-pip --resource-group $rg --locati
 az network vnet subnet create -g $rg --vnet-name spoke4 -n AzureFirewallManagementSubnet --address-prefixes 10.4.0.128/26 --output none
 az network public-ip create --name spoke4-azfw-mgmtpip --resource-group $rg --location $region2 --allocation-method static --sku standard --output none --only-show-errors
 # Create Azure Firewall
-az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --vnet-name spoke4 --sku AZFW_VNet --tier Basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip spoke4-azfw-mgmtpip --output none
+az network firewall create --name spoke4-azfw --resource-group $rg --location $region2 --firewall-policy $region2-AZFW-Policy --vnet-name spoke4 --sku AZFW_VNet --tier basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip spoke4-azfw-mgmtpip --output none
 # Add Public IP to the firewall
 az network firewall ip-config create --firewall-name spoke4-azfw --name FW-config --public-ip-address spoke4-azfw-pip --m-public-ip-address spoke4-azfw-mgmtpip --m-vnet-name spoke4 --resource-group $rg --vnet-name spoke4 --output none
 az network firewall update --name spoke4-azfw --resource-group $rg --output none
