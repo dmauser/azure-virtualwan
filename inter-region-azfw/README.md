@@ -13,10 +13,11 @@ The lab uses the same amount of VNETs (eight total) and two regions with Hubs, a
 
 ### Apr-2023 Updates
 
-- Added Azure Firewall tier options: basic, standard and premium. It defaults to basic tier. Run command line **./irazfw-deploy.sh standard** (or premium in lowercase) to get Azure Firewall with Standard and Premium tiers.
-    - Note that the Basic tier is 1/3 of the cost of the Standard tier.
-- Add start and stop times. It takes around an hour and 15 minutes to complete the deployment.
+- Added Azure Firewall tier options: basic, standard and premium. It defaults to the basic tier. Run command line **./irazfw-deploy.sh standard** (or premium in lowercase) to get Azure Firewall with Standard and Premium tiers.
+    - Note that the Basic tier is 68% cheaper compared to the Standard tier.
+- All Azure Firewall deployments now are deployed in forced tunnel mode which allows it to learn the default route from On-premises or another Firewall/NVA deployed in another VNET.
 - Included network diagram in Draw.io format under media folder.
+- Add start and stop times. It takes around an hour and 15 minutes to complete the deployment.
 
 ### Components
 
