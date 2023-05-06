@@ -1,0 +1,28 @@
+# Parameters (make changes based on your requirements)
+rg=lab-svh-intra
+hub1name=sechub1
+hub2name=sechub2
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+
+# ****** CAUTION ***** 
+# This command will remove routing intent from both Hubs
+#Hub1
+az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/"$hub1name"_RoutingIntent?api-version=2022-01-01
+
+#Hub2
+az rest --method delete --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/"$hub2name"_RoutingIntent?api-version=2022-01-01
+
+# Check status
+prState1='Deleting'
+prState2='Deleting'
+while [[ $prState2 == 'Deleting' ]];
+do
+    prState1=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub1name routing intent provisioningState="$prState1
+    prState2=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub2name routing intent provisioningState="$prState2
+    sleep 15
+done
+echo "$hub1name routing intent disabled"
+echo "$hub2name routing intent disabled"
+

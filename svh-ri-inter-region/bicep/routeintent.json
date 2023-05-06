@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.9.1.41621",
+      "templateHash": "7216656336828112734"
+    }
+  },
+  "parameters": {
+    "hubname": {
+      "type": "string"
+    },
+    "nexthop": {
+      "type": "string"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualHubs/routingIntent",
+      "apiVersion": "2022-01-01",
+      "name": "[format('{0}/{1}_RoutingIntent', parameters('hubname'), parameters('hubname'))]",
+      "properties": {
+        "routingPolicies": [
+          {
+            "name": "PublicTraffic",
+            "destinations": [
+              "Internet"
+            ],
+            "nextHop": "[parameters('nexthop')]"
+          },
+          {
+            "name": "PrivateTraffic",
+            "destinations": [
+              "PrivateTraffic"
+            ],
+            "nextHop": "[parameters('nexthop')]"
+          }
+        ]
+      }
+    }
+  ]
+}
