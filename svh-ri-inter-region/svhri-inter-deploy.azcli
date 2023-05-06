@@ -11,8 +11,8 @@ az extension update --name azure-firewall
 # Parameters (make changes based on your requirements)
 region1=westcentralus #set region1
 region2=northcentralus #set region2
-rg=lab-svh-intra #set resource group
-vwanname=svh-intra #set vWAN name
+rg=lab-svh-inter #set resource group
+vwanname=svh-inter #set vWAN name
 hub1name=sechub1 #set Hub1 name
 hub2name=sechub2 #set Hub2 name
 username=azureuser #set username
@@ -414,14 +414,14 @@ echo "Enabling Secured-vHUB + Routing intent (Private Traffic Only)"
 nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
 az deployment group create --name $hub1name-ri \
 --resource-group $rg \
---template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-intra-region/bicep/main.json \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
 --parameters scenarioOption=Private-and-Internet hubname=$hub1name nexthop=$nexthophub1 \
 --no-wait
 
 nexthophub2=$(az network vhub show -g $rg -n $hub2name --query azureFirewall.id -o tsv)
 az deployment group create --name $hub2name-ri \
 --resource-group $rg \
---template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-intra-region/bicep/main.json \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
 --parameters scenarioOption=Private-and-Internet hubname=$hub2name nexthop=$nexthophub2 \
 --no-wait
 
