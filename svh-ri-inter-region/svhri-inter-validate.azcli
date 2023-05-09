@@ -1,5 +1,5 @@
 # Parameters 
-rg=lab-svh-intra #set resource group
+rg=lab-svh-inter #set resource group
 
 #### Validate connectivity between VNETs and Branches
 
