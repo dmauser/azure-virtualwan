@@ -243,16 +243,16 @@ echo Enabling $hub1name Azure Firewall diagnostics...
 Workspacename=$hub1name-$region1-Logs
 
 #Creating Log Analytics Workspaces
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
+# az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
 
 #EnablingAzure Firewall diagnostics
 #az monitor diagnostic-settings show -n toLogAnalytics -g $rg --resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv)
-az monitor diagnostic-settings create -n 'toLogAnalytics' \
---resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv) \
---workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
---logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
---metrics '[{"category": "AllMetrics","enabled": true}]' \
---output none
+#az monitor diagnostic-settings create -n 'toLogAnalytics' \
+#--resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv) \
+#--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+#--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+#--metrics '[{"category": "AllMetrics","enabled": true}]' \
+#--output none
 
 echo Creating $hub2name Azure Firewall Policy
 #Create firewall rules
@@ -284,16 +284,16 @@ echo Enabling $hub2name Azure Firewall diagnostics...
 Workspacename=$hub2name-$region2-Logs
 
 #Creating Log Analytics Workspaces
-az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region2 --output none
+#az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region2 --output none
 
 #EnablingAzure Firewall diagnostics
 #az monitor diagnostic-settings show -n toLogAnalytics -g $rg --resource $(az network firewall show --name $hub2name-azfw --resource-group $rg --query id -o tsv)
-az monitor diagnostic-settings create -n 'toLogAnalytics' \
---resource $(az network firewall show --name $hub2name-azfw --resource-group $rg --query id -o tsv) \
---workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
---logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
---metrics '[{"category": "AllMetrics","enabled": true}]' \
---output none
+#az monitor diagnostic-settings create -n 'toLogAnalytics' \
+#--resource $(az network firewall show --name $hub2name-azfw --resource-group $rg --query id -o tsv) \
+#--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+#--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+#--metrics '[{"category": "AllMetrics","enabled": true}]' \
+#--output none
 
 echo Validating Branches VPN Gateways provisioning...
 #Branches VPN Gateways provisioning status
@@ -410,7 +410,7 @@ az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 
 # Use instruction of validation section below if you want to test that connectivity.
 
 #Enabling Secured-vHUB + Routing intenet
-echo "Enabling Secured-vHUB + Routing intent (Private Traffic Only)"
+echo "Enabling Secured-vHUB + Routing intent (Private and Internet Traffic)"
 nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
 az deployment group create --name $hub1name-ri \
 --resource-group $rg \
