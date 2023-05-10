@@ -18,7 +18,23 @@ hub2name=sechub2 #set Hub2 name
 username=azureuser #set username
 password="Msft123Msft123" #set password
 vmsize=Standard_DS1_v2 #set VM Size
-firewallsku=Premium #Azure Firewall SKU Standard or Premium
+firewalltier=Premium #Azure Firewall SKU Standard or Premium
+
+# Validate Firewall SKU
+if [ "$1" == "basic" ]; then
+    firewalltier=basic
+elif [ "$1" == "standard" ]; then
+    firewalltier=standard
+elif [ "$1" == "premium" ]; then
+    firewalltier=premium
+elif [ "$1" == "help" ]; then
+    echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
+    exit 0
+elif [ -z "$1" ]; then
+    echo "No parameter passed, defaulting Azure Firewall to basic tier"
+    firewalltier=basic
+fi
+
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -52,8 +68,8 @@ az network vnet create --address-prefixes 172.16.6.0/24 -n spoke6 -g $rg -l $reg
 
 echo Creating VMs in both branches...
 # create a VM in each branch spoke
-az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Creating NSGs in both branches...
 #Update NSGs:
@@ -80,24 +96,21 @@ az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vp
 
 echo Creating Spoke VMs...
 # create a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait
-#Enable boot diagnostics for all VMs in the resource group (Serial console)
-#Create Storage Account (boot diagnostics + serial console)
-let "randomIdentifier1=$RANDOM*$RANDOM" 
-az storage account create -n sc$randomIdentifier1 -g $rg -l $region1 --sku Standard_LRS -o none
-let "randomIdentifier2=$RANDOM*$RANDOM" 
-az storage account create -n sc$randomIdentifier2 -g $rg -l $region2 --sku Standard_LRS -o none
-#Enable boot diagnostics
-stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primaryEndpoints.blob -o tsv)
-stguri2=$(az storage account show -n sc$randomIdentifier2 -g $rg --query primaryEndpoints.blob -o tsv)
-az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?location==`'$region1'`].{id:id}' -o tsv) -o none
-az vm boot-diagnostics enable --storage $stguri2 --ids $(az vm list -g $rg --query '[?location==`'$region2'`].{id:id}' -o tsv) -o none
-### Install tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+# Continue only if all VMs are created
+echo Waiting for VMs to complete provisioning...
+az vm wait -g $rg --created --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) --only-show-errors -o none
+#Enabling boot diagnostics for all VMs in the resource group 
+echo Enabling boot diagnostics for all VMs in the resource group...
+# enable boot diagnostics for all VMs in the resource group
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
+### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+echo Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others...
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
 for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
 do
@@ -216,7 +229,7 @@ az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vh
 echo Creating $hub1name Azure Firewall Policy
 #Create firewall rules
 fwpolicyname=$hub1name-fwpolicy #Firewall Policy Name
-az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewallsku --enable-dns-proxy true --output none --only-show-errors
+az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewalltier --output none --only-show-errors
 az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none --only-show-errors
 #Adding any-to-any firewall rule
 az network firewall policy rule-collection-group collection add-filter-collection \
@@ -236,7 +249,7 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 
 echo Deploying Azure Firewall inside $hub1name vHub ...
 fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
-az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
+az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
 
 echo Enabling $hub1name Azure Firewall diagnostics...
 ## Log Analytics workspace name. 
@@ -257,7 +270,7 @@ Workspacename=$hub1name-$region1-Logs
 echo Creating $hub2name Azure Firewall Policy
 #Create firewall rules
 fwpolicyname=$hub2name-fwpolicy #Firewall Policy Name
-az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewallsku --enable-dns-proxy true --output none --only-show-errors
+az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewalltier --output none --only-show-errors
 az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none --only-show-errors
 #Adding any-to-any firewall rule
 az network firewall policy rule-collection-group collection add-filter-collection \
@@ -277,7 +290,7 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 
 echo Deploying Azure Firewall inside $hub2name vHub...
 fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
-az network firewall create -g $rg -n $hub2name-azfw --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub2name --public-ip-count 1 --firewall-policy $fwpolid --location $region2 --output none
+az network firewall create -g $rg -n $hub2name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub2name --public-ip-count 1 --firewall-policy $fwpolid --location $region2 --output none
 
 echo Enabling $hub2name Azure Firewall diagnostics...
 ## Log Analytics workspace name. 
