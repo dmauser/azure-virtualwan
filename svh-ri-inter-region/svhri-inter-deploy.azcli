@@ -1,13 +1,5 @@
 #!/bin/bash
 
-# Pre-Requisites
-echo validating pre-requisites
-az extension add --name virtual-wan 
-az extension add --name azure-firewall 
-# or updating vWAN and AzFirewall CLI extensions
-az extension update --name virtual-wan
-az extension update --name azure-firewall 
-
 # Parameters (make changes based on your requirements)
 region1=westcentralus #set region1
 region2=northcentralus #set region2
@@ -19,6 +11,19 @@ username=azureuser #set username
 password="Msft123Msft123" #set password
 vmsize=Standard_DS1_v2 #set VM Size
 firewalltier=Premium #Azure Firewall SKU Standard or Premium
+
+# Pre-Requisites
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
+# Check if azure-firewall extension is installed if not install it
+if ! az extension list | grep -q azure-firewall; then
+    echo "azure-firewall extension is not installed, installing it now..."
+    az extension add --name azure-firewall --only-show-errors
+fi
 
 # Validate Firewall SKU
 if [ "$1" == "basic" ]; then
