@@ -35,6 +35,9 @@ elif [ -z "$1" ]; then
     firewalltier=basic
 fi
 
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -454,3 +457,8 @@ do
     sleep 5
 done
 echo Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
