@@ -10,7 +10,6 @@ hub2name=sechub2 #set Hub2 name
 username=azureuser #set username
 password="Msft123Msft123" #set password
 vmsize=Standard_DS1_v2 #set VM Size
-firewalltier=Premium #Azure Firewall SKU Standard or Premium
 
 # Pre-Requisites
 # Check if virtual wan extension is installed if not install it
@@ -25,6 +24,7 @@ if ! az extension list | grep -q azure-firewall; then
     az extension add --name azure-firewall --only-show-errors
 fi
 
+# Note: Basic SKU is not supported at this time.
 # Validate Firewall SKU
 if [ "$1" == "basic" ]; then
     firewalltier=basic
@@ -36,8 +36,8 @@ elif [ "$1" == "help" ]; then
     echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
     exit 0
 elif [ -z "$1" ]; then
-    echo "No parameter passed, defaulting Azure Firewall to basic tier"
-    firewalltier=basic
+    echo "No parameter passed, defaulting Azure Firewall to standard tier"
+    firewalltier=standard
 fi
 
 # Adding script starting time and finish time
@@ -111,7 +111,7 @@ az vm create -n spoke4VM  -g $rg --image ubuntults --public-ip-sku Standard --si
 az vm create -n spoke5VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 az vm create -n spoke6VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 # Continue only if all VMs are created
-echo Waiting for VMs to complete provisioning...
+echo Waiting VMs to complete provisioning...
 az vm wait -g $rg --created --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) --only-show-errors -o none
 #Enabling boot diagnostics for all VMs in the resource group 
 echo Enabling boot diagnostics for all VMs in the resource group...
