@@ -143,7 +143,7 @@ do
 done
 
 # az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name
-lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIPAddress" -o tsv)
 # vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
 az network vhub connection create --name conn-to-spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none --no-wait
 az network vhub connection create --name conn-to-spoke2 --resource-group $rg --remote-vnet Spoke2 --vhub-name $hub1name -o none --no-wait

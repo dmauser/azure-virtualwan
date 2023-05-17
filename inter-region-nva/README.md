@@ -508,7 +508,7 @@ az network public-ip list -g $rg --query "[].{name:name,ip:ipAddress}" -o table
 for nicname in `az network nic list -g $rg --query [].name -o tsv`
 do 
 echo -e $nicname private IP:
-az network nic show -g $rg --name $nicname --query "ipConfigurations[].privateIpAddress" --output tsv
+az network nic show -g $rg --name $nicname --query "ipConfigurations[].privateIPAddress" --output tsv
 echo -e 
 done
 

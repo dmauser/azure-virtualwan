@@ -1,0 +1,95 @@
+# Parameters (make changes based on your requirements)
+region1=westcentralus #set region1
+region2=northcentralus #set region2
+rg=lab-svh-inter #set resource group
+vwanname=svh-inter #set vWAN name
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+username=azureuser #set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1_v2 #set VM Size
+
+# List all Azure Firewall in the resource group
+az network firewall list -g $rg --query "[].name" -o tsv
+
+# Add Azure Firewall names in array variable
+fwname=$(az network firewall list -g $rg --query "[].name" -o tsv)
+# Create a for each loop to deallocate all firewalls
+for firewall_name in $fwname; do
+    # Get firewall resource group
+    firewall_resource_group=$(az network firewall show --name $firewall_name --resource-group $rg -o tsv --query "resourceGroup")
+   # Get firewall virtual WAN hub name
+    virtualwan_hub_name=$(az network firewall show --name $firewall_name --resource-group $firewall_resource_group -o tsv --query "virtualHubName")
+    # Get firewall virtual WAN hub resource group
+    virtualwan_hub_resource_group=$(az network vhub show --name $virtualwan_hub_name --resource-group $firewall_resource_group -o tsv --query "resourceGroup")
+
+    # Begin Script
+
+    # Find exact firewall
+    read firewall_id firewall_sku <<< $(az network firewall show --name $firewall_name --resource-group $firewall_resource_group -o tsv --query "{id:id,sku:sku.name}")
+    err=$?
+
+    # Confirm command success
+    if [ $err != 0 ]; then
+        echo -e "Could not find firewall!"
+        exit 1
+
+    # Deallocate VWan Hub firewall
+    elif [ "$firewall_sku" == "AZFW_Hub" ]; then
+        echo "Deallocating firewall \"$firewall_name\" in resource group \"$firewall_resource_group\" from VWAN Hub \"$virtualwan_hub_name\"..."
+        az network firewall update --ids $firewall_id --vhub ''
+
+    # Deallocate VNet firewall
+    else
+        # Removing all IP configurations and a management IP configuration, if it
+        # exists, needs to be done in a single operation
+        echo "Deallocating firewall \"$firewall_name\" in resource group \"$firewall_resource_group\" from VNet \"$virtual_network_name\"..."
+        az network firewall update --ids $firewall_id --remove ipConfigurations --remove managementIpConfiguration
+    fi
+    # End Script
+done
+
+# Begin Script
+
+# Find exact firewall
+read firewall_id firewall_sku <<< $(az network firewall show --name $firewall_name --resource-group $firewall_resource_group -o tsv --query "{id:id,sku:sku.name}")
+err=$?
+
+# Confirm command success
+if [ $err != 0 ]; then
+    echo -e "Could not find firewall!"
+    exit 1
+
+# Deallocate VWan Hub firewall
+elif [ "$firewall_sku" == "AZFW_Hub" ]; then
+    echo "Deallocating firewall \"$firewall_name\" in resource group \"$firewall_resource_group\" from VWAN Hub \"$virtualwan_hub_name\"..."
+    az network firewall update --ids $firewall_id --vhub ''
+
+# Deallocate VNet firewall
+else
+    # Removing all IP configurations and a management IP configuration, if it
+    # exists, needs to be done in a single operation
+    echo "Deallocating firewall \"$firewall_name\" in resource group \"$firewall_resource_group\" from VNet \"$virtual_network_name\"..."
+    az network firewall update --ids $firewall_id --remove ipConfigurations --remove managementIpConfiguration
+fi
+# End Script
+
+
+
+# Stop Firewall 
+azfwids=$(az network firewall list -g $rg --query [].id -o tsv)
+# for each azure firewall, stop it
+ for azfwid in $azfwids
+ do
+ az network firewall update --ids $azfwid --vhub null
+ done
+ done
+
+
+prState1=''
+while [[ $prState1 != 'Succeeded' ]];
+ do
+    prState1=$(az network firewall show -g $rg -n $azfwname --query 'provisioningState' -o tsv)
+    echo "$azfwname provisioningState="$prState1
+    sleep 5
+ done

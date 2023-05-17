@@ -83,7 +83,7 @@ done
 # Private Endpoint + Private Link Zone
 
 # Run command for Onprem DNS configuration (Direct to DNS Resolver):
-dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
+dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIPAddress -o tsv)
 globaldnsfwd=8.8.8.8 # Global/Server level DNS Forwarder
 branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIPAddress" -o tsv)
 az vm run-command invoke --command-id RunPowerShellScript \
@@ -99,7 +99,7 @@ az vm run-command invoke --command-id RunPowerShellScript \
  --output none
 
 # Run command for Onprem DNS configuration (AZ Firewall Scenario):
-dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
+dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIPAddress -o tsv)
 fwdnsresolverip=$(az network firewall show --name $hubname-azfw --resource-group $rg --query "hubIpAddresses.privateIpAddress" -o tsv)
 globaldnsfwd=8.8.8.8 # Global/Server level DNS Forwarder
 branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIPAddress" -o tsv)

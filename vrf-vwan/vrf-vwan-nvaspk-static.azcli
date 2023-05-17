@@ -58,7 +58,7 @@ az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name 
 
 # vHub Route table
 # az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet Spoke1 --vhub-name $hub1name
-lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+lxnvaip=$(az network nic show -n spoke1-nva-nic -g $rg --query "ipConfigurations[].privateIPAddress" -o tsv)
 vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
 az network vhub connection create --name spoke1conn --resource-group $rg --remote-vnet $vnetid --vhub-name $hub1name --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" --internet-security false -o none --no-wait
 connid=$(az network vhub connection show -g $rg -n spoke1conn --vhub-name $hub1name --query id -o tsv)

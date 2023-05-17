@@ -1,7 +1,7 @@
 # Stop Firewall 
 rgs=$(az network firewall list --query [].resourceGroup -o tsv)
-azfwname=$(az network firewall list --query [].name -o tsv)
-for rg in $rgs
+azfwnames=$(az network firewall list --query [].name -o tsv)
+for azfwname in $azfwnames
 do
  prState1=''
  while [[ $prState1 != 'Succeeded' ]];

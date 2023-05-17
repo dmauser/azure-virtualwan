@@ -124,7 +124,7 @@ run_time=$(expr `date +%s` - $start_time)
 echo "vWAN Hub $hubname routing state is $prState, wait time $minutes minutes and $seconds seconds"
 
 # az network vhub connection create --name to-Spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hubname
-lxnvaip=$(az network nic show -n linux-nva-nic -g $rg --query "ipConfigurations[].privateIpAddress" -o tsv)
+lxnvaip=$(az network nic show -n linux-nva-nic -g $rg --query "ipConfigurations[].privateIPAddress" -o tsv)
 az network vhub connection create --name to-Spoke2 --resource-group $rg --remote-vnet Spoke2 --vhub-name $hubname -o none
 vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
 az network vhub connection create --name to-Spoke1 --resource-group $rg --remote-vnet $vnetid --vhub-name $hubname --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none

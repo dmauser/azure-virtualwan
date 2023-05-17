@@ -115,7 +115,7 @@ az network private-endpoint dns-zone-group create \
     --zone-name default
 
 # Run command for Onprem DNS configuration (AZ Firewall Scenario):
-dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIpAddress -o tsv)
+dnsresolverip=$(az dns-resolver inbound-endpoint show -g $rg --dns-resolver-name spoke1-dnsresolver --name InboundEndpoint --query ipConfigurations[].privateIPAddress -o tsv)
 fwdnsresolverip=$(az network firewall show --name $hubname-azfw --resource-group $rg --query "hubIpAddresses.privateIpAddress" -o tsv)
 globaldnsfwd=8.8.8.8 # Global/Server level DNS Forwarder
 branchvmip=$(az network nic show --name branchVMVMNic -g $rg  --query "ipConfigurations[0].privateIPAddress" -o tsv)
