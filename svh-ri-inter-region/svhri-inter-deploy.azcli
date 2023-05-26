@@ -48,7 +48,7 @@ echo "Script started at $(date)"
 mypip=$(curl -4 ifconfig.io -s)
 
 # Check if VM size is available in both regions using az vm list-skus and checking restrictions is set to null
-Echo Checking for VM Size availability in both regions...
+echo Checking for VM Size availability in both regions...
 if ! az vm list-skus -l $region1 --size $vmsize --all --query [?restrictions] -o tsv | grep -q null; then
     echo "VM Size $vmsize is not available in $region1, please choose a different VM size"
     exit 1
