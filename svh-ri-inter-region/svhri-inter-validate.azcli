@@ -30,7 +30,7 @@ echo -e
 done
 
 # 3) Dump all vHUBs route tables.
-for vhubname in `az network vhub list -g $rg --query "[].id" -o tsv | rev | cut -d'/' -f1 | rev`
+for vhubname in `az network vhub list -g $rg --query "[].name" -o tsv | sort -n`
 do
   for routetable in `az network vhub route-table list --vhub-name $vhubname -g $rg --query "[].id" -o tsv`
    do
@@ -45,6 +45,22 @@ do
      echo
     fi
    done
+done
+
+# Get Azure Firewall names in the resource group
+az network firewall list -g $rg --query [].name -o tsv
+
+# Dump effective routes from the Azure Firewall:
+for vhubname in `az network vhub list -g $rg --query "[].name" -o tsv | sort -n`
+do
+   echo -e vHUB: $vhubname 
+   echo -e Effective route table: $(echo $(az network firewall list -g $rg --query "[?contains(name,'$vhubname')].name" -o tsv))   
+   az network vhub get-effective-routes -g $rg -n $vhubname \
+   --resource-type AzureFirewalls \
+   --resource-id $(az network firewall list -g $rg --query "[?contains(name,'$vhubname')].id" -o tsv) \
+   --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
+   --output table
+   echo
 done
 
 # Dump the Branches VPN Gateway routes:
@@ -82,3 +98,5 @@ region1=$(az network vhub show -g $rg -n $hub1name --query 'location' -o tsv)
 region2=$(az network vhub show -g $rg -n $hub2name --query 'location' -o tsv)
 Workspacename1=AZFirewall-$region1-Logs 
 Workspacename2=AZFirewall-$region2-Logs 
+
+# Create log analytics workspace using rest API

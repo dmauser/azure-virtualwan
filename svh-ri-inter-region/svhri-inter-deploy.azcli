@@ -50,6 +50,16 @@ mypip=$(curl -4 ifconfig.io -s)
 # create rg
 az group create -n $rg -l $region1 --output none
 
+# Validate if VM size is available in both regions
+if ! az vm list-sizes -l $region1 | grep -q $vmsize; then
+    echo "VM Size $vmsize is not available in $region1, please choose a different VM size"
+    exit 1
+fi
+if ! az vm list-sizes -l $region2 | grep -q $vmsize; then
+    echo "VM Size $vmsize is not available in $region2, please choose a different VM size"
+    exit 1
+fi
+
 echo Creating vwan and both hubs...
 # create virtual wan
 az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region1 --type Standard --output none

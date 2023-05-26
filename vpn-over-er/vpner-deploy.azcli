@@ -303,13 +303,13 @@ done
 #echo Checking OPNSense provisioning state:
 # az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
 # Misc remove NSG from OPNSense NICs 
-az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group "" --output none
-az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group "" --output none
+az network nic update -g $rg -n $virtualMachineName-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $virtualMachineName-Untrusted-NIC --network-security-group null --output none
 # Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
 # az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
 # az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name branch --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group default-nsg-$region -o none
-az network vnet subnet update --name Trusted-Subnet --resource-group $rg --vnet-name branch --network-security-group ""  -o none
-az network vnet subnet update --name Untrusted-Subnet --resource-group $rg --vnet-name branch --network-security-group ""  -o none
+az network vnet subnet update --name Trusted-Subnet --resource-group $rg --vnet-name branch --network-security-group null  -o none
+az network vnet subnet update --name Untrusted-Subnet --resource-group $rg --vnet-name branch --network-security-group null -o none
 az network vnet subnet update --name Trusted-Subnet --resource-group $rg --vnet-name branch --network-security-group default-nsg-$region -o none
 az network vnet subnet update --name Untrusted-Subnet --resource-group $rg --vnet-name branch --network-security-group default-nsg-$region -o none
 echo Deployment has finished
