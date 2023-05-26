@@ -47,17 +47,18 @@ echo "Script started at $(date)"
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
 
-# Validate if VM size is available in both regions
-if ! az vm list-sizes -l $region1 | grep -q $vmsize; then
+# Check if VM size is available in both regions using az vm list-skus and checking restrictions is set to null
+Echo Checking for VM Size availability in both regions...
+if ! az vm list-skus -l $region1 --size $vmsize --all --query [?restrictions] -o tsv | grep -q null; then
     echo "VM Size $vmsize is not available in $region1, please choose a different VM size"
     exit 1
 fi
-if ! az vm list-sizes -l $region2 | grep -q $vmsize; then
-    echo "VM Size $vmsize is not available in $region2, please choose a different VM size"
+if ! az vm list-skus -l $region2 --size $vmsize --all --query [?restrictions] -o tsv | grep -q null; then
+    echo "VM Size $vmsize is not available in $region1, please choose a different VM size"  
     exit 1
 fi
 
-# create rg
+# Create resouce group
 az group create -n $rg -l $region1 --output none
 
 echo Creating vwan and both hubs...
