@@ -15,10 +15,6 @@ hub2name=sechub2 #set Hub2 name
 region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
 region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 
-# Adding script starting time and finish time
-start=`date +%s`
-echo "Script started at $(date)"
-
 #ExpressRoute specific variables
 perloc1="Dallas"
 perloc2="Chicago"
@@ -27,15 +23,22 @@ providerloc2=Megaport
 ername1="er-ckt-$hub1name"
 ername2="er-ckt-$hub2name" 
 
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
+echo Creating ExpressRoute Circuits...
 #Create ER circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region1 --sku-family MeteredData --sku-tier Standard -o none
 az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region2 --sku-family MeteredData --sku-tier Standard -o none
 
+echo Creating ExpressRoute Gateways...
 #Create vHub ER Gateways
 echo Creating vHub ExpressRoute Gateway...
 az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name none &>/dev/null &
 az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name none &>/dev/null &
 
+echo Checking ExpressRoute Gateway Provisioning State...
 #Check vHub ER Gateway Provisioning State
 prState1=''
 prState2=''
@@ -49,7 +52,7 @@ do
 done
 
 #Before next sesssion you must provision with Service Provider
-#Cross-connect ERs between both Hubs.
+echo Creating ExpressRoute Gateway Connections...
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
 hub1routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
@@ -60,6 +63,7 @@ az network express-route gateway connection create --name Connection-$hub1name-t
 az network express-route gateway connection create --name Connection-$hub2name-to-$ername1 -g $rg --gateway-name $hub2name-ergw --peering $peering1 --associated-route-table $hub2routetableid  --propagated-route-tables $hub2routetableid --labels default
 echo Deployment has finished
 
+echo Checking ExpressRoute Connections Provisioning State...
 prState1=''
 prState2=''
 while [[ $prState1 != 'Succeeded' ] & [ $prState2 != 'Succeeded' ]];
