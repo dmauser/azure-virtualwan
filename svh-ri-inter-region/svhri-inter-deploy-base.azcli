@@ -334,7 +334,7 @@ do
     echo "$hub2name routing intent provisioningState="$prState
     sleep 5
 done
-echo Deployment has finished
+echo Base Deployment has finished
 # Add script ending time but hours, minutes and seconds
 end=`date +%s`
 runtime=$((end-start))
