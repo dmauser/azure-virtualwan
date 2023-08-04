@@ -271,6 +271,20 @@ fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyn
 az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
 
 echo Enabling $hub1name Azure Firewall diagnostics...
+
+echo Checking MS Insights subscription registration state
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
+
 ## Log Analytics workspace name. 
 Workspacename=$hub1name-$region1-Logs
 
