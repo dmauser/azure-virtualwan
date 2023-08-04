@@ -24,7 +24,6 @@ if ! az extension list | grep -q azure-firewall; then
     az extension add --name azure-firewall --only-show-errors
 fi
 
-# Note: Basic SKU is not supported at this time.
 # Validate Firewall SKU
 if [ "$1" == "basic" ]; then
     firewalltier=basic
@@ -48,7 +47,7 @@ echo "Script started at $(date)"
 mypip=$(curl -4 ifconfig.io -s)
 
 # Check if VM size is available in both regions using az vm list-skus and checking restrictions is set to null
-"echo Checking for VM Size availability in both regions ($region1 and $region2)..."
+echo "Checking for VM Size availability in both regions ($region1 and $region2)..."
 if [[ $(az vm list-skus -l $region1 --size $vmsize --all --query [?restrictions] -o tsv) != '' ]]; then
     echo "VM Size $vmsize is not available in $region1, please choose a different VM size or Region"
     exit 1
