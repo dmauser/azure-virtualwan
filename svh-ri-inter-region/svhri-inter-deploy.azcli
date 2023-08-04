@@ -36,8 +36,8 @@ elif [ "$1" == "help" ]; then
     echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
     exit 0
 elif [ -z "$1" ]; then
-    echo "No parameter passed, defaulting Azure Firewall to standard tier"
-    firewalltier=standard
+    echo "No parameter passed, defaulting Azure Firewall to basic tier"
+    firewalltier=basic
 fi
 
 # Adding script starting time and finish time
@@ -48,7 +48,7 @@ echo "Script started at $(date)"
 mypip=$(curl -4 ifconfig.io -s)
 
 # Check if VM size is available in both regions using az vm list-skus and checking restrictions is set to null
-echo Checking for VM Size availability in both regions...
+"echo Checking for VM Size availability in both regions ($region1 and $region2)..."
 if [[ $(az vm list-skus -l $region1 --size $vmsize --all --query [?restrictions] -o tsv) != '' ]]; then
     echo "VM Size $vmsize is not available in $region1, please choose a different VM size or Region"
     exit 1
