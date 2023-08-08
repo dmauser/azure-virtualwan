@@ -1,0 +1,60 @@
+#!/bin/bash
+
+# Pre-Requisite
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
+# Parameters (make changes based on your requirements)
+rg=lab-svh-inter
+vwanname=svh-inter #set vWAN name
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
+
+#ExpressRoute specific variables
+perloc1="Dallas"
+perloc2="Chicago"
+providerloc1=Megaport
+providerloc2=Megaport
+ername1="er-ckt-$hub1name"
+ername2="er-ckt-$hub2name" 
+
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
+echo Creating ExpressRoute Circuits...
+#Create ER circuits
+az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region1 --sku-family MeteredData --sku-tier Standard -o none
+az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region2 --sku-family MeteredData --sku-tier Standard -o none
+
+echo Creating ExpressRoute Gateways...
+#Create vHub ER Gateways
+echo Creating vHub ExpressRoute Gateway...
+az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name -o none &>/dev/null &
+az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name -o none &>/dev/null &
+
+echo Checking ExpressRoute Gateway Provisioning State...
+#Check vHub ER Gateway Provisioning State
+echo checking ExpressRoute Gateway deployment...
+prState1=''
+prState2=''
+while [[ $prState1 != 'Succeeded' && $prState2 != 'Succeeded' ]];
+do
+    prState1=$(az network express-route gateway show -g $rg -n $hub1name-ergw --query 'provisioningState' -o tsv)
+    echo "$hub1name-ergw provisioningState="$prState1
+    prState2=$(az network express-route gateway show -g $rg -n $hub2name-ergw --query 'provisioningState' -o tsv)
+    echo "$hub2name-ergw provisioningState="$prState2
+    sleep 5
+done
+
+echo ER GW Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
