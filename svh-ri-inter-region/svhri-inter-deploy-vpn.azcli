@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Parameters (make changes based on your requirements)
-region1=eastus #set region1
-region2=westus #set region2
 rg=lab-svh-inter #set resource group
 vwanname=svh-inter #set vWAN name
 hub1name=sechub1 #set Hub1 name
 hub2name=sechub2 #set Hub2 name
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 username=azureuser #set username
 password="Msft123Msft123" #set password
 vmsize=Standard_DS1_v2 #set VM Size
