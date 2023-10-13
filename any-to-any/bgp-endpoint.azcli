@@ -30,7 +30,7 @@ do
  # Enable routing, NAT and BGP on Linux NVA:
  az network public-ip create --name $nvaname-pip --resource-group $rg --location $region1 --allocation-method Dynamic --output none
  az network nic create --name $nvaname-nic --resource-group $rg --subnet $subnetname --vnet $vnetname --public-ip-address $nvaname-pip --ip-forwarding true -o none
- az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+ az vm create --resource-group $rg --location $region1 --name $nvaname --size Standard_B1s --nics $nvaname-nic  --image Ubuntu2204 --admin-username $username --admin-password $password -o none
  
  #Enable boot diagnostics
  nvalocation=$(az vm show -n $nvaname -g $rg --query location -o tsv)

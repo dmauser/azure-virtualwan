@@ -57,18 +57,18 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?loca
 
 echo Creating Spoke VMs...
 # create a VM in each connected spoke
-az vm create -n spoke11VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke11 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke12VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke12 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke13VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke13 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke14VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke14 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke15VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region3 --subnet main --vnet-name spoke15 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke16VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region3 --subnet main --vnet-name spoke16 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke11VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke11 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke12VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke12 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke13VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke13 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke14VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke14 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke15VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region3 --subnet main --vnet-name spoke15 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke16VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region3 --subnet main --vnet-name spoke16 --admin-username $username --admin-password $password --nsg "" --no-wait
 #Enable boot diagnostics for all VMs in the resource group (Serial console)
 #Enable boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].id' -o tsv) -o none
 ### Install tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
-for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
+for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.offer,'ubuntu')].name" -o tsv`
 do
  az vm extension set \
  --resource-group $rg \

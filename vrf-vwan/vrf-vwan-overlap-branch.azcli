@@ -18,7 +18,7 @@ az network vnet create --address-prefixes 10.110.0.0/16 10.254.0.0/28 -n branch3
 
 echo Creating VMs in both branches...
 # create a VM in each branch spoke
-az vm create -n branch3VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch3 --admin-username $username --admin-password $password --nsg "" --no-wait 
+az vm create -n branch3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch3 --admin-username $username --admin-password $password --nsg "" --no-wait 
 az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region2 -o none
 
 echo Creating VPN Gateways in both branches...

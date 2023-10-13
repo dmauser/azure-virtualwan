@@ -24,7 +24,7 @@ az network vnet create --resource-group $rg --name Spoke1 --location $location -
 #NVA + Config script to enable NAT
 az network public-ip create --name linux-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none
 az network nic create --name linux-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address linux-nva-pip --ip-forwarding true -o none
-az vm create --resource-group $rg --location $location --name linux-nva --size Standard_B1s --nics linux-nva-nic  --image UbuntuLTS --admin-username $username --admin-password $password -o none
+az vm create --resource-group $rg --location $location --name linux-nva --size Standard_B1s --nics linux-nva-nic  --image Ubuntu2204 --admin-username $username --admin-password $password -o none
 #Enable routing and NAT on Linux NVA:
 scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
 az vm extension set --resource-group $rg --vm-name linux-nva  --name customScript --publisher Microsoft.Azure.Extensions \
@@ -35,7 +35,7 @@ az vm extension set --resource-group $rg --vm-name linux-nva  --name customScrip
 az network vnet create --resource-group $rg --name Spoke2 --location $location --address-prefixes 10.2.0.0/16 --subnet-name Spoke2VM --subnet-prefix 10.2.10.0/24 -o none
 az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location $location --allocation-method Dynamic -o none
 az network nic create --resource-group $rg -n Spoke2VMNIC --location $location --subnet Spoke2VM --vnet-name Spoke2 --public-ip-address Spoke2VMPubIP --private-ip-address 10.2.10.4 -o none
-az VM create -n Spoke2VM --resource-group $rg --image UbuntuLTS --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke2VMNIC --no-wait -o none
+az VM create -n Spoke2VM --resource-group $rg --image Ubuntu2204 --admin-username $username --admin-password $password  --size Standard_B1s --nics Spoke2VMNIC --no-wait -o none
 
 #Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
 az network nsg create --resource-group $rg --name default-nsg --location $location -o none
