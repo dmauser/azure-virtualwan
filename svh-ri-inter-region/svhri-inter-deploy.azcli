@@ -47,15 +47,15 @@ echo "Script started at $(date)"
 mypip=$(curl -4 ifconfig.io -s)
 
 # Check if VM size is available in both regions using az vm list-skus and checking restrictions is set to null
-echo "Checking for VM Size availability in both regions ($region1 and $region2)..."
-if [[ $(az vm list-skus -l $region1 --size $vmsize --all --query [?restrictions] -o tsv) != '' ]]; then
-    echo "VM Size $vmsize is not available in $region1, please choose a different VM size or Region"
-    exit 1
-fi
-if [[ $(az vm list-skus -l $region2 --size $vmsize --all --query [?restrictions] -o tsv) != '' ]]; then
-    echo "VM Size $vmsize is not available in $region2, please choose a different VM size or Region"  
-    exit 1
-fi
+# echo "Checking for VM Size availability in both regions ($region1 and $region2)..."
+#if [[ $(az vm list-skus -l $region1 --size $vmsize --all --query [?restrictions] -o tsv) != '' ]]; then
+#    echo "VM Size $vmsize is not available in $region1, please choose a different VM size or Region"
+#    exit 1
+#fi
+#if [[ $(az vm list-skus -l $region2 --size $vmsize --all --query [?restrictions] -o tsv) != '' ]]; then
+#    echo "VM Size $vmsize is not available in $region2, please choose a different VM size or Region"  
+#    exit 1
+#fi
 
 # Create resouce group
 az group create -n $rg -l $region1 --output none
