@@ -15,13 +15,13 @@ az rest --method delete --uri https://management.azure.com/subscriptions/$subid/
 # Check status
 prState1='Deleting'
 prState2='Deleting'
-while [[ $prState2 == 'Deleting' ]];
+while [[ $prState1 != '' || $prState2 != '' ]];
 do
     prState1=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
     echo "$hub1name routing intent provisioningState="$prState1
     prState2=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
     echo "$hub2name routing intent provisioningState="$prState2
-    sleep 15
+    sleep 5
 done
 echo "$hub1name routing intent disabled"
 echo "$hub2name routing intent disabled"
