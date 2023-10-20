@@ -1,0 +1,59 @@
+rg=lab-svh-inter
+vwanname=svh-inter #set vWAN name
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
+
+
+
+# Enable Resource Specific Table
+
+# Enable Flow Trace on all azure firewalls in the resource group
+az network firewall list -g $rg --query [].name -o tsv | while read -r fw; do
+    az network firewall update -g $rg -n $fw --enable-fat-flow-logging true
+done
+
+
+# Enable Flow Trace feature in the default subscription
+az feature register --namespace Microsoft.Network --name AFWEnableTcpConnectionLogging
+# Loop script to check registration status
+while [ $(az feature show --namespace Microsoft.Network --name AFWEnableTcpConnectionLogging --query properties.state -o tsv) != "Registered" ]
+do
+  echo "Waiting for feature registration"
+  sleep 5
+done
+
+
+# Enable Private Link Storage:
+randomIdentifier1=$RANDOM
+az storage account create -n spk1stg$randomIdentifier1 -g $rg -l $region1 --sku Standard_LRS -o none
+echo Creating DNS Private Link zone: privatelink.blob.core.windows.net
+az network private-dns zone create \
+ --resource-group $rg \
+ --name "privatelink.blob.core.windows.net" \
+ --output none
+## Spk1
+stgname=$(az storage account list -g $rg --query '[?contains(name,`'spk1stg$randomIdentifier1'`)].{name:name}' -o tsv)
+az network private-endpoint create -l $region1 \
+    --connection-name spoke1-connection \
+    --name spk1-pe \
+    --private-connection-resource-id $(az storage account show -g $rg -n $stgname --query id -o tsv) \
+    --resource-group $rg \
+    --subnet main \
+    --group-id blob \
+    --vnet-name spoke1 \
+    --output none
+
+# Creating DNS zone group to have PE registered in Private Link DNS zone.
+echo Creating DNS zone group to have PE registered in Private Link DNS zone.
+for pe in $(az network private-endpoint list -g $rg --query '[?contains(privateLinkServiceConnections[].groupIds[],`'blob'`)].{name:name}' -o tsv)
+do
+az network private-endpoint dns-zone-group create \
+    --resource-group $rg \
+    --endpoint-name $pe \
+    --name privatelink_blob_core_windows_net \
+    --private-dns-zone "privatelink.blob.core.windows.net" \
+    --zone-name default \
+    --output none
+done
