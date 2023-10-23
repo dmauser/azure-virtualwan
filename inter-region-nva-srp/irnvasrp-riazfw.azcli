@@ -1,0 +1,177 @@
+#!/bin/bash
+# Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
+
+# Pre-Requisites
+echo validating pre-requisites
+az extension add --name virtual-wan 
+
+# or updating vWAN and AzFirewall CLI extensions
+az extension update --name virtual-wan
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=westus
+rg=lab-vwan-nvaspk-srp
+vwanname=vwan-nvaspk-srp
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_B1s
+
+# Pre-Requisites
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
+# Check if azure-firewall extension is installed if not install it
+if ! az extension list | grep -q azure-firewall; then
+    echo "azure-firewall extension is not installed, installing it now..."
+    az extension add --name azure-firewall --only-show-errors
+fi
+
+# Validate Firewall SKU
+if [ "$1" == "basic" ]; then
+    firewalltier=basic
+elif [ "$1" == "standard" ]; then
+    firewalltier=standard
+elif [ "$1" == "premium" ]; then
+    firewalltier=premium
+elif [ "$1" == "help" ]; then
+    echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
+    exit 0
+elif [ -z "$1" ]; then
+    echo "No parameter passed, setting Azure Firewall to basic tier"
+    firewalltier=basic
+fi
+
+#Variables
+mypip=$(curl -4 ifconfig.io -s)
+
+echo Creating $hub1name Azure Firewall Policy
+#Create firewall rules
+fwpolicyname=$hub1name-fwpolicy #Firewall Policy Name
+az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewalltier --output none --only-show-errors
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none --only-show-errors
+#Adding any-to-any firewall rule
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $fwpolicyname \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+echo Deploying Azure Firewall inside $hub1name vHub ...
+fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
+az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
+
+echo Enabling $hub1name Azure Firewall diagnostics...
+
+echo Checking MS Insights subscription registration state
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
+
+## Log Analytics workspace name. 
+Workspacename=$hub1name-$region1-Logs
+
+#Creating Log Analytics Workspaces
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
+
+#EnablingAzure Firewall diagnostics
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+echo Creating $hub2name Azure Firewall Policy
+#Create firewall rules
+fwpolicyname=$hub2name-fwpolicy #Firewall Policy Name
+az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewalltier --output none --only-show-errors
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none --only-show-errors
+#Adding any-to-any firewall rule
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $fwpolicyname \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+echo Deploying Azure Firewall inside $hub2name vHub...
+fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
+az network firewall create -g $rg -n $hub2name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub2name --public-ip-count 1 --firewall-policy $fwpolid --location $region2 --output none
+
+echo Enabling $hub2name Azure Firewall diagnostics...
+## Log Analytics workspace name. 
+Workspacename=$hub2name-$region2-Logs
+
+#Creating Log Analytics Workspaces
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region2 --output none
+
+echo Enabling Azure Firewall diagnostics
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name $hub2name-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+#Enabling Secured-vHUB + Routing intenet
+echo "Enabling Secured-vHUB + Routing intent (Private and Internet Traffic)"
+nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
+az deployment group create --name $hub1name-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
+--parameters scenarioOption=Private-and-Internet hubname=$hub1name nexthop=$nexthophub1 \
+--no-wait
+
+nexthophub2=$(az network vhub show -g $rg -n $hub2name --query azureFirewall.id -o tsv)
+az deployment group create --name $hub2name-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
+--parameters scenarioOption=Private-and-Internet hubname=$hub2name nexthop=$nexthophub2 \
+--no-wait
+
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub1name routing intent provisioningState="$prState
+    sleep 5
+done
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub2name routing intent provisioningState="$prState
+    sleep 5
+done
