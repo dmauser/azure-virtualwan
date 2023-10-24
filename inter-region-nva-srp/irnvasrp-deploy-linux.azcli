@@ -1,15 +1,16 @@
 #!/bin/bash
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
+# This lab deploys two Linux NVAs on Spoke2 and Spoke4 with ILB.
 
 # Pre-Requisites
-echo validating pre-requisites
+echo Validating pre-requisites...
 az extension add --name virtual-wan 
 
 # or updating vWAN and AzFirewall CLI extensions
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-region1=northcentralus
+region1=centralus
 region2=southcentralus
 rg=lab-vwan-lxnva-srp
 vwanname=vwan-lxnva-srp
