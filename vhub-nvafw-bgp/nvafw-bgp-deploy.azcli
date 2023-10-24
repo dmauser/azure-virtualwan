@@ -126,7 +126,6 @@ done
 
 echo Deploying Linux Router VM with BGP on Spoke2...
 
-
 # Deploy NVA instances on the target VNET above.
 nvanames=$(i=1;while [ $i -le $instances ];do echo $nvavnetname-$nvaintname$i; ((i++));done)
 for nvaname in $nvanames
