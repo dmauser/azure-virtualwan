@@ -9,15 +9,15 @@ az extension add --name virtual-wan
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-region1=eastus
+region1=westcentralus
 region2=westus
-rg=lab-vwan-nvaspk-srp
-vwanname=vwan-nvaspk-srp
+rg=lab-vwan-lxnva-srp
+vwanname=vwan-lxnva-srp
 hub1name=hub1
 hub2name=hub2
 username=azureuser
 password="Msft123Msft123" #Please change your password
-vmsize=Standard_B1s
+vmsize=Standard_DS1_v2 #Standard_B1s
 
 # Pre-Requisites
 # Check if virtual wan extension is installed if not install it
