@@ -1,0 +1,42 @@
+# List IPs of all VMs in the resource group
+echo List IPs of all VMs in the resource group lab-vnet-nvabgp
+az vm list-ip-addresses -g lab-vnet-nvabgp -o table
+echo List IPs of all VMs in the resource group lab-vwan-nvabgp
+az vm list-ip-addresses -g lab-vwan-nvabgp -o table
+
+# Deallocate spoke2-linux-nva2
+az vm deallocate -g lab-vwan-nvabgp -n spoke2-linux-nva2 --no-wait
+
+# ssh to spoke2-linux-nva1
+ssh azureuser@20.25.10.120
+
+Current configuration:
+!
+frr version 9.0.1
+frr defaults traditional
+hostname spoke2-linux-nva1
+service integrated-vtysh-config
+!
+router bgp 65002
+ bgp router-id 10.2.0.36
+ no bgp ebgp-requires-policy
+ no bgp network import-check
+ neighbor 10.20.0.84 remote-as 65002
+ neighbor 192.168.1.68 remote-as 65515
+ neighbor 192.168.1.68 ebgp-multihop
+ neighbor 192.168.1.69 remote-as 65515
+ neighbor 192.168.1.69 ebgp-multihop
+ !
+ address-family ipv4 unicast
+  network 10.2.0.0/16
+  neighbor 10.20.0.84 next-hop-self
+  neighbor 192.168.1.68 as-override
+  neighbor 192.168.1.68 soft-reconfiguration inbound
+  neighbor 192.168.1.69 as-override
+  neighbor 192.168.1.69 soft-reconfiguration inbound
+ exit-address-family
+exit
+!
+end
+
+systemctl restart frr

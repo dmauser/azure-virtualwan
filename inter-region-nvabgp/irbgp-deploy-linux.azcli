@@ -10,10 +10,10 @@ az extension add --name virtual-wan
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-region1=westuscentral
+region1=eastus
 region2=westus
-rg=lab-vwan-lxnva-srp
-vwanname=vwan-lxnva-srp
+rg=lab-vwan-nvabgp
+vwanname=vwan-nvabgp
 hub1name=hub1
 hub2name=hub2
 username=azureuser
@@ -146,6 +146,36 @@ echo Creating Hub2 VPN Gateway...
 # Creating VPN gateways in each Hub2
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
+echo Configuring vnet connection to their respective vHubs...
+
+# **** Configuring vWAN route default route table to send traffic to the NVA and reach indirect spokes: *****
+echo Configuring spoke connections to their respective hubs...
+echo Creating spoke 1 and 3 connection to their respective hubs...
+# Spoke1 vnet connection
+az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
+# Spoke3 vnet connection
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg --vhub-name $hub1name --no-wait
+# Spoke3 vnet connection
+az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
+# Spoke3 vnet connection
+az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg --vhub-name $hub2name --no-wait
+
+echo connection status
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke4conn provisioningState="$prState
+    sleep 5
+done
+
 echo Deploying Linux Router VM with BGP on Spoke2...
 
 #NVA specific variables:
@@ -156,6 +186,10 @@ nvaintname=linux-nva #NVA instance name
 nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
 hubtopeer=$hub1name #Note: VNET has to be connected to the same hub
 nvanames=$(i=1;while [ $i -le $instances ];do echo $nvavnetnamer1-$nvaintname$i; ((i++));done)
+
+#Specific NVA BGP settings
+asn_frr=65002 # Set ASN
+bgp_network1="10.2.0.0/16"
 
 # Creating spoke2 nvasubnet
 echo Creating spoke2 nvasubnet...
@@ -169,12 +203,25 @@ do
  az network nic create --name $nvaname-nic --resource-group $rg --subnet $nvasubnetname --vnet $nvavnetnamer1 --public-ip-address $nvaname-pip --ip-forwarding true --location $region1 -o none
  az vm create --resource-group $rg --location $region1 --name $nvaname --size $vmsize --nics $nvaname-nic  --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
 
-# Run startup script
- echo Configuring VM $nvaname as a router...
- scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
+ #NVA BGP config variables (do not change)
+ bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+ routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
+ routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
+
+ # Enable routing and NAT on Linux NVA:
+ scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/scripts/linuxrouterbgpfrr.sh"
  az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
- --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouter.sh\"}" \
+ --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgpfrr.sh $asn_frr $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
  --no-wait
+
+ # Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hubtopeer \
+ --name $nvaname \
+ --peer-asn $asn_frr \
+ --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $nvavnetnamer1'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --output none
 done
 
 #Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
@@ -203,6 +250,10 @@ nvaintname=linux-nva #NVA instance name
 nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
 hubtopeer=$hub2name #Note: VNET has to be connected to the same hub.
 
+#Specific NVA BGP settings
+asn_frr=65004 # Set ASN
+bgp_network1="10.4.0.0/16" # Set Network to be propagated
+
 # Creating spoke4 nvasubnet
 echo Creating spoke4 nvasubnet...
 az network vnet subnet create -g $rg --vnet-name spoke4 -n nvasubnet --address-prefixes 10.4.0.32/28  --output none
@@ -218,12 +269,25 @@ do
  az network nic create --name $nvaname-nic --resource-group $rg --subnet $nvasubnetname --vnet $nvavnetnamer2 --public-ip-address $nvaname-pip --ip-forwarding true --location $region2 -o none
  az vm create --resource-group $rg --location $region2 --name $nvaname --size $vmsize --nics $nvaname-nic  --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
 
-# Run startup script
- echo Configuring VM $nvaname as a router...
- scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
+ #NVA BGP config variables (do not change)
+ bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+ routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
+ routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
+
+ # Enable routing and NAT on Linux NVA:
+ scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/scripts/linuxrouterbgpfrr.sh"
  az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
- --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouter.sh\"}" \
+ --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgpfrr.sh $asn_frr $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
  --no-wait
+
+ # Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hubtopeer \
+ --name $nvaname \
+ --peer-asn $asn_frr \
+ --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $nvavnetnamer2'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --output none
 done
 
 #Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
@@ -413,64 +477,5 @@ az network vpn-connection create -n branch2-to-$hub2name-gw1 -g $rg -l $region2 
 az network local-gateway create -g $rg -n lng-$hub2name-gw2 --gateway-ip-address $vwanh2gwpip2 --asn 65515 --bgp-peering-address $vwanh2gwbgp2 -l $region2 --output none
 az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 lng-$hub2name-gw2 --enable-bgp --shared-key 'abc123' --output none
 
-echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 
-# **** Configuring vWAN route default route table to send traffic to the NVA and reach indirect spokes: *****
-echo Configuring spoke connections to their respective hubs...
-echo Creating spoke 1 and 3 connection to their respective hubs...
-# Spoke1 vnet connection
-az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
-# Spoke3 vnet connection
-az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
-
-echo creating spoke 2 and spoke 4 vnet connections using static route to their respective NVAs...
-#Spoke2 vnet connection
-spokevnet=spoke2
-vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
-dstcidr=10.2.0.0/16
-conn=spoke2conn
-propagateStaticRoutes=true #Static Route propagation true or false
-vnetLocalRouteOverrideCriteria=Equal #Equal = Onlink enabled Contains=Onlink disabled
-apiversion='2023-05-01' #Set API version
-#SubID
-subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
-#vHubRegion
-vhubregion=$(az network vhub show -g $rg -n $hub1name --query id --query location -o tsv)
-
-az rest --method put --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/hubVirtualNetworkConnections/$conn?api-version=$apiversion \
- --body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub1name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk2nvalbip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
- --output none
-
-#Spoke4 vnet connection 
-spokevnet=spoke4
-vnetid=$(az network vnet show -n $spokevnet -g $rg --query id -o tsv)
-dstcidr="10.4.0.0/16"
-conn=spoke4conn
-propagateStaticRoutes=true #Static Route propagation true or false
-vnetLocalRouteOverrideCriteria=Equal #Equal = Onlink enabled Contains=Onlink disabled
-apiversion='2023-05-01' #Set API version
-#SubID
-subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
-#vHubRegion
-vhubregion=$(az network vhub show -g $rg -n $hub2name --query id --query location -o tsv)
-
-az rest --method put --uri https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/hubVirtualNetworkConnections/$conn?api-version=$apiversion \
- --body '{"name": "'$conn'", "properties": {"remoteVirtualNetwork": {"id": "'$vnetid'"}, "enableInternetSecurity": true, "routingConfiguration": {"propagatedRouteTables": {}, "vnetRoutes": {"staticRoutes": [{"name": "'$hub2name-indirect-spokes-rt'", "addressPrefixes": ["'$dstcidr'"], "nextHopIpAddress": "'$spk4nvalbip'"}], "staticRoutesConfig": {"propagateStaticRoutes": "'$propagateStaticRoutes'", "vnetLocalRouteOverrideCriteria": "'$vnetLocalRouteOverrideCriteria'"}}}}}' \
- --output none
-
-echo connection status
-prState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
-    echo "vnet connection spoke2conn provisioningState="$prState
-    sleep 5
-done
-prState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
-    echo "vnet connection spoke4conn provisioningState="$prState
-    sleep 5
-done
 echo Deployment has finished
