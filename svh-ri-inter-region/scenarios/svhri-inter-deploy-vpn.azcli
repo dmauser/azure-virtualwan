@@ -65,7 +65,7 @@ az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o 
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 echo Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others...
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
-for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.offer,'ubuntu')].name" -o tsv`
+for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
 do
  az vm extension set \
  --resource-group $rg \

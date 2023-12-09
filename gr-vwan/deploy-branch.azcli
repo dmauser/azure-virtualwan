@@ -1,0 +1,75 @@
+#!/bin/bash
+
+# variables (make changes based on your requirements)
+region1=southcentralus #set region1
+region2=eastus #set region2
+rg=dmauser-vwan-gr #set resource group
+username=azureuser # set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1 #set vm size
+mypip=$(curl -4 ifconfig.io -s) #get your Public IP and set NSG as a source for SSH access.
+
+#ExpressRoute specific variables
+ername1="er-branch1" 
+perloc1="Chicago"
+providerloc1=Megaport
+ername2="er-branch2" 
+perloc2="Washington DC"
+providerloc2=Megaport
+
+#Create ER circuits
+echo Creating ExpressRoute Circuits
+az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region1 --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
+az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region2 --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
+
+echo Creating branches VNETs...
+# create location1 branch virtual network
+az network vnet create --address-prefixes 10.100.0.0/16 -n branch1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.100.0.0/24 --output none
+az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
+
+# create location2 branch virtual network
+az network vnet create --address-prefixes 10.200.0.0/16 -n branch2 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.200.0.0/24 --output none
+az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
+
+# Associated NSG default-nsg-$region1 to main subnet in branch1
+az network vnet subnet update -g $rg -g $rg --vnet-name branch1 -n main --network-security-group default-nsg-$region1 --output none
+# Associated NSG default-nsg-$region2 to main subnet in branch2
+az network vnet subnet update -g $rg -g $rg --vnet-name branch2 -n main --network-security-group default-nsg-$region2 --output none
+
+echo Creating VMs in both branches...
+# create a VM in each branch spoke
+az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
+
+echo Creating ER Gateways in both branches...
+# create pips for ER GW's in each branch
+az network public-ip create -n branch1-ergw-pip -g $rg --location $region1 --output none
+az network public-ip create -n branch2-ergw-pip -g $rg --location $region2 --output none
+
+# create ER GW's in each branch
+az network vnet-gateway create -n branch1-ergw -g $rg --public-ip-address branch1-ergw-pip --vnet branch1 --gateway-type ExpressRoute --sku Standard --output none --no-wait
+az network vnet-gateway create -n branch2-ergw -g $rg --public-ip-address branch2-ergw-pip --vnet branch2 --gateway-type ExpressRoute --sku Standard --output none --no-wait
+
+# Enable boot diagnostics on both branch vms
+az vm boot-diagnostics enable -g $rg -n branch1VM -o none
+az vm boot-diagnostics enable -g $rg -n branch2VM -o none
+
+# Loop script to check ER Gateway deployment status for both branches
+while true;
+do
+    echo "Checking ER Gateway deployment status for both branches..."
+    branch1status=$(az network vnet-gateway show -n branch1-ergw -g $rg --query provisioningState -o tsv)
+    branch2status=$(az network vnet-gateway show -n branch2-ergw -g $rg --query provisioningState -o tsv)
+    echo "Current status for branch1-ergw is $branch1status" and "Current status for branch1-erg2 is $branch2status"
+    if [ "$branch1status" == "Succeeded" ] && [ "$branch2status" == "Succeeded" ]; then
+        echo "ER Gateway deployment status for both branches is Succeeded"
+        break
+    fi
+    sleep 15
+done
+
+
+
+
+
+

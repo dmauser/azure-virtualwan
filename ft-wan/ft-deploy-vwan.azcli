@@ -1,0 +1,139 @@
+# Pre-Requisites
+echo validating pre-requisites
+az extension add --name virtual-wan 
+# or updating vWAN and AzFirewall CLI extensions
+az extension update --name virtual-wan
+
+#Parameters
+region=southcentralus
+rg=lab-vwan-ft
+vwanname=vwan-ft
+hubname=vhub1
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #VM Size
+mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshell
+
+#ExpressRoute specific variables
+ername1="ft-$hubname-er-circuit" 
+perloc1="Chicago"
+providerloc1=Megaport
+ername2="ft-branch-er-circuit"
+perloc2="Chicago"
+providerloc2=Megaport
+
+# Creating rg
+az group create -n $rg -l $region --output none
+echo Creating vwan hubs..
+az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region --type Standard --output none
+az network vhub create -g $rg --name $hubname --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region --sku Standard --no-wait
+
+# Spoke VNETs
+az network vnet create --address-prefixes 172.16.1.0/24 -n spoke1 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.1.0/27 --output none
+az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.2.0/27 --output none
+az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $region --subnet-name main --subnet-prefixes 172.16.3.0/27 --output none
+
+#Create ER circuits
+echo Creating ExpressRoute Circuits
+az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
+az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
+
+echo Creating Spoke VMs...
+# Creating a VM in each connected spoke
+az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
+
+echo Associating NSG on Spokes and Branch VNETs
+#Updating NSGs:
+az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
+# Adding my home public IP to NSG for SSH access
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-https' --direction Inbound --priority 110 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n 'default-allow-vnetoutany' --direction Inbound --priority 120 --source-address-prefixes VirtualNetwork --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges '*' --access Allow --protocol '*' --description "Allow inbound VNET to Any for NVA Routing out" --output none
+# Associating NSG to the VNET subnets (Spokes and Branches)
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?contains(location,`'$region'`)].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region -o none
+
+#Enabling boot diagnostics for all VMs in the resource group (Serial console)
+echo Enabling boot diagnostics
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
+
+### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, hping3, and others)"
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
+do
+ az vm extension set \
+ --resource-group $rg \
+ --vm-name $vm \
+ --name customScript \
+ --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+done
+
+echo Checking vHub provisioning status...
+# Checking vHub provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hubname --query 'provisioningState' -o tsv)
+    echo "$hubname provisioningState="$prState
+    sleep 5
+done
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv)
+    echo "$hubname routingState="$rtState
+    sleep 5
+done
+
+echo Creating vHub ExpressRoute Gateway...
+az network express-route gateway create -g $rg -n $hubname-ergw --location $region --min-val 1 --virtual-hub $hubname --output none &>/dev/null &
+
+echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
+
+# **** Configuring vWAN route default route table to send traffic to the NVA and reach indirect spokes: *****
+echo Configuring spoke connections to their respective hubs...
+echo Creating spoke 1 and 3 connection to their respective hubs...
+# Spoke1 vnet connection
+az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hubname --no-wait
+# Spoke2 vnet connection
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg --vhub-name $hubname --no-wait
+# Spoke3 vnet connection
+az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hubname --no-wait
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke1conn --vhub-name $hubname -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke1conn provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hubname -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke2conn provisioningState="$prState
+    sleep 5
+done
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke3conn --vhub-name $hubname -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke3conn provisioningState="$prState
+    sleep 5
+done
+
+echo Checking ER Gateway provisioning status...
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network express-route gateway show -g $rg -n $hubname-ergw --query provisioningState -o tsv)
+    echo ExpressRoute Gateway $hubname-ergw "provisioningState="$prState
+    sleep 5
+done
+echo Deployment has finished

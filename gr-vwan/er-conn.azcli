@@ -1,0 +1,101 @@
+# variables (make changes based on your requirements)
+region1=southcentralus #set region1
+region2=eastus #set region2
+rg=dmauser-vwan-gr #set resource group
+vwanname=vwangr #set vwan name
+hub1name=hub1 #set secured-vhub1 name
+hub2name=hub2 #set secured-vhub2 name
+
+#ExpressRoute specific variables
+ername1="er-ckt-$hub1name" 
+perloc1="Chicago"
+providerloc1=Megaport
+ername2="er-ckt-$hub2name" 
+perloc2="Washington DC"
+providerloc2=Megaport
+
+# Validating Circuits Provider privisionaing status:
+echo Validating Circuits Provider privisionaing status...
+# $ername1
+if  [ $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
+ echo "$ername1=Provisioned"
+else
+ echo $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv)
+ echo "Please proceeed with the ER Circuit $ername1 provisioning with your Service Provider before proceed"
+fi
+echo Validating Circuits Provider privisionaing status...
+# $ername2
+if  [ $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
+ echo "$ername2=Provisioned"
+else
+ echo $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv)
+ echo "Please proceeed with the ER Circuit $ername2 provisioning with your Service Provider before proceed"
+fi
+
+# Connect vuhb1 to ErCircuit1
+echo connecting vuhb1 to $ername1
+peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
+routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
+az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
+
+# Connect vuhb2 to ErCircuit1
+echo connecting vuhb1 to $ername1
+peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
+routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub2name -g $rg --query id -o tsv)
+az network express-route gateway connection create --name connection-to-$ername2 -g $rg --gateway-name $hub2name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
+
+
+#ExpressRoute specific variables
+ername3="er-branch1" 
+perloc1="Chicago"
+providerloc1=Megaport
+ername4="er-branch2" 
+perloc2="Washington DC"
+providerloc2=Megaport
+
+# Connecting Branch ER circuits to each Branch
+echo connecting branch1 to $ername3
+erid=$(az network express-route show -g $rg --name $ername3 --query id -o tsv)
+az network vpn-connection create --name connection-to-$ername3 \
+ --resource-group $rg --vnet-gateway1 branch1-ergw \
+ --express-route-circuit2 $erid \
+ --routing-weight 0 \
+ &>/dev/null &
+echo connecting branch2 to $ername4
+erid=$(az network express-route show -g $rg --name $ername4 --query id -o tsv)
+az network vpn-connection create --name connection-to-$ername4 \
+ --resource-group $rg --vnet-gateway1 branch2-ergw \
+ --express-route-circuit2 $erid \
+ --routing-weight 0 \
+ &>/dev/null &
+
+
+# Loop script to check the connection status for vhub1 and vhub2
+echo "Checking the connection status for vhub1 and vhub2"
+while true
+do
+  echo "Checking the connection status for vhub1 and vhub2"
+  if [ $(az network express-route gateway connection show -g $rg --gateway-name $hub1name-ergw --name connection-to-$ername1 --query provisioningState -o tsv) == 'Succeeded' ] && [ $(az network express-route gateway connection show -g $rg --gateway-name $hub2name-ergw --name connection-to-$ername2 --query provisioningState -o tsv) == 'Succeeded' ]; then
+    echo "vhub1 and vhub2 are connected to ER circuits"
+    break
+  else
+    echo "vhub1 and vhub2 are not connected to ER circuits"
+    sleep 10
+  fi
+done
+
+# Loop script to check the connection status for branch1 and branch2
+echo "Checking the connection status for branch1 and branch2"
+while true
+do
+  echo "Checking the connection status for branch1 and branch2"
+  if [ $(az network vpn-connection show -g $rg --name connection-to-$ername3 --query provisioningState -o tsv) == 'Succeeded' ] && [ $(az network vpn-connection show -g $rg --name connection-to-$ername4 --query provisioningState -o tsv) == 'Succeeded' ]; then
+    echo "branch1 and branch2 are connected to ER circuits"
+    break
+  else
+    echo "branch1 and branch2 are not connected to ER circuits"
+    sleep 10
+  fi
+done
+
+

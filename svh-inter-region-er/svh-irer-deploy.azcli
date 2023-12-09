@@ -164,7 +164,7 @@ az network express-route gateway create -g $rg -n $hub2name-ergw --location $reg
 
 ### Install tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
-for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.offer,'ubuntu')].name" -o tsv`
+for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
 do
  az vm extension set \
  --resource-group $rg \
