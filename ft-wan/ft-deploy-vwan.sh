@@ -1,3 +1,4 @@
+#!/bin/bash
 # Pre-Requisites
 echo validating pre-requisites
 az extension add --name virtual-wan 
@@ -18,9 +19,6 @@ mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you ru
 ername1="ft-$hubname-er-circuit" 
 perloc1="Chicago"
 providerloc1=Megaport
-ername2="ft-branch-er-circuit"
-perloc2="Chicago"
-providerloc2=Megaport
 
 # Creating rg
 az group create -n $rg -l $region --output none
@@ -36,7 +34,6 @@ az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $reg
 #Create ER circuits
 echo Creating ExpressRoute Circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
-az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke

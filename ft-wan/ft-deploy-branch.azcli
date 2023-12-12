@@ -25,6 +25,11 @@ subnet2=10.100.0.160/27
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
 
+#ExpressRoute specific variables
+ername2="ft-branch-er-circuit"
+perloc2="Chicago"
+providerloc2=Megaport
+
 echo "Deploying OPNsense NVA1 on the branch"
 az vm image terms accept --urn thefreebsdfoundation:freebsd-13_0:13_0-release:13.0.0 -o none
 az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
@@ -41,6 +46,10 @@ do
     echo "Branch VNET provisioning state provisioningState="$prState
     sleep 5
 done
+
+#Create ER circuits
+echo Creating ExpressRoute Circuits
+az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
 
 echo Creating Branch VMs...
 # Deploy branch VM:
@@ -61,8 +70,6 @@ az network vnet subnet create --address-prefix $RouteServerSubnet --name RouteSe
 subnetid=$(az network vnet subnet show --name RouteServerSubnet -g $rg --vnet-name $virtualNetworkName --query id -o tsv)
 az network public-ip create --name branch-rs-pip --resource-group $rg --location $region -o none
 az network routeserver create --name branch-rs --resource-group $rg --location $region --public-ip-address branch-rs-pip --hosted-subnet $subnetid &>/dev/null &
-# Enable routserver branch to branch
-az network routeserver update --name branch-rs --resource-group $rg --allow-b2b-traffic true --no-wait
 
 #Create ExpressRoute Gateway
 echo Creating Branch ExpressRoute Gateway
@@ -94,6 +101,19 @@ while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network vnet subnet show --name Untrusted-Subnet -g $rg --vnet-name $virtualNetworkName --query provisioningState -o tsv)
     echo Unrusted subnet "provisioningState="$prState
+    sleep 5
+done
+
+
+# Enable routserver branch to branch
+az network routeserver update --name branch-rs --resource-group $rg --allow-b2b-traffic true --no-wait
+# Loop script to validate route server provisioning state
+echo Validating Route Server provisioning...
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network routeserver show -n branch-rs -g $rg --query 'provisioningState' -o tsv)
+    echo "Route Server provisioning state provisioningState="$prState
     sleep 5
 done
 
