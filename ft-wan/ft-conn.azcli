@@ -51,5 +51,8 @@ do
     sleep 5
 done
 
+# Run command on spoke1vm to check public IP
+echo "Checking public IP on spoke1vm"
+az vm run-command invoke -g $rg -n spoke1vm --command-id RunShellScript --scripts "curl -4 ifconfig.io -s" --query "value[].message" -o tsv
 
 

@@ -134,40 +134,29 @@ echo If you dont have a way to provision the circuit at this time, please cancel
 # Loop script to waiting circuit to be provisioned at the provider
 while true
 do
-    echo "Waiting for the circuit to be provisioned at the provider"
-    ername1=$(az network express-route list -g $rg --query [].name -o tsv)
-    if [ -z "$ername1" ]; then
-        echo "Circuit not provisioned yet, waiting 30 seconds"
-        sleep 30
+    echo "Waiting for the circuit to be provisioned at the Provider side"
+    erstate1=$(az network express-route show -g $rg --name $ername1 --query provisioningState -o tsv)
+    if [ -z "$erstate1" ]; then
+        echo "Circuit not provisioned yet, waiting 10 seconds"
+        sleep 10
     else
-        echo "Circuit provisioned"
+        echo "Circuit has been provisioned"
         break
     fi
 done
 # Connect vuhb1 to ErCircuit1
-echo connecting vuhb1 to $ername1
+echo Connecting vuhb1 to $ername1...
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hubname -g $rg --query id -o tsv)
 az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hubname-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
 
 # Check if the connection provisioningState exists if not sleep 10 seconds
-while true
-do
-    echo "Waiting for the connection to be provisioned"
-    connectionstate=$(az network express-route gateway connection show -g $rg --gateway-name $hubname-ergw --name connection-to-$ername1 --query provisioningState -o tsv)
-    if [ -z "$connectionstate" ]; then
-        echo "Connection not provisioned yet, waiting 10 seconds"
-        sleep 10
-    else
-        echo "Connection provisioned"
-        break
-    fi
-done
+sleep 20
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hubname-ergw --query 'provisioningState' -o tsv)
     echo "ER connection connection-to-$ername1 provisioningState="$prState
-    sleep 5
+    sleep 10
 done
 echo Deployment has finished
