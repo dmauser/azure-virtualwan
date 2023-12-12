@@ -113,9 +113,6 @@ do
     echo "vnet connection spoke2conn provisioningState="$prState
     sleep 5
 done
-##### NOTE: Script will only finish after your provision the Circuit if the provider #####
-echo From this point the script will only continue after your provision the Circuit if the provider
-echo If you dont have a way to provision the circuit at this time, please cancel the script by pressing CTRL+C...
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
@@ -123,7 +120,6 @@ do
     echo "vnet connection spoke3conn provisioningState="$prState
     sleep 5
 done
-
 echo Checking ER Gateway provisioning status...
 prState=''
 while [[ $prState != 'Succeeded' ]];
@@ -132,6 +128,9 @@ do
     echo ExpressRoute Gateway $hubname-ergw "provisioningState="$prState
     sleep 5
 done
+##### NOTE: Script will only finish after your provision the Circuit if the provider #####
+echo From this point the script will only continue after your provision the Circuit with the connectivity provider
+echo If you dont have a way to provision the circuit at this time, please cancel the script by pressing CTRL+C...
 # Loop script to waiting circuit to be provisioned at the provider
 while true
 do
