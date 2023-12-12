@@ -23,8 +23,8 @@ Note 1: CLI is bash format. Please, use Azure Cloud Shell Bash to run the script
 
 - Step 2: Provision a MCR and create two connections:
   
-    1) VXC for Azure / ExpressRoute See: [Creating an ExpressRoute connection](https://docs.megaport.com/cloud/megaport/microsoft/#creating-an-expressroute-connection).
-    2) VXC for Megaport Internet.
+    1. VXC for Azure / ExpressRoute See: [Creating an ExpressRoute connection](https://docs.megaport.com/cloud/megaport/microsoft/#creating-an-expressroute-connection).
+    2. VXC for Megaport Internet.
 
     Here is how the MCR connections should look like:
     ![](./media/megaport-step2.png)
