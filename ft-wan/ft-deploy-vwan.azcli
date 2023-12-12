@@ -1,10 +1,4 @@
 #!/bin/bash
-# Pre-Requisites
-echo validating pre-requisites
-az extension add --name virtual-wan 
-# or updating vWAN and AzFirewall CLI extensions
-az extension update --name virtual-wan
-
 #Parameters
 region=southcentralus
 rg=lab-vwan-ft
@@ -19,6 +13,13 @@ mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you ru
 ername1="ft-$hubname-er-circuit" 
 perloc1="Chicago"
 providerloc1=Megaport
+
+# Validate if virtual-wan extension is installed, if not, install it
+az extension show --name virtual-wan &>/dev/null
+if [ $? != 0 ]; then
+    echo "Installing virtual-wan extension"
+    az extension add --name virtual-wan
+fi
 
 # Creating rg
 az group create -n $rg -l $region --output none
@@ -116,7 +117,9 @@ do
     echo "vnet connection spoke2conn provisioningState="$prState
     sleep 5
 done
-
+##### NOTE: Script will only finish after your provision the Circuit if the provider #####
+echo From this point the script will only continue after your provision the Circuit if the provider
+echo If you dont have a way to provision the circuit at this time, please cancel the script by pressing CTRL+C...
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
@@ -131,6 +134,45 @@ while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network express-route gateway show -g $rg -n $hubname-ergw --query provisioningState -o tsv)
     echo ExpressRoute Gateway $hubname-ergw "provisioningState="$prState
+    sleep 5
+done
+# Loop script to waiting circuit to be provisioned at the provider
+while true
+do
+    echo "Waiting for the circuit to be provisioned at the provider"
+    ername1=$(az network express-route list -g $rg --query [].name -o tsv)
+    if [ -z "$ername1" ]; then
+        echo "Circuit not provisioned yet, waiting 30 seconds"
+        sleep 30
+    else
+        echo "Circuit provisioned"
+        break
+    fi
+done
+# Connect vuhb1 to ErCircuit1
+echo connecting vuhb1 to $ername1
+peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
+routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hubname -g $rg --query id -o tsv)
+az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hubname-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
+
+# Check if the connection provisioningState exists if not sleep 10 seconds
+while true
+do
+    echo "Waiting for the connection to be provisioned"
+    connectionstate=$(az network express-route gateway connection show -g $rg --gateway-name $hubname-ergw --name connection-to-$ername1 --query provisioningState -o tsv)
+    if [ -z "$connectionstate" ]; then
+        echo "Connection not provisioned yet, waiting 10 seconds"
+        sleep 10
+    else
+        echo "Connection provisioned"
+        break
+    fi
+done
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hubname-ergw --query 'provisioningState' -o tsv)
+    echo "ER connection connection-to-$ername1 provisioningState="$prState
     sleep 5
 done
 echo Deployment has finished
