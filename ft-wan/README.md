@@ -23,13 +23,14 @@ curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/ft-wan/f
   
 Note 1: CLI is bash format. Please, use Azure Cloud Shell Bash to run the script or Azure CLI for Linux. This script does not work over Azure CLI for Windows.
 
-- Step 2: Provision a MCR and create two connections:
+- Step 2: Provision a MCR and create two VXCs:
   
-    2.1 - VXC for Azure / ExpressRoute See: [Creating an ExpressRoute connection](https://docs.megaport.com/cloud/megaport/microsoft/#creating-an-expressroute-connection).
+    2.1 - First VXC Azure ExpressRoute. For more details, consult: [Creating an ExpressRoute connection](https://docs.megaport.com/cloud/megaport/microsoft/#creating-an-expressroute-connection).
     
-    2.2 - VXC for Megaport Internet.
+    2.2 - Second VXC for Megaport Internet. For more details, consult: [Creating a Megaport Internet Connection for an MCR](https://docs.megaport.com/megaport-internet/mcr/).
 
-    Here is how the MCR connections should look like:
+    Here is how the MCR options during the process of creating both VXCs:
+    
     ![](./media/megaport-step2.png)
 
 
