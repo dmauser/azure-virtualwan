@@ -3,7 +3,9 @@
 
 ## Intro
 
-This lab aims to build a Virtual WAN with tree spokes and force tunneling Internet traffic over ExpressRoute using [Megaport Internet](https://docs.megaport.com/megaport-internet/).
+This lab aims to build a Virtual WAN with tree spokes and force tunneling Internet traffic over ExpressRoute using [Megaport Internet](https://docs.megaport.com/megaport-internet/) to simulate scenarios where the customer wants to use ExpressRoute for Internet access (also known as forced tunneling).
+
+This lab leverages [MegaPort Cloud Router (MCR)](https://docs.megaport.com/mcr/) and two Virtual Cross Connects (VXCs) where one is for ExpressRoute and the other for Megaport Internet.
 
 ## Lab Diagram
 
@@ -23,8 +25,9 @@ Note 1: CLI is bash format. Please, use Azure Cloud Shell Bash to run the script
 
 - Step 2: Provision a MCR and create two connections:
   
-    1. VXC for Azure / ExpressRoute See: [Creating an ExpressRoute connection](https://docs.megaport.com/cloud/megaport/microsoft/#creating-an-expressroute-connection).
-    2. VXC for Megaport Internet.
+    2.1 - VXC for Azure / ExpressRoute See: [Creating an ExpressRoute connection](https://docs.megaport.com/cloud/megaport/microsoft/#creating-an-expressroute-connection).
+    
+    2.2 - VXC for Megaport Internet.
 
     Here is how the MCR connections should look like:
     ![](./media/megaport-step2.png)
