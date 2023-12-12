@@ -1,16 +1,11 @@
 # Lab: Virtual WAN and forced tunneling over ExpressRoute
 
-## 
-
 Content:
 
-[Intro](##Intro)
-
-Lab Diagram
-
-Deploy this solution
-
-Validations
+[Intro](#intro)
+[Lab Diagram](#lab-diagram)
+[Deploy this solution](#deploy-this-solution)
+[Validations]
 
 
 
