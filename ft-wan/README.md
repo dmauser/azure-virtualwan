@@ -3,11 +3,12 @@
 Content:
 
 [Intro](#intro)
+
 [Lab Diagram](#lab-diagram)
+
 [Deploy this solution](#deploy-this-solution)
-[Validations]
 
-
+[Validations](#validations)
 
 ## Intro
 
