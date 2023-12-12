@@ -1,3 +1,4 @@
+#!/bin/bash
 # variables (make changes based on your requirements)
 region=southcentralus
 rg=lab-vwan-vpner
@@ -8,9 +9,6 @@ hubname=vhub1
 ername1="ft-$hubname-er-circuit" 
 perloc1="Chicago"
 providerloc1=Megaport
-ername2="ft-branch-er-circuit"
-perloc2="Chicago"
-providerloc2=Megaport
 
 # Validating Circuits Provider privisionaing status:
 echo Validating Circuits Provider privisionaing status...
@@ -22,39 +20,12 @@ else
  echo "Please proceeed with the ER Circuit $ername1 provisioning with your Service Provider before proceed"
 fi
 echo Validating Circuits Provider privisionaing status...
-# $ername2
-if  [ $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
- echo "$ername2=Provisioned"
-else
- echo $(az network express-route show -g $rg --name $ername2 --query serviceProviderProvisioningState -o tsv)
- echo "Please proceeed with the ER Circuit $ername2 provisioning with your Service Provider before proceed"
-fi
 
 # Connect vuhb1 to ErCircuit1
 echo connecting vuhb1 to $ername1
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hubname -g $rg --query id -o tsv)
 az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hubname-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
-
-# Connect branch to ErCircuit2
-echo connecting branch to $ername2
-erid=$(az network express-route show -g $rg --name $ername2 --query id -o tsv)
-az network vpn-connection create --name connection-to-$ername2 \
- --resource-group $rg --vnet-gateway1 branch-ergw \
- --express-route-circuit2 $erid \
- --routing-weight 0 \
- &>/dev/null &
-
-
-echo Validating ER circuits connection to Gateways
-sleep 5
-prState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vpn-connection show --name connection-to-$ername2 -g $rg --query 'provisioningState' -o tsv)
-    echo "ER connection connection-to-$ername2 provisioningState="$prState
-    sleep 5
-done
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
