@@ -50,7 +50,7 @@ hub1name=hub1
 hub2name=hub2
 username=azureuser
 password="Msft123Msft123"
-vmsize=Standard_B1s
+vmsize=Standard_DS1_v2
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -103,8 +103,8 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?loca
 
 echo Creating VPN Gateways in both branches...
 # create pips for VPN GW's in each branch
-az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sku Basic --output none
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku Basic --output none
+az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sku Standard --output none
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku Standard --output none
 
 # create VPN gateways
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
