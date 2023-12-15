@@ -10,7 +10,7 @@ az extension add --name virtual-wan
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-region1=westuscentral
+region1=westcentralus
 region2=westus
 rg=lab-vwan-lxnva-srp
 vwanname=vwan-lxnva-srp
