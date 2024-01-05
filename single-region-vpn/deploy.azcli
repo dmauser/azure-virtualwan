@@ -5,11 +5,11 @@ if ! az extension list | grep -q virtual-wan; then
     az extension add --name virtual-wan --only-show-errors
 fi
 
-#Parameters
+#Variables
 region=eastus
 rg=lab-vwan-vpn
 vwanname=vwan-vpn
-hubname=hub1
+hubname=vhub1
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_DS1_v2 #VM Size
