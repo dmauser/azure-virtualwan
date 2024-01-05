@@ -20,7 +20,7 @@ mypip=$(curl -4 ifconfig.io -s)
 
 # Creating rg
 az group create -n $rg -l $region --output none
-echo Creating vwan hubs..
+echo Creating vWAN Hub..   
 az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true --location $region --type Standard --output none
 az network vhub create -g $rg --name $hubname --address-prefix 192.168.1.0/24 --vwan $vwanname --location $region --sku Standard --no-wait
 
@@ -49,7 +49,7 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?cont
 
 echo Creating VPN Gateway in the branch...
 # Creating pips for VPN GW's in each branch
-az network public-ip create -n branch-vpngw-pip -g $rg --location $region --output none 
+az network public-ip create -n branch-vpngw-pip -g $rg --location $region --output none --only-show-errors
 
 # Creating VPN gateways
 az network vnet-gateway create -n branch-vpngw --public-ip-addresses branch-vpngw-pip -g $rg --vnet branch --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
@@ -60,13 +60,8 @@ az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --s
 az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 
-#Enabling boot diagnostics for all VMs in the resource group (Serial console)
-#Creating Storage Account (boot diagnostics + serial console)
-let "randomIdentifier1=$RANDOM*$RANDOM" 
-az storage account create -n sc$randomIdentifier1 -g $rg -l $region --sku Standard_LRS -o none
-#Enablingboot diagnostics
-stguri1=$(az storage account show -n sc$randomIdentifier1 -g $rg --query primaryEndpoints.blob -o tsv)
-az vm boot-diagnostics enable --storage $stguri1 --ids $(az vm list -g $rg --query '[?contains(location,`'$region'`)].{id:id}' -o tsv) -o none
+echo Enabling boot diagnostics
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
@@ -143,18 +138,23 @@ echo Building VPN connections from VPN Gateways to the respective Branches...
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
 bgp1=$(az network vnet-gateway show -n branch-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
 pip1=$(az network vnet-gateway show -n branch-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
-vwanbgp1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
-vwanpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
 
 # Creating virtual wan vpn site
 az network vpn-site create --ip-address $pip1 -n site-branch -g $rg --asn 65510 --bgp-peering-address $bgp1 -l $region --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
 
-# Creating virtual wan vpn connection
+# create virtual wan vpn connection
 az network vpn-gateway connection create --gateway-name $hubname-vpngw -n site-branch-conn -g $rg --enable-bgp true --remote-vpn-site site-branch --internet-security --shared-key 'abc123' --output none
 
 # Creating connection from vpn gw to local gateway and watch for connection succeeded
-az network local-gateway create -g $rg -n site-$hubname-LG --gateway-ip-address $vwanpip1 --asn 65515 --bgp-peering-address $vwanbgp1 -l $region --output none
-az network vpn-connection create -n branch-to-site-$hubname -g $rg -l $region --vnet-gateway1 branch-vpngw --local-gateway2 site-$hubname-LG --enable-bgp --shared-key 'abc123' --output none
+az network local-gateway create -g $rg -n lng-$hubname-gw1 --gateway-ip-address $vwanh1gwpip1 --asn 65515 --bgp-peering-address $vwanh1gwbgp1 -l $region1 --output none
+az network vpn-connection create -n branch-to-$hubname-gw1 -g $rg -l $region1 --vnet-gateway1 branch-vpngw --local-gateway2 lng-$hubname-gw1 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-$hubname-gw2 --gateway-ip-address $vwanh1gwpip2 --asn 65515 --bgp-peering-address $vwanh1gwbgp2 -l $region1 --output none
+az network vpn-connection create -n branch-to-$hubname-gw2 -g $rg -l $region1 --vnet-gateway1 branch-vpngw --local-gateway2 lng-$hubname-gw2 --enable-bgp --shared-key 'abc123' --output none
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 
@@ -192,5 +192,3 @@ do
     sleep 5
 done
 echo Deployment has finished
-echo Use Firewall Manager to enable Private Traffic under Security configuration
-echo Automation to enable Secured-vHub Prvate Traffic to be added soon...
