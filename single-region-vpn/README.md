@@ -2,7 +2,7 @@
 
 ## Intro
 
-This is a simple lab to demonstrate how to build a Virtual WAN Hub with a S2S VPN connection to on-premises (branch1) using a Virtual Network Gateaway (VNG) and connecting over VPN to the vHub using IPSec S2S VPN with BGP.
+This is a simple lab to demonstrate how to build a Virtual WAN Hub with a S2S VPN connection to on-premises (branch1) using a Virtual Network Gateway (VNG) and connecting over VPN to the vHub using IPSec S2S VPN with BGP.
 
 ## Diagram
 
