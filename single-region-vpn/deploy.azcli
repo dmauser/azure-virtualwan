@@ -150,11 +150,11 @@ az network vpn-site create --ip-address $pip1 -n site-branch -g $rg --asn 65510 
 az network vpn-gateway connection create --gateway-name $hubname-vpngw -n site-branch-conn -g $rg --enable-bgp true --remote-vpn-site site-branch --internet-security --shared-key 'abc123' --output none
 
 # Creating connection from vpn gw to local gateway and watch for connection succeeded
-az network local-gateway create -g $rg -n lng-$hubname-gw1 --gateway-ip-address $vwanh1gwpip1 --asn 65515 --bgp-peering-address $vwanh1gwbgp1 -l $region1 --output none
-az network vpn-connection create -n branch-to-$hubname-gw1 -g $rg -l $region1 --vnet-gateway1 branch-vpngw --local-gateway2 lng-$hubname-gw1 --enable-bgp --shared-key 'abc123' --output none
+az network local-gateway create -g $rg -n lng-$hubname-gw1 --gateway-ip-address $vwanh1gwpip1 --asn 65515 --bgp-peering-address $vwanh1gwbgp1 -l $region --output none
+az network vpn-connection create -n branch-to-$hubname-gw1 -g $rg -l $region --vnet-gateway1 branch-vpngw --local-gateway2 lng-$hubname-gw1 --enable-bgp --shared-key 'abc123' --output none
 
-az network local-gateway create -g $rg -n lng-$hubname-gw2 --gateway-ip-address $vwanh1gwpip2 --asn 65515 --bgp-peering-address $vwanh1gwbgp2 -l $region1 --output none
-az network vpn-connection create -n branch-to-$hubname-gw2 -g $rg -l $region1 --vnet-gateway1 branch-vpngw --local-gateway2 lng-$hubname-gw2 --enable-bgp --shared-key 'abc123' --output none
+az network local-gateway create -g $rg -n lng-$hubname-gw2 --gateway-ip-address $vwanh1gwpip2 --asn 65515 --bgp-peering-address $vwanh1gwbgp2 -l $region --output none
+az network vpn-connection create -n branch-to-$hubname-gw2 -g $rg -l $region --vnet-gateway1 branch-vpngw --local-gateway2 lng-$hubname-gw2 --enable-bgp --shared-key 'abc123' --output none
 
 echo Configuring spoke1 and spoke3 vnet connection to their respective vHubs...
 
