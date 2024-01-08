@@ -21,4 +21,4 @@ Few notes:
 
 2. Default username: azureuser and password: Msft123Msft123. You can change it in the script under the "Variables" section.
 
-3. All VMs are accessible using Serial Console or SSH. For SSH, ensure you adjust the existing NSG, allowing access from your remote Public IP.
+3. All VMs are accessible using Serial Console or SSH. For SSH, ensure you adjust the existing NSG to access the target VM  from your remote Public IP.
