@@ -75,6 +75,7 @@ nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/s
 for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
 do
  az vm extension set \
+ --force-update \
  --resource-group $rg \
  --vm-name $vm \
  --name customScript \
