@@ -60,6 +60,13 @@ az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --s
 az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
 az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 
+echo Waiting for VMs to be ready...
+# Waiting for VMs to be ready
+az vm wait -g $rg -n branchVM --created
+az vm wait -g $rg -n spoke1VM --created
+az vm wait -g $rg -n spoke2VM --created
+az vm wait -g $rg -n spoke3VM --created
+
 echo Enabling boot diagnostics
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
