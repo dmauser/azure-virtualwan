@@ -57,3 +57,32 @@ az network private-endpoint dns-zone-group create \
     --zone-name default \
     --output none
 done
+
+# PAN Effective Routes:
+
+# Dump effective routes from the Azure Firewall:
+rg=adtork-pan
+for vhubname in `az network vhub list -g $rg --query "[].name" -o tsv | sort -n`
+do
+   echo -e vHUB: pan-eus
+   echo -e Effective route table:    
+   az network vhub get-effective-routes -g $rg -n pan-eus \
+   --resource-type NetworkVirtualAppliances \
+   --resource-id /subscriptions/2bf4a339-294d-4c25-b0b2-ef649e9f5c27/resourceGroups/adtork-pan/providers/PaloAltoNetworks.Cloudngfw/firewalls/PanNGFW \
+   --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
+   --output table
+   echo
+done
+
+rg=adtork-pan
+for vhubname in `az network vhub list -g $rg --query "[].name" -o tsv | sort -n`
+do
+   echo -e vHUB: pan-eus
+   echo -e Effective route table:    
+   az network vhub get-effective-routes -g $rg -n pan-eus \
+   --resource-type NetworkVirtualAppliances \
+   --resource-id /subscriptions/2bf4a339-294d-4c25-b0b2-ef649e9f5c27/resourceGroups/adtork-pan/providers/PaloAltoNetworks.Cloudngfw/firewalls/PanNGFW \
+   --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
+   --output table
+   echo
+done

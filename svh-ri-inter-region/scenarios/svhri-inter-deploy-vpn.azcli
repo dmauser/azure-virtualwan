@@ -50,8 +50,8 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?loca
 
 echo Creating VPN Gateways in both branches...
 # create pips for VPN GW's in each branch
-az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --sku Basic --output none
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --sku Basic --output none
+az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --output none
 
 # create VPN gateways
 az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
