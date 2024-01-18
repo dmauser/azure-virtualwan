@@ -11,7 +11,7 @@
 
 ### Intro
 
-Coming soon...
+This lab deploys a Virtual WAN with two regions and two Secured Virtual Hubs (SVH) with Routing Intent (RI).
 
 ### Lab Diagram
 
@@ -28,9 +28,7 @@ TBD
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) or Azure CLI via Linux (Ubuntu) and run the following commands to build the entire lab:
 
 ```bash
-wget -O svhri-inter-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/svhri-inter-deploy.azcli
-chmod +xr svhri-inter-deploy.sh
-./svhri-inter-deploy.sh
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/svhri-inter-deploy.azcli | bash
 ```
 
 **Note:** the provisioning process will take 60-90 minutes to complete. Also, note that Azure Cloud Shell has a 20 minutes timeout and make sure you watch the process to make sure it will not timeout causing the deployment to stop. You can hit enter during the process just to make sure Serial Console will not timeout. Otherwise, you can install it using any Linux. In can you have Windows OS you can get a Ubuntu + WSL2 and install Azure CLI.
