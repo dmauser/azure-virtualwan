@@ -70,8 +70,8 @@ az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $reg
 
 echo Creating VMs in both branches...
 # create a VM in each branch spoke
-az vm create -n branch1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n branch2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet subnet2 --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet subnet2 --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Creating NSGs in both branches...
 #Update NSGs:
@@ -98,8 +98,8 @@ az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vp
 
 echo Creating Spoke VMs...
 # create a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke2VM  -g $rg --image ubuntults --public-ip-sku Standard --size $vmsize -l $region2 --subnet subnet2 --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet subnet2 --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 # Continue only if all VMs are created
 echo Waiting VMs to complete provisioning...
 az vm wait -g $rg --created --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) --only-show-errors -o none
@@ -110,7 +110,7 @@ az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o 
 ### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
 echo Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others...
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
-for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='UbuntuServer'].name" -o tsv`
+for vm in `az vm list -g $rg --query "[?storageProfile.imageReference.offer=='Canonical'].name" -o tsv`
 do
  az vm extension set \
  --resource-group $rg \
