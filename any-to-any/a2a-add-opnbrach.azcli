@@ -1,0 +1,312 @@
+#!/bin/bash
+
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=centralus
+rg=lab-vwan-a2a
+vwanname=vwan-a2a
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123"
+vmsize=Standard_DS1_v2
+
+#Variables
+mypip=$(curl -4 ifconfig.io -s)
+
+# create rg
+az group create -n $rg -l $region1 --output none
+
+echo Creating VMs in both branches...
+# create location1 branch virtual network
+az network vnet create --address-prefixes 10.100.0.0/16 -n branch1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.100.0.0/24 --output none
+az network vnet create --address-prefixes 10.200.0.0/16 -n branch2 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.200.0.0/24 --output none
+# create a VM in each branch spoke
+az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
+
+# Loop script to check if nsgs default-nsg-$region1 and default-nsg-$region2 are created
+while [[ $(az network nsg list -g $rg --query "[?contains(name, 'default-nsg-$region1')].name" -o tsv) == "" ]] || [[ $(az network nsg list -g $rg --query "[?contains(name, 'default-nsg-$region2')].name" -o tsv) == "" ]]; do
+    echo "Waiting for NSGs to be created..."
+    sleep 10
+done
+
+# Associated NSG to the VNET subnets (Spokes and Branches)
+az network vnet subnet update --name main --vnet-name branch1 -o none --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --name main --vnet-name branch2 -o none --network-security-group default-nsg-$region2 -o none
+
+# Deploy OPNSense BRANCH1
+echo Deploying OPNSense NVA1 on the branch1
+# OPNsense NVA parameters
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_DS1_v2
+virtualMachineName=branch1-opnnva
+branchname=branch1
+existingvirtualNetwork=existing
+VNETAddress=10.100.0.0/16
+UntrustedSubnetCIDR=10.100.1.0/28
+TrustedSubnetCIDR=10.100.1.16/28
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Create untrusted subnetnet
+echo Creating untrusted subnet
+az network vnet subnet create -g $rg --vnet-name $branchname --name $existingUntrustedSubnetName --address-prefixes $UntrustedSubnetCIDR --output none
+# Create trusted subnetnet
+echo Creating trusted subnet
+az network vnet subnet create -g $rg --vnet-name $branchname --name $existingTrustedSubnetName --address-prefixes $TrustedSubnetCIDR --output none
+
+echo "Deploying OPNsense NVA1 on the branch1"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+  az deployment group create --name branch1-nva-$RANDOM --resource-group $rg \
+ --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+ --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$branchname UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
+ --no-wait
+
+# Assign nsg to nvasubnet
+echo Creating NSG and associate to NVA Subnet
+az network nsg create --resource-group $rg --name $branchname-nva-nsg --location $region1 -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-ssh' --direction Inbound --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-https' --direction Inbound --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Get private ip of branch1 nva
+nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+# Create UDR to point traffic to the NVA
+az network route-table create -g $rg --name $branchname-UDR -l $region1 -o none
+az network route-table route create -g $rg --name default --route-table-name $branchname-UDR --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $nvaip -o none
+
+# Associate to branch main subnet
+az network vnet subnet update -g $rg -n main --vnet-name $branchname --route-table $branchname-UDR -o none
+
+#echo Checking OPNSense provisioning state:
+# az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $branchname-opnnva-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $branchname-opnnva-Untrusted-NIC --network-security-group null --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $branchname --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $branchname --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $branchname --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $branchname --network-security-group null  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $branchname --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $branchname --network-security-group $branchname-nva-nsg  -o none
+
+
+# Deploy OPNSense BRANCH2
+echo Deploying OPNSense NVA1 on the branch2
+# OPNsense NVA parameters
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_DS1_v2
+virtualMachineName=branch2-opnnva
+branchname=branch2
+existingvirtualNetwork=existing
+VNETAddress=10.200.0.0/16
+UntrustedSubnetCIDR=10.200.1.0/28
+TrustedSubnetCIDR=10.200.1.16/28
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Create untrusted subnetnet
+echo Creating untrusted subnet
+az network vnet subnet create -g $rg --vnet-name $branchname --name $existingUntrustedSubnetName --address-prefixes $UntrustedSubnetCIDR --output none
+# Create trusted subnetnet
+echo Creating trusted subnet
+az network vnet subnet create -g $rg --vnet-name $branchname --name $existingTrustedSubnetName --address-prefixes $TrustedSubnetCIDR --output none
+
+echo "Deploying OPNsense NVA1 on the branch2"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+  az deployment group create --name branch2-nva-$RANDOM --resource-group $rg \
+ --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+ --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$branchname UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
+ --no-wait
+
+# Assign nsg to nvasubnet
+echo Creating NSG and associate to NVA Subnet
+az network nsg create --resource-group $rg --name $branchname-nva-nsg --location $region2 -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-ssh' --direction Inbound --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-https' --direction Inbound --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Get private ip of branch2 nva
+nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+# Create UDR to point traffic to the NVA
+az network route-table create -g $rg --name $branchname-UDR -l $region2 -o none
+az network route-table route create -g $rg --name default --route-table-name $branchname-UDR --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $nvaip -o none
+
+# Associate to branch main subnet
+az network vnet subnet update -g $rg -n main --vnet-name $branchname --route-table $branchname-UDR -o none
+
+#echo Checking OPNSense provisioning state:
+# az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $branchname-opnnva-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $branchname-opnnva-Untrusted-NIC --network-security-group null --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $branchname --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $branchname --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $branchname --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $branchname --network-security-group null  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $branchname --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $branchname --network-security-group $branchname-nva-nsg  -o none
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+echo Creating Hub1 VPN Gateway...
+# Creating VPN gateways in each Hub1
+az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
+
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
+
+echo Creating Hub2 VPN Gateway...
+# Creating VPN gateways in each Hub2
+az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
+
+echo Validating vHubs VPN Gateways provisioning...
+#vWAN Hubs VPN Gateway Status
+prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub1name-vpngw -g $rg
+    az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
+        echo $hub1name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub2name-vpngw -g $rg
+    az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
+        echo $hub2name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+
+#Adding vWAN VPNGW BGP APIPA addresses
+echo Adding vWAN VPNGW BGP APIPA addresses
+az network vpn-gateway update -n $hub1name-vpngw -g $rg --vhub $hub1name --set bgpSettings.bgpPeeringAddresses[0].customBgpIpAddresses=[\"169.254.21.1\"] bgpSettings.bgpPeeringAddresses[1].customBgpIpAddresses=[\"169.254.21.2\"] --no-wait
+az network vpn-gateway update -n $hub2name-vpngw -g $rg --vhub $hub2name --set bgpSettings.bgpPeeringAddresses[0].customBgpIpAddresses=[\"169.254.21.1\"] bgpSettings.bgpPeeringAddresses[1].customBgpIpAddresses=[\"169.254.21.2\"] --no-wait
+
+# Loop script to check both vpn gateways are in Succeeded state
+while [[ $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]] || [[ $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]]; do
+    echo "Waiting for VPN Gateways to be in Succeeded state..."
+    sleep 10
+done
+
+echo Building VPN connections from VPN Gateways to the respective Branches...
+# get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
+# Branch 1 and Hub1 VPN Gateway variables
+bgp1="169.254.0.3"
+pip1=$(az network public-ip show -n branch1-opnnva-PublicIP -g $rg --query ipAddress -o tsv)
+vwanh1gwbgp1=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].customBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip1=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp2=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].customBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip2=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+
+# Branch 2 and Hub2 VPN Gateway variables
+bgp2="169.254.0.3"
+pip2=$(az network public-ip show -n branch2-opnnva-PublicIP -g $rg --query ipAddress -o tsv)
+vwanh2gwbgp1=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].customBgpIpAddresses[0]' -o tsv)
+vwanh2gwpip1=$(az network vpn-gateway show -n $hub2name-vpngw  -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh2gwbgp2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].customBgpIpAddresses[0]' -o tsv)
+vwanh2gwpip2=$(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+
+# create virtual wan vpn site
+az network vpn-site create --ip-address $pip1 -n site-branch1 -g $rg --asn 65100 --bgp-peering-address $bgp1 -l $region1 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65200 --bgp-peering-address $bgp2 -l $region2 --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+
+# create virtual wan vpn connection
+az network vpn-gateway connection create --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --enable-bgp true --remote-vpn-site site-branch1 --internet-security --shared-key 'abc123' --output none
+az network vpn-gateway connection create --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --enable-bgp true --remote-vpn-site site-branch2 --internet-security --shared-key 'abc123' --output none
+
+# Add automation for opnsense
+# az run command to invoke ifconfig on branch1-opnnva
+az vm run-command invoke -g $rg -n branch1-opnnva --command-id RunShellScript --scripts "ifconfig" --output none
+# az run command to invoke ifconfig on branch2-opnnva
+az vm run-command invoke -g $rg -n branch2-opnnva --command-id RunShellScript --scripts "ifconfig" --output none
+
+# Note: at this point you can test connectivity and the expected behavior is to have any-to-any connectivity using the default route table (by design vWAN behavior).
+# Use instruction of validation section below if you want to test that connectivity.
+
+# Enable boot diagnostics for all VMs
+echo Enabling boot diagnostics
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
+### Install tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
+do
+ az vm extension set \
+ --resource-group $rg \
+ --vm-name $vm \
+ --name customScript \
+ --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+done
+
+echo Deployment has finished

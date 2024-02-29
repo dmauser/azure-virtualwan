@@ -13,7 +13,7 @@ fi
 az login
 # Parameters (make changes based on your requirements)
 prefix=$1
-region1=eastus 	#set region1
+region1=westus3 #set region1
 region2=westeurope #set region2
 rg=${prefix}-lab #set resource group
 vwanname=${prefix}-panw-lab #set vWAN name

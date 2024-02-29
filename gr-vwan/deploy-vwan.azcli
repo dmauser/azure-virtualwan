@@ -14,7 +14,7 @@ hub1name=hub1 #set secured-vhub1 name
 hub2name=hub2 #set secured-vhub2 name
 username=azureuser # set username
 password="Msft123Msft123" #set password
-vmsize=Standard_DS1 #set vm size
+vmsize=Standard_DS1_v2 #set vm size
 mypip=$(curl -4 ifconfig.io -s) #get your Public IP and set NSG as a source for SSH access.
 
 #ExpressRoute specific variables

@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Pre-Requisite
-az extension add --name virtual-wan 
-# or update
-az extension update --name virtual-wan
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
 
 # Parameters (make changes based on your requirements)
 region1=eastus
@@ -14,7 +15,7 @@ hub1name=hub1
 hub2name=hub2
 username=azureuser
 password="Msft123Msft123"
-vmsize=Standard_B1s
+vmsize=Standard_DS1_v2
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)

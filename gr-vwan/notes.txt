@@ -1,0 +1,226 @@
+# HRP=ExpressRoute - No Global Reach
+
+vHUB: hub1
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.2.0/24      Virtual Network Connection
+172.16.1.0/24      Virtual Network Connection
+172.16.3.0/24      Virtual Network Connection
+172.16.4.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.5.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.6.0/24      ExpressRouteGateway         12076-12076-12076-12076
+192.168.2.0/24     ExpressRouteGateway         12076-12076-12076-12076
+10.100.0.0/16      ExpressRouteGateway         12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-12076-12076-65002-65200
+
+spoke1VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.1.0/24     VnetLocal
+Default                Active   192.168.1.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.4.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.202.209.173
+vHUB: hub2
+
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.5.0/24      Virtual Network Connection
+172.16.4.0/24      Virtual Network Connection
+172.16.6.0/24      Virtual Network Connection
+172.16.1.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.2.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.3.0/24      ExpressRouteGateway         12076-12076-12076-12076
+192.168.1.0/24     ExpressRouteGateway         12076-12076-12076-12076
+10.100.0.0/16      ExpressRouteGateway         12076-12076-12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-65002-65200
+
+
+spoke4VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.4.0/24     VnetLocal
+Default                Active   192.168.2.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.1.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.210.122.194
+
+# After Global Reach (HRP=ExpressRoute)
+
+vHUB: hub1
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.2.0/24      Virtual Network Connection
+172.16.1.0/24      Virtual Network Connection
+172.16.3.0/24      Virtual Network Connection
+172.16.4.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.5.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.6.0/24      ExpressRouteGateway         12076-12076-12076-12076
+192.168.2.0/24     ExpressRouteGateway         12076-12076-12076-12076
+10.100.0.0/16      ExpressRouteGateway         12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-12076-12076-65002-65200
+
+spoke1VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.1.0/24     VnetLocal
+Default                Active   192.168.1.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   192.168.2.0/24    VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   172.16.4.0/24     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  10.20.78.123
+
+vHUB: hub2
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.5.0/24      Virtual Network Connection
+172.16.4.0/24      Virtual Network Connection
+172.16.6.0/24      Virtual Network Connection
+172.16.1.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.2.0/24      ExpressRouteGateway         12076-12076-12076-12076
+172.16.3.0/24      ExpressRouteGateway         12076-12076-12076-12076
+192.168.1.0/24     ExpressRouteGateway         12076-12076-12076-12076
+10.100.0.0/16      ExpressRouteGateway         12076-12076-12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-65002-65200
+
+spoke4VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.4.0/24     VnetLocal
+Default                Active   192.168.2.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.1.0/24     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   192.168.1.0/24    VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.210.122.194
+
+
+# HRP=AS-Path => No Global Reach 
+vHUB: hub1
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.2.0/24      Virtual Network Connection
+172.16.1.0/24      Virtual Network Connection
+172.16.3.0/24      Virtual Network Connection
+10.100.0.0/16      ExpressRouteGateway         12076-65001-65100
+172.16.4.0/24      Remote Hub                  65520-65520
+172.16.5.0/24      Remote Hub                  65520-65520
+172.16.6.0/24      Remote Hub                  65520-65520
+10.200.0.0/16      Remote Hub                  65520-65520-12076-65002-65200
+
+spoke1VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.1.0/24     VnetLocal
+Default                Active   192.168.1.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   172.16.4.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.202.209.173
+
+vHUB: hub2
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.5.0/24      Virtual Network Connection
+172.16.4.0/24      Virtual Network Connection
+172.16.6.0/24      Virtual Network Connection
+172.16.1.0/24      Remote Hub                  65520-65520
+172.16.2.0/24      Remote Hub                  65520-65520
+172.16.3.0/24      Remote Hub                  65520-65520
+10.100.0.0/16      Remote Hub                  65520-65520-12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-65002-65200
+
+spoke4VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.4.0/24     VnetLocal
+Default                Active   192.168.2.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.1.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  172.210.122.194
+
+# HRP=AS-Path => After Global Reach 
+vHUB: hub1
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.2.0/24      Virtual Network Connection
+172.16.1.0/24      Virtual Network Connection
+172.16.3.0/24      Virtual Network Connection
+172.16.4.0/24      Remote Hub                  65520-65520
+172.16.5.0/24      Remote Hub                  65520-65520
+172.16.6.0/24      Remote Hub                  65520-65520
+192.168.2.0/24     ExpressRouteGateway         12076-12076-12076-12076
+10.100.0.0/16      ExpressRouteGateway         12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-12076-12076-65002-65200
+
+spoke1VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.1.0/24     VnetLocal
+Default                Active   192.168.1.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   192.168.2.0/24    VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   172.16.4.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  10.20.78.123
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.202.209.173
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.202.209.173
+
+vHUB: hub2
+Effective route table: defaultRouteTable
+AddressPrefixes    NextHopType                 AsPath
+-----------------  --------------------------  -----------------------------
+172.16.5.0/24      Virtual Network Connection
+172.16.4.0/24      Virtual Network Connection
+172.16.6.0/24      Virtual Network Connection
+172.16.1.0/24      Remote Hub                  65520-65520
+172.16.2.0/24      Remote Hub                  65520-65520
+172.16.3.0/24      Remote Hub                  65520-65520
+192.168.1.0/24     ExpressRouteGateway         12076-12076-12076-12076
+10.100.0.0/16      ExpressRouteGateway         12076-12076-12076-65001-65100
+10.200.0.0/16      ExpressRouteGateway         12076-65002-65200
+
+spoke4VMVMNic effective routes:
+Source                 State    Address Prefix    Next Hop Type          Next Hop IP
+---------------------  -------  ----------------  ---------------------  ---------------
+Default                Active   172.16.4.0/24     VnetLocal
+Default                Active   192.168.2.0/24    VNetPeering
+VirtualNetworkGateway  Active   172.16.1.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.2.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.3.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.200.0.0/16     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   172.16.5.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   172.16.6.0/24     VirtualNetworkGateway  172.210.122.194
+VirtualNetworkGateway  Active   10.100.0.0/16     VirtualNetworkGateway  10.3.129.90
+VirtualNetworkGateway  Active   192.168.1.0/24    VirtualNetworkGateway  10.3.129.90
+

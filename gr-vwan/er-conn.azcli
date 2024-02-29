@@ -38,12 +38,11 @@ peering1=$(az network express-route show -g $rg --name $ername1 --query peerings
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
 az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
 
-# Connect vuhb2 to ErCircuit1
+# Connect vuhb2 to ErCircuit2
 echo connecting vuhb1 to $ername1
 peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub2name -g $rg --query id -o tsv)
 az network express-route gateway connection create --name connection-to-$ername2 -g $rg --gateway-name $hub2name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
-
 
 #ExpressRoute specific variables
 ername3="er-branch1" 
@@ -56,14 +55,14 @@ providerloc2=Megaport
 # Connecting Branch ER circuits to each Branch
 echo connecting branch1 to $ername3
 erid=$(az network express-route show -g $rg --name $ername3 --query id -o tsv)
-az network vpn-connection create --name connection-to-$ername3 \
+az network vpn-connection create --name connection-to-$ername3 --location $region1  \
  --resource-group $rg --vnet-gateway1 branch1-ergw \
  --express-route-circuit2 $erid \
  --routing-weight 0 \
  &>/dev/null &
 echo connecting branch2 to $ername4
 erid=$(az network express-route show -g $rg --name $ername4 --query id -o tsv)
-az network vpn-connection create --name connection-to-$ername4 \
+az network vpn-connection create --name connection-to-$ername4 --location $region2 \
  --resource-group $rg --vnet-gateway1 branch2-ergw \
  --express-route-circuit2 $erid \
  --routing-weight 0 \

@@ -1,0 +1,29 @@
+# variables (make changes based on your requirements)
+region1=southcentralus #set region1
+region2=eastus #set region2
+rg=dmauser-vwan-gr #set resource group
+vwanname=vwangr #set vwan name
+hub1name=hub1 #set secured-vhub1 name
+hub2name=hub2 #set secured-vhub2 name
+
+#ExpressRoute specific variables
+ername1="er-ckt-$hub1name" 
+perloc1="Chicago"
+providerloc1=Megaport
+ername2="er-ckt-$hub2name" 
+perloc2="Washington DC"
+providerloc2=Megaport
+
+# Create a global reach connection between ercircuits
+peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
+az network express-route peering connection create -g $rg --circuit-name $ername1 \
+ --peering-name AzurePrivatePeering \
+ --name er1-gr-er2 \
+ --peer-circuit $peering2 \
+ --address-prefix 10.150.0.0/29 \
+ --output none
+
+ az network express-route peering list --circuit-name $ername1 -g $rg'
+
+
+ az network express-route peering connection create -g $rg --circuit-name $ername1 

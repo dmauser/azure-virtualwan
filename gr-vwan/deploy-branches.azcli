@@ -6,7 +6,7 @@ region2=eastus #set region2
 rg=dmauser-vwan-gr #set resource group
 username=azureuser # set username
 password="Msft123Msft123" #set password
-vmsize=Standard_DS1 #set vm size
+vmsize=Standard_DS1_v2 #set vm size
 mypip=$(curl -4 ifconfig.io -s) #get your Public IP and set NSG as a source for SSH access.
 
 #ExpressRoute specific variables
@@ -47,8 +47,8 @@ az network public-ip create -n branch1-ergw-pip -g $rg --location $region1 --out
 az network public-ip create -n branch2-ergw-pip -g $rg --location $region2 --output none
 
 # create ER GW's in each branch
-az network vnet-gateway create -n branch1-ergw -g $rg --public-ip-address branch1-ergw-pip --vnet branch1 --gateway-type ExpressRoute --sku Standard --output none --no-wait
-az network vnet-gateway create -n branch2-ergw -g $rg --public-ip-address branch2-ergw-pip --vnet branch2 --gateway-type ExpressRoute --sku Standard --output none --no-wait
+az network vnet-gateway create -n branch1-ergw -g $rg --public-ip-address branch1-ergw-pip --vnet branch1 --gateway-type ExpressRoute --sku Standard --output none --location $region1 --no-wait
+az network vnet-gateway create -n branch2-ergw -g $rg --public-ip-address branch2-ergw-pip --vnet branch2 --gateway-type ExpressRoute --sku Standard --output none --location $region2 --no-wait
 
 # Enable boot diagnostics on both branch vms
 az vm boot-diagnostics enable -g $rg -n branch1VM -o none
