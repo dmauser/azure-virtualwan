@@ -17,6 +17,11 @@ hub2name=hub2
 username=azureuser
 password="Msft123Msft123"
 vmsize=Standard_DS1_v2
+#ExpressRoute specific variables
+perloc1="Chicago"
+providerloc1=Megaport
+ername1="er-two-vwans" 
+
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -136,11 +141,6 @@ done
 #Enable boot diagnostics for all VMs in the resource group (Serial console)
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 
-#ExpressRoute specific variables
-perloc1="Chicago"
-providerloc1=Megaport
-ername1="er-two-vwans" 
-
 #Create ER circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region2 --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
 
@@ -149,14 +149,13 @@ echo Creating vHub ExpressRoute Gateway...
 az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name &>/dev/null &
 az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name &>/dev/null &
 
-
 # Loop script to waiting circuit to be provisioned at the provider
 
 prState=''
-while [[ $prState != 'Succeeded' ]];
+while [[ $prState != 'Provisioned' ]];
 do
     prState=$(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv)
-    echo "Circuit not provisioned yet, waiting 10 seconds"
+    echo Circuit $ername1 "provisioningState="$prState
     sleep 10
 done
 
@@ -178,21 +177,27 @@ peering1=$(az network express-route show -g $rg --name $ername1 --query peerings
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
 az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
 
+
+# Check if the connection provisioningState exists if not sleep 10 seconds
+sleep 10
+prState1=''
+while [[ $prState1 != 'Succeeded' ]];
+do
+    prState1=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --query 'provisioningState' -o tsv)
+    echo ER connection connection-to-$ername1 "provisioningState="$prState1
+    sleep 10
+done
+
 echo Connecting vuhb2 to $ername1...
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub2name -g $rg --query id -o tsv)
 az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
-
-# Check if the connection provisioningState exists if not sleep 10 seconds
-sleep 15
+sleep 10
 prState1=''
-prState2=''
-while [[ $prState1 != 'Succeeded' && $prState2 != 'Succeeded' ]];
+while [[ $prState1 != 'Succeeded' ]];
 do
-    prState=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --query 'provisioningState' -o tsv) && \
-    prState=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --query 'provisioningState' -o tsv)
-    echo "ER connection connection-to-$ername1 provisioningState="$prState1 && \
-    echo "ER connection connection-to-$ername1 provisioningState="$prState1
+    prState1=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --query 'provisioningState' -o tsv)
+    echo ER connection connection-to-$ername1 "provisioningState="$prState1
     sleep 10
 done
 echo Deployment has finished
