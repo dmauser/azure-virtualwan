@@ -29,7 +29,7 @@ mypip=$(curl -4 ifconfig.io -s)
 # create rg
 az group create -n $rg -l $region1 --output none
 
-echo Creating vwan and both hubs...
+echo Creating vwans and they respective hubs...
 # create virtual wan
 az network vwan create -g $rg -n $vwan1name --branch-to-branch-traffic true --location $region1 --type Standard --output none
 az network vwan create -g $rg -n $vwan2name --branch-to-branch-traffic true --location $region2 --type Standard --output none
