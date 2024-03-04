@@ -7,8 +7,8 @@ if ! az extension list | grep -q virtual-wan; then
 fi
 
 # Parameters (make changes based on your requirements)
-region1=westcentralus
-region2=westcentralus
+region1=northcentralus
+region2=northcentralus
 rg=lab-two-vwans
 vwan1name=vwan1
 vwan2name=vwan2
