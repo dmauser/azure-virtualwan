@@ -1,6 +1,6 @@
 ## Intro
 
-This lab aims to build a two Virtual WANs with two spokes and interconnect them over ExpressRoute.
+This lab aims to build a two Virtual WANs with two vHubs (one for each), two Spokes for each vHUB, and both vHubs interconnect them over ExpressRoute.
 
 ## Lab Diagram
 
