@@ -8,7 +8,7 @@ This lab aims to build a two Virtual WANs with two vHubs (one for each), two Spo
 
 ## Deploy this solution
 
-Build vWAN base environment using CLI script: [deploy.azcli](./deploy.azcli), or run the following command:
+Deploy this Lab using this CLI script: [deploy.azcli](./deploy.azcli), or run the following command:
 
 ```bash
 curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/two-vwans/deploy.azcli | bash
