@@ -14,4 +14,4 @@ Build vWAN base environment using CLI script: [deploy.azcli](./deploy.azcli), or
 curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/two-vwans/deploy.azcli | bash
 ```
 
-**Note 1**: CLI is in bash format. PPlease run the script using Azure Cloud Shell Bash or Azure CLI for Linux. This script does not work over Azure CLI for Windows.
+**Note 1**: CLI is in bash format. Please run the script using Azure Cloud Shell Bash or Azure CLI for Linux. This script does not work over Azure CLI for Windows (command prompt or PowerShell).

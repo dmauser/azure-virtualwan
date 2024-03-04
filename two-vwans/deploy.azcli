@@ -146,8 +146,8 @@ az network express-route create --bandwidth 50 -n $ername1 --peering-location "$
 
 #Create vHub ER Gateways
 echo Creating vHub ExpressRoute Gateway...
-az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name &>/dev/null &
-az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name &>/dev/null &
+az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name &>/dev/null
+az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name &>/dev/null
 
 # Loop script to waiting circuit to be provisioned at the provider
 
@@ -175,7 +175,7 @@ done
 echo Connecting vuhb1 to $ername1...
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
+az network express-route gateway connection create --name $hub1name-connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
 
 
 # Check if the connection provisioningState exists if not sleep 10 seconds
@@ -191,7 +191,7 @@ done
 echo Connecting vuhb2 to $ername1...
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub2name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
+az network express-route gateway connection create --name $hub2name-connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
 sleep 10
 prState1=''
 while [[ $prState1 != 'Succeeded' ]];
