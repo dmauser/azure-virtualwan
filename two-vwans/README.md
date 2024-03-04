@@ -16,7 +16,7 @@ curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/two-vwan
 
 - CLI is in bash format. Please run the script using Azure Cloud Shell Bash or Azure CLI for Linux. This script does not work over Azure CLI for Windows (command prompt or PowerShell).
 
-- Default username and password for the VMs are (you can change ):
+- Default username and password for the VMs are (you can change on under parameters inside the script file):
   - username: azureuser
   - password: Msft123Msft123
 
