@@ -1,0 +1,21 @@
+
+# Azure
+# Parameters 
+rg=lab-vwan-nvabgp #set resource group
+
+### Clean up
+az group delete -g $rg --no-wait 
+
+# GCP
+# Define your variables
+project=angular-expanse-327722 #Set your project Name. Get your PROJECT_ID use command: gcloud projects list 
+region=us-central1 #Set your region. Get Regions/Zones Use command: gcloud compute zones list
+zone=us-central1-c # Set availability zone: a, b or c.
+vpcrange=172.16.0.0/24
+envname=onprem-central
+vmname=vm1
+mypip=$(curl -4 ifconfig.io -s) #Gets your Home Public IP or replace with that information. It will add it to the Firewall Rule.
+
+
+
+
