@@ -1,5 +1,5 @@
 #Parameters
-rg=lab-vnet-nvabgp #Define your resource group
+rg=lab-vnet-transithub #Define your resource group
 location=eastus #Set location
 username=azureuser #Set username
 password=Msft123Msft123 #Set password
@@ -74,7 +74,7 @@ az deployment group create --name $AzurehubName-nva-$RANDOM --resource-group $rg
 
 nvaname=az-hub-opnnva
 AzurehubName=az-hub #Azure Hub Name
-asn_hubnva=65002 # Set ASN
+asn_hubnva=65020 # Set ASN
 
 # Peer with Route Server
 echo Peering NVAs with Route Server
@@ -88,8 +88,8 @@ do
  routeserver_IP2=$(az network routeserver list --resource-group $rg --query '{IPs:[0].virtualRouterIps[1]}' -o tsv)
 
  # Building Route Server BGP Peering
- echo Building BGP Peering between $AzurehubName-routeserver and $nvaintname
- az network routeserver peering create --resource-group $rg --routeserver $AzurehubName-routeserver --name $nvaintname --peer-asn $asn_hubnva \
+ echo Building BGP Peering between $AzurehubName-rs and $nvaintname
+ az network routeserver peering create --resource-group $rg --routeserver $AzurehubName-rs --name $nvaintname --peer-asn $asn_hubnva \
  --peer-ip $(az network nic show --name "$nvaintname"-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
  --output none
 done
@@ -150,7 +150,7 @@ do
 done
 
 # get spoke2 vnet id from rmtrg
-rmtrg=lab-vwan-nvabgp
+rmtrg=lab-vwan-transithub
 spoke2vnetid=$(az network vnet show -g $rmtrg -n spoke2 --query id -o tsv)
 # get azure hub vnet resource id
 azurehubvnetid=$(az network vnet show -g $rg -n $AzurehubName-vnet --query id -o tsv)
@@ -164,4 +164,14 @@ az network vnet peering create -g $rmtrg -n vwan-spoke2-to-$AzurehubName --vnet-
 # List IPs of all VMs in the resource group
 echo List IPs of all VMs in the resource group
 az vm list-ip-addresses -g $rg -o table
+
+# Add Expressroute
+#ExpressRoute specific variables
+ername1="er-ckt-transitlab" 
+perloc1="Washington DC"
+providerloc1=Megaport
+
+#Create ER circuits
+echo Creating ExpressRoute Circuits
+az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $location --sku-family MeteredData --sku-tier Standard -o none &>/dev/null &
 

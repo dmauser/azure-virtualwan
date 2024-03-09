@@ -12,8 +12,8 @@ az extension update --name virtual-wan
 # Parameters (make changes based on your requirements)
 region1=eastus
 region2=westus
-rg=lab-vwan-nvabgp
-vwanname=vwan-nvabgp
+rg=lab-vwan-transithub
+vwanname=vwan-transithub
 hub1name=hub1
 hub2name=hub2
 username=azureuser
@@ -85,7 +85,6 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?loca
 echo Creating VPN Gateways in both branches...
 az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
 az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
-
 # Creating pips for VPN GW's in each branch
 az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none
 az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --output none
