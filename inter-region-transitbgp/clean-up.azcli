@@ -1,10 +1,10 @@
-
 # Azure
 # Parameters 
-rg=lab-vwan-nvabgp #set resource group
-
+vwanrg=lab-vwan-transithub 
+vnetrg=lab-vnet-transithub
 ### Clean up
-az group delete -g $rg --no-wait 
+az group delete -g $vwanrg --no-wait --yes
+az group delete -g $vnetrg --no-wait --yes
 
 # GCP
 # Define your variables
@@ -15,6 +15,15 @@ vpcrange=172.16.0.0/24
 envname=onprem-central
 vmname=vm1
 mypip=$(curl -4 ifconfig.io -s) #Gets your Home Public IP or replace with that information. It will add it to the Firewall Rule.
+
+# Cleanup
+gcloud compute interconnects attachments delete $envname-vlan --region $region --quiet 
+gcloud compute routers delete $envname-router --region=$region --quiet
+gcloud compute instances delete $envname-vm1 --zone=$zone --quiet
+gcloud compute firewall-rules delete $envname-allow-traffic-from-azure --quiet
+gcloud compute networks subnets delete $envname-subnet --region=$region --quiet
+gcloud compute networks delete $envname-vpc --quiet
+
 
 
 
