@@ -8,7 +8,7 @@ fi
 
 # Parameters (make changes based on your requirements)
 region1=eastus
-region2=centralus
+region2=westus
 rg=lab-vwan-a2a
 vwanname=vwan-a2a
 hub1name=hub1
@@ -107,6 +107,38 @@ do
     prState=$(az network vhub connection show -n spoke3conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke3conn provisioningState="$prState
     sleep 5
+done
+
+# Checking Hub2 provisioning and routing state 
+echo Checking Hub2 provisioning status...
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+    if [[ $prState == 'Failed' ]];
+    then
+        echo "Provisioning failed. Deleting vhub and recreating..."
+        az network vhub delete -g $rg -n $hub2name --yes --no-wait
+        az network vhub create -g $rg -n $hub2name --address-prefix $hub2prefix --sku $hub2sku --location $region2 --no-wait
+        continue
+    fi
+done
+
+rtState=''
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+    if [[ $rtState == 'Failed' ]];
+    then
+        echo "Routing status failed. Deleting vhub and recreating..."
+        az network vhub delete -g $rg -n $hub2name --yes
+        az network vhub create -g $rg --name $hub2name --address-prefix 192.168.2.0/24 --vwan $vwanname --location $region2 --sku Standard --no-wait
+        continue
+    fi
 done
 
 # create spoke to Vwan connections to hub2

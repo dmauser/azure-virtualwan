@@ -1,0 +1,5 @@
+# Full solution 
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/a2a-deploy-deploy.azcli | bash
+
+# No branch
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/a2a-deploy-nobranch.azcli | bash
