@@ -8,7 +8,7 @@ fi
 
 # Parameters (make changes based on your requirements)
 region1=eastus
-region2=centralus
+region2=westus
 rg=lab-vwan-a2a
 vwanname=vwan-a2a
 hub1name=hub1
