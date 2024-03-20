@@ -221,41 +221,13 @@ echo Creating Hub2 VPN Gateway...
 az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
 echo Validating vHubs VPN Gateways provisioning...
-#vWAN Hubs VPN Gateway Status
-prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
-if [[ $prState == 'Failed' ]];
-then
-    echo VPN Gateway is in fail state. Deleting and rebuilding.
-    az network vpn-gateway delete -n $hub1name-vpngw -g $rg
-    az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait
-    sleep 5
-else
-    prState=''
-    while [[ $prState != 'Succeeded' ]];
-    do
-        prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
-        echo $hub1name-vpngw "provisioningState="$prState
-        sleep 5
-    done
-fi
-
-prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
-if [[ $prState == 'Failed' ]];
-then
-    echo VPN Gateway is in fail state. Deleting and rebuilding.
-    az network vpn-gateway delete -n $hub2name-vpngw -g $rg
-    az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
-    sleep 5
-else
-    prState=''
-    while [[ $prState != 'Succeeded' ]];
-    do
-        prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
-        echo $hub2name-vpngw "provisioningState="$prState
-        sleep 5
-    done
-fi
-
+# Loop script to check both vpn gateways are in Succeeded state
+while [[ $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]] || [[ $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]]; do
+    echo "Waiting for VPN Gateways to be in Succeeded state..."
+    echo "VPN Gateway $hub1name-vpngw state: $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv)"
+    echo "VPN Gateway $hub2name-vpngw state: $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv)"
+    sleep 10
+done
 
 #Adding vWAN VPNGW BGP APIPA addresses
 echo Adding vWAN VPNGW BGP APIPA addresses
@@ -265,6 +237,8 @@ az network vpn-gateway update -n $hub2name-vpngw -g $rg --vhub $hub2name --set b
 # Loop script to check both vpn gateways are in Succeeded state
 while [[ $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]] || [[ $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]]; do
     echo "Waiting for VPN Gateways to be in Succeeded state..."
+    echo "VPN Gateway $hub1name-vpngw state: $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv)"
+    echo "VPN Gateway $hub2name-vpngw state: $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv)"
     sleep 10
 done
 
@@ -316,11 +290,30 @@ do
  --name customScript \
  --publisher Microsoft.Azure.Extensions \
  --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --force-update \
  --no-wait
 done
 
 echo Deployment has finished
 
 
+# Get the public IPs of vhub1 vpn gateway
+trustedsubnetprefix=$(az network vnet subnet show -g $rg -n trusted --vnet-name branch1 --query addressPrefix -o tsv)
+vwanh1gwpip1=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwpip2=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+pip1=$(az network public-ip show -n branch1-opnnva-PublicIP -g $rg --query ipAddress -o tsv)
+
 # Run vm extension to run script on branch1-opnnva vm
-az vm extension set --resource-group $rg --vm-name branch1-opnnva --name customScript --publisher Microsoft.Azure.Extensions --settings '{"fileUris":["https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/configureopnsense.sh"],"commandToExecute":"./configureopnsense.sh"}' --no-wait
+scripturi="https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/opnbranch"
+az vm extension set \
+ --resource-group $rg \
+ --vm-name branch1-opnnva \
+ --name CustomScriptForLinux \
+ --version 1.0 \
+ --publisher Microsoft.OSTCExtensions \
+ --settings "{\"fileUris\": [\"$scripturi/config-vpn.sh\"],\"commandToExecute\": \"./config-vpn.sh $scripturi $trustedsubnetprefix $vwanh1gwpip1 $vwanh1gwpip2 $pip1\"}" \
+ --force-update \
+ --no-wait
+
+
+az vm extension set --publisher Microsoft.OSTCExtensions --version 1.0 --name CustomScript --resource-group $rg --vm-name branch1-opnnva --settings "{\"fileUris\": [\"https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/opnbranch/config-vpn.sh\"], \"commandToExecute\": \"./config-vpn.sh\"}" --no-wait
