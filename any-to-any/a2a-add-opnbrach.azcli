@@ -79,6 +79,12 @@ az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc19
 az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
 az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
 
+# Loop script to check if $branchname-opnnva-Trusted-NIC and $branchname-opnnva-Untrusted-NIC are deployed
+while [[ $(az network nic list -g $rg --query "[?contains(name, '$branchname-opnnva-Trusted-NIC')].name" -o tsv) == "" ]] || [[ $(az network nic list -g $rg --query "[?contains(name, '$branchname-opnnva-Untrusted-NIC')].name" -o tsv) == "" ]]; do
+    echo "Waiting for NICs to be created..."
+    sleep 10
+done
+
 # Get private ip of branch1 nva
 nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
 # Create UDR to point traffic to the NVA
@@ -141,6 +147,12 @@ az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc19
 az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
 az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
 az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Loop script to check if $branchname-opnnva-Trusted-NIC and $branchname-opnnva-Untrusted-NIC are deployed
+while [[ $(az network nic list -g $rg --query "[?contains(name, '$branchname-opnnva-Trusted-NIC')].name" -o tsv) == "" ]] || [[ $(az network nic list -g $rg --query "[?contains(name, '$branchname-opnnva-Untrusted-NIC')].name" -o tsv) == "" ]]; do
+    echo "Waiting for NICs to be created..."
+    sleep 10
+done
 
 # Get private ip of branch2 nva
 nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
@@ -308,3 +320,7 @@ do
 done
 
 echo Deployment has finished
+
+
+# Run vm extension to run script on branch1-opnnva vm
+az vm extension set --resource-group $rg --vm-name branch1-opnnva --name customScript --publisher Microsoft.Azure.Extensions --settings '{"fileUris":["https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/configureopnsense.sh"],"commandToExecute":"./configureopnsense.sh"}' --no-wait
