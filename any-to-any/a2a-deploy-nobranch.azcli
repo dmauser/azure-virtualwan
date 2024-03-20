@@ -1,11 +1,5 @@
 #!/bin/bash
 
-# Check if virtual wan extension is installed if not install it
-if ! az extension list | grep -q virtual-wan; then
-    echo "virtual-wan extension is not installed, installing it now..."
-    az extension add --name virtual-wan --only-show-errors
-fi
-
 # Parameters (make changes based on your requirements)
 region1=eastus
 region2=westus
@@ -17,8 +11,18 @@ username=azureuser
 password="Msft123Msft123"
 vmsize=Standard_DS1_v2
 
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
+
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
 
 # create rg
 az group create -n $rg -l $region1 --output none
@@ -187,3 +191,8 @@ done
 #Enable boot diagnostics for all VMs in the resource group (Serial console)
 az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
 echo Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."

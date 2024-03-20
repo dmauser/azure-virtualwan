@@ -32,12 +32,15 @@ elif [ "$4" = "Secondary" ]; then
     sed -i "" "s/<hostname>OPNsense<\/hostname>/<hostname>OPNsense-Secondary<\/hostname>/" config-active-active-secondary.xml
     cp config-active-active-secondary.xml /usr/local/etc/config.xml
 elif [ "$4" = "TwoNics" ]; then
-    fetch $1config.xml
+    fetch $1config-branch.xml
     fetch $1get_nic_gw.py
     gwip=$(python get_nic_gw.py $5)
-    sed -i "" "s/yyy.yyy.yyy.yyy/$gwip/" config.xml
-    sed -i "" "s_zzz.zzz.zzz.zzz_$6_" config.xml
-    cp config.xml /usr/local/etc/config.xml
+    sed -i "" "s/yyy.yyy.yyy.yyy/$gwip/" config-branch.xml
+    sed -i "" "s_zzz.zzz.zzz.zzz_$6_" config-branch.xml
+    sed -i "" "s/aa.aa.aa.aa/$9/" config-branch.xml
+    sed -i "" "s/bb.bb.bb.bb/$10/" config-branch.xml
+    sed -i "" "s/cc.cc.cc.cc/$11/" config-branch.xml
+    cp config-branch.xml /usr/local/etc/config.xml
 fi
 
 #OPNSense default configuration template

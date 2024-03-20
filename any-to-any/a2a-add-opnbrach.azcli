@@ -7,17 +7,15 @@ if ! az extension list | grep -q virtual-wan; then
 fi
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=westus
 rg=lab-vwan-a2a
 vwanname=vwan-a2a
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 hub1name=hub1
 hub2name=hub2
 username=azureuser
 password="Msft123Msft123"
 vmsize=Standard_DS1_v2
-
-#Variables
 mypip=$(curl -4 ifconfig.io -s)
 
 # create rg
@@ -38,8 +36,8 @@ while [[ $(az network nsg list -g $rg --query "[?contains(name, 'default-nsg-$re
 done
 
 # Associated NSG to the VNET subnets (Spokes and Branches)
-az network vnet subnet update --name main --vnet-name branch1 -o none --network-security-group default-nsg-$region1 -o none
-az network vnet subnet update --name main --vnet-name branch2 -o none --network-security-group default-nsg-$region2 -o none
+az network vnet subnet update --name main -g $rg --vnet-name branch1 -o none --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --name main -g $rg --vnet-name branch2 -o none --network-security-group default-nsg-$region2 -o none
 
 # Deploy OPNSense BRANCH1
 echo Deploying OPNSense NVA1 on the branch1

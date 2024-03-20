@@ -1,10 +1,5 @@
 #!/bin/bash
 
-# Pre-Requisite
-az extension add --name virtual-wan 
-# or update
-az extension update --name virtual-wan
-
 # Parameters (make changes based on your requirements)
 rg=lab-vwan-a2a
 vwanname=vwan-a2a
@@ -20,6 +15,13 @@ providerloc1=Megaport
 providerloc2=Megaport
 ername1="er-ckt-$hub1name"
 ername2="er-ckt-$hub2name" 
+
+# Pre-Requisite
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
 
 #Create ER circuits
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region1 --sku-family MeteredData --sku-tier Standard -o none
