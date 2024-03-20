@@ -311,9 +311,13 @@ az vm extension set \
  --name CustomScriptForLinux \
  --version 1.0 \
  --publisher Microsoft.OSTCExtensions \
- --settings "{\"fileUris\": [\"$scripturi/config-vpn.sh\"],\"commandToExecute\": \"./config-vpn.sh $scripturi $trustedsubnetprefix $vwanh1gwpip1 $vwanh1gwpip2 $pip1\"}" \
+ --settings "{\"fileUris\": [\"$scripturi/config-vpn.sh\"],\"commandToExecute\": \"sh config-vpn.sh $scripturi $trustedsubnetprefix $vwanh1gwpip1 $vwanh1gwpip2 $pip1\"}" \
  --force-update \
  --no-wait
 
-
-az vm extension set --publisher Microsoft.OSTCExtensions --version 1.0 --name CustomScript --resource-group $rg --vm-name branch1-opnnva --settings "{\"fileUris\": [\"https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/opnbranch/config-vpn.sh\"], \"commandToExecute\": \"./config-vpn.sh\"}" --no-wait
+# Loop script to check if vm extention script is completed
+while [[ $(az vm extension list -g $rg --vm-name branch1-opnnva --query "[?contains(name, 'CustomScriptForLinux')].provisioningState" -o tsv) != "Succeeded" ]]; do
+    echo "Waiting for CustomScriptForLinux to be completed..."
+    echo "CustomScriptForLinux state: $(az vm extension list -g $rg --vm-name branch1-opnnva --query "[?contains(name, 'CustomScriptForLinux')].provisioningState" -o tsv)"
+    sleep 10
+done
