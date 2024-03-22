@@ -2,8 +2,6 @@
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
 # This lab deploys two Linux NVAs on Spoke2 and Spoke4 with ILB.
 
-
-
 # Pre-Requisites
 echo Validating pre-requisites...
 az extension add --name virtual-wan 

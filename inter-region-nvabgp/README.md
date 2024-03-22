@@ -35,6 +35,14 @@ The lab is also available in the above .azcli that you can rename as .sh (shell 
 curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli | bash
 ```
 
+Alternative option if you want to download the file and change the configuration before running it, you can use the following commands:
+
+```bash
+wget -O irbgp-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli
+chmod +xr irbgp-deploy.sh
+./irbgp-deploy.sh
+```
+
 **Note:** the provisioning process will take around 60 minutes to complete. Also, note that Azure Cloud Shell has a 20-minute timeout, and make sure you watch the process to ensure it will not cause a timeout, causing the deployment to stop. You can hit enter during the process to ensure the Serial Console will not timeout. Otherwise, you can install it using any Linux. If you have Windows OS, you can get Ubuntu + WSL2 and install Azure CLI.
 
 Alternatively (recommended), you can run step-by-step to get familiar with the provisioning process and the components deployed:
@@ -65,6 +73,10 @@ vmsize=Standard_DS1_v2 #Standard_B1s
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
 
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
 # Creating rg
 az group create -n $rg -l $region1 --output none
 
@@ -77,11 +89,9 @@ az network vhub create -g $rg --name $hub2name --address-prefix 192.168.2.0/24 -
 echo Creating branches VNETs...
 # Creating location1 branch virtual network
 az network vnet create --address-prefixes 10.100.0.0/16 -n branch1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 10.100.0.0/24 --output none
-az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
 
 # Creating location2 branch virtual network
 az network vnet create --address-prefixes 10.200.0.0/16 -n branch2 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.200.0.0/24 --output none
-az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
 
 echo Creating spoke VNETs...
 # Creating spokes virtual network
@@ -115,7 +125,17 @@ echo Creating VMs in both branches...
 az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
-echo Creating NSGs in both branches...
+echo Creating Spoke VMs...
+# Creating a VM in each connected spoke
+az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+# Creating VMs on each indirect spoke.
+az vm create -n spoke5VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke6VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke7VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke8VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+echo Creating NSGs in both regions...
 #Updating NSGs:
 az network nsg create --resource-group $rg --name default-nsg-$region1 --location $region1 -o none
 az network nsg create --resource-group $rg --name default-nsg-$region2 --location $region2 -o none
@@ -127,6 +147,9 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?loca
 az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region2 -o none
 
 echo Creating VPN Gateways in both branches...
+az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
+az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --address-prefixes 10.200.100.0/26 --output none
+
 # Creating pips for VPN GW's in each branch
 az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none
 az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --output none
@@ -134,16 +157,6 @@ az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --ou
 # Creating VPN gateways
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
 az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
-
-echo Creating Spoke VMs...
-# Creating a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-# Creating VMs on each indirect spoke.
-az vm create -n spoke5VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke6VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke7VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke8VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Checking Hub1 provisioning status...
 # Checking Hub1 provisioning and routing state 
@@ -520,6 +533,11 @@ az network local-gateway create -g $rg -n lng-$hub2name-gw2 --gateway-ip-address
 az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 lng-$hub2name-gw2 --enable-bgp --shared-key 'abc123' --output none
 
 echo Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
 ```
 
 ### Validation
