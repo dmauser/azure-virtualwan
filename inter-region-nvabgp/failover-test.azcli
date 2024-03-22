@@ -1,0 +1,102 @@
+#!/bin/bash
+
+# Parameters (make changes based on your requirements)
+region1=canadaeast
+region2=canadacentral
+rg=lab-vwan-bgp-repro
+vwanname=vwan-bgprepro
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #Standard_B1s
+mypip=$(curl -4 ifconfig.io -s)
+
+# Add route to route table RT-to-spoke2-NVA and RT-to-spoke4-NVA
+az network route-table route create -g $rg --route-table-name RT-to-spoke2-NVA --name mypip-exception --address-prefix $mypip/32 --next-hop-type Internet -o none
+az network route-table route create -g $rg --route-table-name RT-to-spoke4-NVA --name mypip-exception --address-prefix $mypip/32 --next-hop-type Internet -o none
+
+# Add LB probe to port 179 on spoke4-linux-nva-ilb
+az network lb probe create -g $rg --lb-name spoke4-linux-nva-ilb --name BGPProbe --protocol Tcp --port 179 -o none
+# Update haportrule1 from to bgpprobe
+az network lb rule update -g $rg --lb-name spoke4-linux-nva-ilb --name haportrule1 --probe BGPProbe -o none
+
+# List all VMs with their private and public ip in the resource group
+az vm list-ip-addresses -g $rg -o table
+
+# ssh spoke3vm using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke3vm --query publicIps -o tsv)
+
+# ssh spoke5vm using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke5vm --query publicIps -o tsv)
+
+# ssh spoke4-linux-nva1 using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke4-linux-nva1 --query publicIps -o tsv)
+
+# ssh spoke4-linux-nva2 using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke4-linux-nva2 --query publicIps -o tsv)
+
+# tcpdump icmp
+sudo tcpdump -n icmp
+
+# stop frr deamon
+sudo systemctl stop frr
+
+# start frr deamon
+sudo systemctl start frr
+
+# get frr deamon status
+sudo systemctl status frr   
+
+# Ping with timestamp
+ping 10.4.1.4 -O | ts
+
+# Loop script to show bgp status using frr vtysh -c
+while true; do vtysh -c "show ip bgp summary"; sleep 1; done
+
+# Failover
+# az run command on spoke4-linux-nva1 to stop frr
+az vm run-command invoke -g $rg -n spoke4-linux-nva1 --command-id RunShellScript --scripts "sudo systemctl stop frr" -o none --no-wait
+
+# az run command on spoke4-linux-nva2 to start frr
+az vm run-command invoke -g $rg -n spoke4-linux-nva2 --command-id RunShellScript --scripts "sudo systemctl start frr" -o none --no-wait
+
+# Failback
+# az run command on spoke4-linux-nva2 to stop frr
+az vm run-command invoke -g $rg -n spoke4-linux-nva2 --command-id RunShellScript --scripts "sudo systemctl stop frr" -o none --no-wait
+
+# az run command on spoke4-linux-nva2 to start frr
+az vm run-command invoke -g $rg -n spoke4-linux-nva1 --command-id RunShellScript --scripts "sudo systemctl start frr" -o none --no-wait
+
+
+# Adjust NSG to allow NVAs to breakout to Internet
+# list all ns groups in the resource group
+az network nsg list -g $rg -o table
+
+# Add rule to default-nsg-$region1
+az network nsg rule create -g $rg --nsg-name default-nsg-$region1 \
+ -n 'allow-nva-inetbreakout' \
+ --direction Inbound \
+ --priority 200 \
+ --source-address-prefixes VirtualNetwork \
+ --source-port-ranges '*' \
+ --destination-address-prefixes '*' \
+ --destination-port-ranges "*" \
+ --access Allow --protocol "*" \
+ --description "Allows NVA single NIC use Internet Breakout" \
+ --output none
+
+# Add rule to default-nsg-$region2
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 \
+ -n 'allow-nva-inetbreakout' \
+ --direction Inbound \
+ --priority 200 \
+ --source-address-prefixes VirtualNetwork \
+ --source-port-ranges '*' \
+ --destination-address-prefixes '*' \
+ --destination-port-ranges "*" \
+ --access Allow --protocol "*" \
+ --description "Allows NVA single NIC use Internet Breakout" \
+ --output none
+
+
