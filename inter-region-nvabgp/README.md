@@ -32,9 +32,7 @@ The lab uses the same amount of VNETs (eight total) described on the official do
 The lab is also available in the above .azcli that you can rename as .sh (shell script) and execute. You can open [Azure Cloud Shell (Bash)](https://shell.azure.com) or Azure CLI via Linux (Ubuntu) and run the following commands to build the entire lab:
 
 ```bash
-wget -O irbgp-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli
-chmod +xr irbgp-deploy.sh
-./irbgp-deploy.sh
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli | bash
 ```
 
 **Note:** the provisioning process will take around 60 minutes to complete. Also, note that Azure Cloud Shell has a 20-minute timeout, and make sure you watch the process to ensure it will not cause a timeout, causing the deployment to stop. You can hit enter during the process to ensure the Serial Console will not timeout. Otherwise, you can install it using any Linux. If you have Windows OS, you can get Ubuntu + WSL2 and install Azure CLI.
