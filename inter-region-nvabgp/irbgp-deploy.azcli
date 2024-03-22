@@ -2,6 +2,8 @@
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
 # This lab deploys two Linux NVAs on Spoke2 and Spoke4 with ILB.
 
+
+
 # Pre-Requisites
 echo Validating pre-requisites...
 az extension add --name virtual-wan 
@@ -22,6 +24,10 @@ vmsize=Standard_DS1_v2 #Standard_B1s
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
+
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
 
 # Creating rg
 az group create -n $rg -l $region1 --output none
@@ -479,3 +485,8 @@ az network local-gateway create -g $rg -n lng-$hub2name-gw2 --gateway-ip-address
 az network vpn-connection create -n branch2-to-$hub2name-gw2 -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 lng-$hub2name-gw2 --enable-bgp --shared-key 'abc123' --output none
 
 echo Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
