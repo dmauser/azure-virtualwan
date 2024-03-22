@@ -2,12 +2,12 @@
 # Reference: https://docs.microsoft.com/en-us/azure/virtual-wan/scenario-route-through-nva
 # This lab deploys two Linux NVAs on Spoke2 and Spoke4 with ILB.
 
-# Pre-Requisites
-echo Validating pre-requisites...
-az extension add --name virtual-wan 
-
-# or updating vWAN and AzFirewall CLI extensions
-az extension update --name virtual-wan
+# Pre-Requisite
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
 
 # Parameters (make changes based on your requirements)
 region1=eastus
