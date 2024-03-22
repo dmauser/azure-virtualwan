@@ -1,0 +1,90 @@
+#!/bin/bash
+
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
+rg=lab-vwan-nvabgp
+vwanname=vwan-nvabgp
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #Standard_B1s
+mypip=$(curl -4 ifconfig.io -s)
+
+# Start all VMs in the resource group
+az vm start --ids $(az vm list -g $rg --query "[].id" -o tsv)
+
+# Add route to route table RT-to-spoke2-NVA and RT-to-spoke4-NVA
+az network route-table route create -g $rg --route-table-name RT-to-spoke2-NVA --name mypip-exception --address-prefix $mypip/32 --next-hop-type Internet -o none
+az network route-table route create -g $rg --route-table-name RT-to-spoke4-NVA --name mypip-exception --address-prefix $mypip/32 --next-hop-type Internet -o none
+
+# Add rule to default-nsg-$region1
+az network nsg rule create -g $rg --nsg-name default-nsg-$region1 \
+ -n 'allow-nva-inetbreakout' \
+ --direction Inbound \
+ --priority 200 \
+ --source-address-prefixes VirtualNetwork \
+ --source-port-ranges '*' \
+ --destination-address-prefixes '*' \
+ --destination-port-ranges "*" \
+ --access Allow --protocol "*" \
+ --description "Allows NVA single NIC use Internet Breakout" \
+ --output none
+
+# Add rule to default-nsg-$region2
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 \
+ -n 'allow-nva-inetbreakout' \
+ --direction Inbound \
+ --priority 200 \
+ --source-address-prefixes VirtualNetwork \
+ --source-port-ranges '*' \
+ --destination-address-prefixes '*' \
+ --destination-port-ranges "*" \
+ --access Allow --protocol "*" \
+ --description "Allows NVA single NIC use Internet Breakout" \
+ --output none
+
+# Update inbound security rules for default-nsg-$region1 and default-nsg-$region2
+az network nsg rule update -g $rg --nsg-name default-nsg-$region1 \
+    -n 'default-allow-ssh' \
+    --priority 100 \
+    --direction Inbound \
+    --source-address-prefixes $mypip \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges 22 \
+    --access Allow \
+    --protocol tcp \
+    --description "Allow inbound SSH" --output none
+
+
+az network nsg rule update -g $rg --nsg-name default-nsg-$region2 \
+    -n 'default-allow-ssh' \
+    --priority 100 \
+    --direction Inbound \
+    --source-address-prefixes $mypip \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges 22 \
+    --access Allow \
+    --protocol tcp \
+    --description "Allow inbound SSH" --output none
+
+# ssh spoke1vm using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke1vm --query publicIps -o tsv)
+
+# ssh spoke3vm using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke3vm --query publicIps -o tsv)
+
+
+# ssh spoke2-linux-nva1 using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke2-linux-nva1 --query publicIps -o tsv)
+
+# ssh spoke2-linux-nva2 using its public ip
+ssh $username@$(az vm show -d -g $rg -n spoke2-linux-nva2 --query publicIps -o tsv)
+
+# Misc
+# Start all VMs in the resource group
+az vm start --ids $(az vm list -g $rg --query "[].id" -o tsv)
+# Stop and deallocate all vms in the resource group
+az vm deallocate --ids $(az vm list -g $rg --query "[].id" -o tsv)

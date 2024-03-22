@@ -71,7 +71,17 @@ echo Creating VMs in both branches...
 az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
-echo Creating NSGs in both branches...
+echo Creating Spoke VMs...
+# Creating a VM in each connected spoke
+az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+# Creating VMs on each indirect spoke.
+az vm create -n spoke5VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke6VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke7VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke8VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+echo Creating NSGs in both regions...
 #Updating NSGs:
 az network nsg create --resource-group $rg --name default-nsg-$region1 --location $region1 -o none
 az network nsg create --resource-group $rg --name default-nsg-$region2 --location $region2 -o none
@@ -93,16 +103,6 @@ az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --ou
 # Creating VPN gateways
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
 az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
-
-echo Creating Spoke VMs...
-# Creating a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-# Creating VMs on each indirect spoke.
-az vm create -n spoke5VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke5 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke6VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke6 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke7VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke7 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke8VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke8 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Checking Hub1 provisioning status...
 # Checking Hub1 provisioning and routing state 
