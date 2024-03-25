@@ -83,8 +83,21 @@ ssh $username@$(az vm show -d -g $rg -n spoke2-linux-nva1 --query publicIps -o t
 # ssh spoke2-linux-nva2 using its public ip
 ssh $username@$(az vm show -d -g $rg -n spoke2-linux-nva2 --query publicIps -o tsv)
 
+
+# Capture BGP and restart frr on spoke2-linux-nva1
+az vm run-command invoke -g $rg -n spoke2-linux-nva1 --command-id RunShellScript --scripts "sudo systemctl restart frr" -o none --no-wait
+
+
 # Misc
 # Start all VMs in the resource group
 az vm start --ids $(az vm list -g $rg --query "[].id" -o tsv)
 # Stop and deallocate all vms in the resource group
 az vm deallocate --ids $(az vm list -g $rg --query "[].id" -o tsv)
+
+
+# Show effect-route table spoke1vm
+az network nic show-effective-route-table -g $rg --name spoke1VMVMNic --output table
+
+
+# Show effect-route table spoke1vm but only show vitualnetworkgateway using grep
+az network nic show-effective-route-table -g $rg --name spoke1VMVMNic --output table | grep VirtualNetworkGateway
