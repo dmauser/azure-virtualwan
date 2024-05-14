@@ -1,16 +1,17 @@
+
 #!/bin/bash
+# Deploy over AZCLI: curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-multi-hub/deploy-base.azcli | bash
+
 
 # Parameters (make changes based on your requirements)
 region1=eastus #set region1
 region2=westus #set region2
-rg=lab-svh-inter #set resource group
-vwanname=svh-inter #set vWAN name
+rg=lab-svh-multihub #set resource group
+vwanname=svh-multihub #set vWAN name
 hub1name=sechub1
 hub2name=sechub2
 hub3name=sechub3
 hub4name=sechub4
- #set Hub1 name
-hub4name=sechub2 #set Hub2 name
 username=azureuser #set username
 password="Msft123Msft123" #set password
 vmsize=Standard_DS1_v2 #set VM Size
@@ -49,6 +50,7 @@ echo "Script started at $(date)"
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
+
 
 # Check if VM size is available in both regions using az vm list-skus and checking restrictions is set to null
 echo "Checking for VM Size availability in both regions ($region1 and $region2)..."
