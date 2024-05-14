@@ -1,0 +1,31 @@
+echo branch1-opnnva
+az network public-ip show -n branch1-opnnva-PublicIP -g $rg --query ipAddress -o tsv
+echo $hub1name-vpngw
+az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv
+az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv
+
+az network public-ip show -n branch2-opnnva-PublicIP -g $rg --query ipAddress -o tsv
+az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv
+az network vpn-gateway show -n $hub2name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv
+
+
+# Run vm extension to run script on branch1-opnnva vm
+scripturi="https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/opnbranch"
+az vm extension set \
+ --resource-group $rg \
+ --vm-name branch1-opnnva \
+ --name CustomScriptForLinux \
+ --version 1.0 \
+ --publisher Microsoft.OSTCExtensions \
+ --settings "{\"fileUris\": [\"$scripturi/config-vpn.sh\"],\"commandToExecute\": \"sh config-vpn.sh $scripturi $trustedsubnetprefix $vwanh1gwpip1 $vwanh1gwpip2 $pip1\"}" \
+ --force-update \
+ --no-wait
+
+# Loop script to check if vm extention script is completed
+while [[ $(az vm extension list -g $rg --vm-name branch1-opnnva --query "[?contains(name, 'CustomScriptForLinux')].provisioningState" -o tsv) != "Succeeded" ]]; do
+    echo "Waiting for CustomScriptForLinux to be completed..."
+    echo "CustomScriptForLinux state: $(az vm extension list -g $rg --vm-name branch1-opnnva --query "[?contains(name, 'CustomScriptForLinux')].provisioningState" -o tsv)"
+    sleep 10
+
+
+# Add automation for opnsense

@@ -1,0 +1,93 @@
+#Parameters
+region=southcentralus
+rg=lab-vwan-vpner
+vwanname=vwan-vpner
+hubname=vhub1
+
+# Validate Firewall SKU
+if [ "$1" == "basic" ]; then
+    firewalltier=basic
+elif [ "$1" == "standard" ]; then
+    firewalltier=standard
+elif [ "$1" == "premium" ]; then
+    firewalltier=premium
+elif [ "$1" == "help" ]; then
+    echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
+    exit 0
+elif [ -z "$1" ]; then
+    echo "No parameter passed, defaulting Azure Firewall to basic tier"
+    firewalltier=basic
+fi
+
+echo Creating $hubname Azure Firewall Policy
+#Create firewall rules
+fwpolicyname=$hubname-fwpolicy #Firewall Policy Name
+az network firewall policy create --name $fwpolicyname --resource-group $rg --sku $firewalltier --output none --only-show-errors
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname --resource-group $rg --output none --only-show-errors
+#Adding any-to-any firewall rule
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $fwpolicyname \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+echo Deploying Azure Firewall inside $hubname vHub ...
+fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
+az network firewall create -g $rg -n $hubname-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hubname --public-ip-count 1 --firewall-policy $fwpolid --location $region --output none
+
+echo Enabling $hubname Azure Firewall diagnostics...
+
+echo Checking MS Insights subscription registration state
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
+
+## Log Analytics workspace name. 
+Workspacename=$hubname-$region-Logs
+
+#Creating Log Analytics Workspaces
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region --output none
+
+#EnablingAzure Firewall diagnostics
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name $hubname-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+#Enabling Secured-vHUB + Routing intenet
+echo "Enabling Secured-vHUB + Routing intent (Private and Internet Traffic)"
+nexthophub1=$(az network vhub show -g $rg -n $hubname --query azureFirewall.id -o tsv)
+az deployment group create --name $hubname-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
+--parameters scenarioOption=Private-and-Internet hubname=$hubname nexthop=$nexthophub1 \
+--no-wait
+
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hubname/routingIntent/$hubname_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hubname routing intent provisioningState="$prState
+    sleep 5
+done
+echo Base Deployment has finished

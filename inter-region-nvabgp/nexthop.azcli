@@ -1,11 +1,10 @@
 #!/bin/bash
-
-region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
-region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 rg=lab-vwan-nvabgp
 vwanname=vwan-nvabgp
 hub1name=hub1
 hub2name=hub2
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_DS1_v2 #Standard_B1s

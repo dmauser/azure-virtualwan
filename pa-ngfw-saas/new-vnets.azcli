@@ -1,0 +1,15 @@
+az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $region1 --subnet-name subnet1 --subnet-prefixes 172.16.3.0/27 --output none
+az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name dmauser-slgdemo-sechub1 --no-wait --only-show-errors
+
+# UDR Test
+# Create spoke1 udr to route prefix 172.16.3.0/24 to the nva 10.251.112.4
+az network route-table create -n spoke1rt -g $rg --location $region1
+az network route-table route create -n spoke3 --route-table-name spoke1rt -g $rg --address-prefix 172.16.3.0/24 --next-hop-type VirtualAppliance --next-hop-ip-address 10.251.112.4 -o none
+az network vnet subnet update -n subnet1 -g $rg --vnet-name spoke1 --route-table spoke1rt -o none
+
+# Create spoke3 udr to route prefix 172.16.1.0/24 to the nva 10.251.112.4
+az network route-table create -n spoke3rt -g $rg --location $region1
+az network route-table route create -n spoke1 --route-table-name spoke3rt -g $rg --address-prefix 172.16.1.0/24 --next-hop-type VirtualAppliance --next-hop-ip-address  10.251.112.4 -o none
+az network vnet subnet update -n subnet1 -g $rg --vnet-name spoke3 --route-table spoke3rt -o none
+

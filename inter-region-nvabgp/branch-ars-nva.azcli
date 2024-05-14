@@ -1,0 +1,70 @@
+#parameters
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=westus
+rg=lab-vwan-nvabgp
+vwanname=vwan-nvabgp
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #Standard_B1s
+arssubnet=10.200.1.0/26
+
+# NVA specific parameters
+nvasubnetname=nvasubnet
+nvasubnet=10.200.2.0/27
+nvaname=hub-lxnva
+instances=1 #NVA instances
+#Specific NVA BGP settings
+asn_hubnva=65200 # Set ASN
+# Set Networks to be propagated
+bgp_network1=1.1.1.1/32 #Default Route Propagation
+bgp_network2=1.1.1.2/32 #Summary route for Hub/Spoke transit
+
+# Create RouteSererSubnet in Branch2 vnet
+az network vnet subnet create -g $rg --vnet-name branch2 --name RouteServerSubnet --address-prefixes $arssubnet -o none
+
+# Create RouteServer public IP
+az network public-ip create -g $rg -n branch2-rs-pip --sku Standard -o none
+
+# Create RouteServer on branch2 Vnet
+az network routeserver create -g $rg --name branch2-rs --hosted-subnet RouteServerSubnet --location $region2 --virtual-network branch2 --public-ip-address branch2-rs-pip -o none
+
+# Create nvasubnet on branch2 vnet
+az network vnet subnet create -g $rg --vnet-name branch2 --name nvasubnet --address-prefixes $nvasubnet -o none
+
+echo Provisioning NVAs
+nvanames=$(i=1;while [ $i -le $instances ];do echo $AzurehubName-$nvaname$i; ((i++));done)
+for nvaintname in $nvanames
+ do
+  echo Creating $nvaintname...
+  az vm create -n $nvaintname  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $location --subnet $nvasubnetname --vnet-name $AzurehubName-vnet --admin-username $username --admin-password $password --nsg "" --output none
+  az network nic update -n "$nvaintname"VMNic -g $rg --ip-forwarding true --output none 
+   # Enabling routing
+  echo Enabling routing Linux NVA $nvaintname
+   scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/scripts/linuxrouterbgpfrr.sh"
+   az vm extension set --resource-group $rg --vm-name $nvaintname  --name customScript --publisher Microsoft.Azure.Extensions \
+   --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgpfrr.sh $asn_frr $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
+   --force-update \
+   --no-wait
+ done
+
+ # Peer with Route Server
+echo Peering NVAs with Route Server
+nvanames=$(az vm list -g $rg --query '[?contains(name,`'$nvaname'`)].name' -o tsv)
+for nvaintname in $nvanames
+do
+ #NVA BGP config variables (do not change)
+ bgp_routerId=$(az network nic show --name "$nvaintname"VMNic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+ routeserver_IP1=$(az network routeserver list --resource-group $rg --query '{IPs:[0].virtualRouterIps[0]}' -o tsv)
+ routeserver_IP2=$(az network routeserver list --resource-group $rg --query '{IPs:[0].virtualRouterIps[1]}' -o tsv)
+
+ # Building Route Server BGP Peering
+ echo Building BGP Peering between $AzurehubName-routeserver and $nvaintname
+ az network routeserver peering create --resource-group $rg --routeserver $AzurehubName-routeserver --name $nvaintname --peer-asn $asn_hubnva \
+ --peer-ip $(az network nic show --name "$nvaintname"VMNic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --output none
+done
+
+

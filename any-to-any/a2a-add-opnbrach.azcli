@@ -18,8 +18,56 @@ password="Msft123Msft123"
 vmsize=Standard_DS1_v2
 mypip=$(curl -4 ifconfig.io -s)
 
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
 # create rg
 az group create -n $rg -l $region1 --output none
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+echo Creating Hub1 VPN Gateway...
+# Creating VPN gateways in each Hub1
+az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
+
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
+
+echo Creating Hub2 VPN Gateway...
+# Creating VPN gateways in each Hub2
+az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
 
 echo Creating VMs in both branches...
 # create location1 branch virtual network
@@ -176,57 +224,13 @@ az network vnet subnet update --name untrusted --resource-group $rg --vnet-name 
 az network vnet subnet update --name trusted --resource-group $rg --vnet-name $branchname --network-security-group $branchname-nva-nsg  -o none
 az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $branchname --network-security-group $branchname-nva-nsg  -o none
 
-echo Checking Hub1 provisioning status...
-# Checking Hub1 provisioning and routing state 
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
-    echo "$hub1name provisioningState="$prState
-    sleep 5
-done
-
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
-    echo "$hub1name routingState="$rtState
-    sleep 5
-done
-
-echo Creating Hub1 VPN Gateway...
-# Creating VPN gateways in each Hub1
-az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait 
-
-echo Checking Hub2 provisioning status...
-# Checking Hub2 provisioning and routing state 
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
-    echo "$hub2name provisioningState="$prState
-    sleep 5
-done
-
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
-    echo "$hub2name routingState="$rtState
-    sleep 5
-done
-
-echo Creating Hub2 VPN Gateway...
-# Creating VPN gateways in each Hub2
-az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
-
 echo Validating vHubs VPN Gateways provisioning...
 # Loop script to check both vpn gateways are in Succeeded state
 while [[ $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]] || [[ $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv) != "Succeeded" ]]; do
     echo "Waiting for VPN Gateways to be in Succeeded state..."
     echo "VPN Gateway $hub1name-vpngw state: $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv)"
     echo "VPN Gateway $hub2name-vpngw state: $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv)"
-    sleep 10
+    sleep 15
 done
 
 #Adding vWAN VPNGW BGP APIPA addresses
@@ -239,7 +243,7 @@ while [[ $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisi
     echo "Waiting for VPN Gateways to be in Succeeded state..."
     echo "VPN Gateway $hub1name-vpngw state: $(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query provisioningState -o tsv)"
     echo "VPN Gateway $hub2name-vpngw state: $(az network vpn-gateway show -n $hub2name-vpngw -g $rg --query provisioningState -o tsv)"
-    sleep 10
+    sleep 15
 done
 
 echo Building VPN connections from VPN Gateways to the respective Branches...
@@ -268,12 +272,6 @@ az network vpn-site create --ip-address $pip2 -n site-branch2 -g $rg --asn 65200
 az network vpn-gateway connection create --gateway-name $hub1name-vpngw -n site-branch1-conn -g $rg --enable-bgp true --remote-vpn-site site-branch1 --internet-security --shared-key 'abc123' --output none
 az network vpn-gateway connection create --gateway-name $hub2name-vpngw -n site-branch2-conn -g $rg --enable-bgp true --remote-vpn-site site-branch2 --internet-security --shared-key 'abc123' --output none
 
-# Add automation for opnsense
-# az run command to invoke ifconfig on branch1-opnnva
-az vm run-command invoke -g $rg -n branch1-opnnva --command-id RunShellScript --scripts "ifconfig" --output none
-# az run command to invoke ifconfig on branch2-opnnva
-az vm run-command invoke -g $rg -n branch2-opnnva --command-id RunShellScript --scripts "ifconfig" --output none
-
 # Note: at this point you can test connectivity and the expected behavior is to have any-to-any connectivity using the default route table (by design vWAN behavior).
 # Use instruction of validation section below if you want to test that connectivity.
 
@@ -293,31 +291,12 @@ do
  --force-update \
  --no-wait
 done
-
 echo Deployment has finished
-
-
-# Get the public IPs of vhub1 vpn gateway
-trustedsubnetprefix=$(az network vnet subnet show -g $rg -n trusted --vnet-name branch1 --query addressPrefix -o tsv)
-vwanh1gwpip1=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
-vwanh1gwpip2=$(az network vpn-gateway show -n $hub1name-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
-pip1=$(az network public-ip show -n branch1-opnnva-PublicIP -g $rg --query ipAddress -o tsv)
-
-# Run vm extension to run script on branch1-opnnva vm
-scripturi="https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/any-to-any/opnbranch"
-az vm extension set \
- --resource-group $rg \
- --vm-name branch1-opnnva \
- --name CustomScriptForLinux \
- --version 1.0 \
- --publisher Microsoft.OSTCExtensions \
- --settings "{\"fileUris\": [\"$scripturi/config-vpn.sh\"],\"commandToExecute\": \"sh config-vpn.sh $scripturi $trustedsubnetprefix $vwanh1gwpip1 $vwanh1gwpip2 $pip1\"}" \
- --force-update \
- --no-wait
-
-# Loop script to check if vm extention script is completed
-while [[ $(az vm extension list -g $rg --vm-name branch1-opnnva --query "[?contains(name, 'CustomScriptForLinux')].provisioningState" -o tsv) != "Succeeded" ]]; do
-    echo "Waiting for CustomScriptForLinux to be completed..."
-    echo "CustomScriptForLinux state: $(az vm extension list -g $rg --vm-name branch1-opnnva --query "[?contains(name, 'CustomScriptForLinux')].provisioningState" -o tsv)"
-    sleep 10
 done
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
+
+

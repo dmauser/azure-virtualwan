@@ -1,0 +1,70 @@
+#Parameters
+rg=lab-vwan-vpner #set your resource group
+location=southcentralus #set region
+username=azureuser
+vwanname=vwan-vpner
+hubname=vhub1
+
+password="Msft123Msft123"
+vmsize=Standard_DS1_v2
+
+# Loop script to check if the resource group exists
+while [ $(az group exists -n $rg) == false ]; do
+    echo "Resource group $rg does not exist. Creating..."
+    az group create -n $rg -l $location --output none
+done
+
+# create location1 branch virtual network
+az network vnet create --address-prefixes 10.200.0.0/24 -n vpnbranch -g $rg -l $location --subnet-name main --subnet-prefixes 10.200.0.0/27 --output none
+az network vnet subnet create -g $rg --vnet-name vpnbranch -n GatewaySubnet --address-prefixes 10.200.0.32/27 --output none
+
+# create a VM in each branch spoke
+az vm create -n vpnbranchVM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $location --subnet main --vnet-name vpnbranch --admin-username $username --admin-password $password --no-wait
+
+# create pips for VPN GW's in each branch
+az network public-ip create -n vpnbranch-vpngw-pip -g $rg --location $location --sku Standard --output none
+
+# create VPN gateways
+az network vnet-gateway create -n vpnbranch-vpngw --public-ip-addresses vpnbranch-vpngw-pip -g $rg --vnet vpnbranch --asn 65200 --gateway-type Vpn -l $location --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+
+# Check deployment status
+prState=$(az network vnet-gateway show -g $rg -n vpnbranch-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vnet-gateway delete -n vpnbranch-vpngw -g $rg
+    az network vnet-gateway create -n vpnbranch-vpngw --public-ip-addresses vpnbranch-vpngw-pip -g $rg --vnet branch1 --asn 65010 --gateway-type Vpn -l $location --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vnet-gateway show -g $rg -n vpnbranch-vpngw --query provisioningState -o tsv)
+        echo "vpnbranch-vpngw provisioningState="$prState
+        sleep 5
+    done
+fi
+
+echo Building VPN connections from VPN Gateways to the respective Branches...
+# get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
+# Branch 1 and Hub1 VPN Gateway variables
+bgp1=$(az network vnet-gateway show -n vpnbranch-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+pip1=$(az network vnet-gateway show -n vpnbranch-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+vwanh1gwbgp2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
+vwanh1gwpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].tunnelIpAddresses[0]' -o tsv)
+
+# create virtual wan vpn site
+az network vpn-site create --ip-address $pip1 -n site-vpnbranch -g $rg --asn 65200 --bgp-peering-address $bgp1 -l $location --virtual-wan $vwanname --device-model 'Azure' --device-vendor 'Microsoft' --link-speed '50' --with-link true --output none
+
+# create virtual wan vpn connection
+az network vpn-gateway connection create --gateway-name $hubname-vpngw -n site-vpnbranch-conn -g $rg --enable-bgp true --remote-vpn-site site-vpnbranch --internet-security --shared-key 'abc123' --output none
+
+# create connection from vpn gw to local gateway and watch for connection succeeded
+az network local-gateway create -g $rg -n lng-$hubname-gw1 --gateway-ip-address $vwanh1gwpip1 --asn 65515 --bgp-peering-address $vwanh1gwbgp1 -l $location --output none
+az network vpn-connection create -n vpnbranch-to-$hubname-gw1 -g $rg -l $location --vnet-gateway1 vpnbranch-vpngw --local-gateway2 lng-$hubname-gw1 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-$hubname-gw2 --gateway-ip-address $vwanh1gwpip2 --asn 65515 --bgp-peering-address $vwanh1gwbgp2 -l $location --output none
+az network vpn-connection create -n vpnbranch-to-$hubname-gw2 -g $rg -l $location --vnet-gateway1 vpnbranch-vpngw --local-gateway2 lng-$hubname-gw2 --enable-bgp --shared-key 'abc123' --output none
+

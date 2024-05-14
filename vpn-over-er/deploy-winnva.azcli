@@ -1,0 +1,49 @@
+#Parameters
+region=southcentralus
+rg=lab-vwan-vpner
+vwanname=vwan-vpner
+hubname=vhub1
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #VM Size
+mypip=$(curl -4 ifconfig.io -s) #Replace with your home Public IP in case you run this over Cloudshellbranchname=branch
+nvasubnet=Trusted-Subnet
+nvasubnetprefix=10.100.0.16/28
+branchname=branch
+
+# Validate if $nvasubnet exists if not create it
+nvasubnetid=$(az network vnet subnet show --resource-group $rg --vnet-name $branchname --name $nvasubnet --query id -o tsv)
+if [ -z "$nvasubnetid" ]
+then
+    echo "Subnet $nvasubnet does not exist. Creating $nvasubnet"
+    az network vnet subnet create --name $nvasubnet --resource-group $rg --vnet-name $branchname --address-prefix $nvasubnetprefix -o none
+else
+    echo "Subnet $nvasubnet already exists"
+fi
+
+# Create Windows VM on nvasubnet
+# Create NIC with IP forwarding enabled
+az network nic create --resource-group $rg \
+--name $branchname-winnvanic \
+--vnet-name $branchname \
+--subnet $nvasubnet \
+--location $region \
+--ip-forwarding true \
+-o none
+# Create Windows VM
+az vm create --resource-group $rg \
+ --name $branchname-winnva \
+ --image MicrosoftWindowsServer:WindowsServer:2022-datacenter-smalldisk-g2:latest \
+ --size $vmsize \
+ --admin-username $username \
+ --admin-password $password \
+ --nics $branchname-winnvanic \
+ --nsg "" \
+ --no-wait 
+
+ # Create Azure Bastion subnet on branchname-vnet
+az network vnet subnet create --name AzureBastionSubnet --resource-group $rg --vnet-name $branchname --address-prefixes 10.100.0.192/26 -o none
+# Create Azure bastion Public IP
+az network public-ip create --name $branchname-bastion-pip --resource-group $rg --location $region --allocation-method Static --sku Standard -o none --only-show-errors
+# Deploy Azure Bastion on branchname-vnet
+az network bastion create --name $branchname-bastion --public-ip-addres $branchname-bastion-pip  --resource-group $rg --vnet-name $branchname --location $region -o none --no-wait

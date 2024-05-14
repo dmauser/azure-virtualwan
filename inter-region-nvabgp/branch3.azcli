@@ -1,0 +1,57 @@
+# Parameters (make changes based on your requirements)
+region1=eastus
+region2=westus
+rg=lab-vwan-nvabgp
+vwanname=vwan-nvabgp
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #Standard_B1s
+
+# Creating location2 branch virtual network
+az network vnet create --address-prefixes 10.250.0.0/16 -n branch3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 10.250.0.0/24 --output none
+
+echo Creating VMs in branch3
+# Creating a VM in each branch spoke
+az vm create -n branch3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Associating NSG to the VNET subnets (Spokes and Branches)
+az network vnet subnet update -g $rg --name main --vnet-name branch3 --network-security-group default-nsg-$region2 -o none
+
+echo Creating VPN Gateways in branch3
+az network vnet subnet create -g $rg --vnet-name branch3 -n GatewaySubnet --address-prefixes 10.250.100.0/26 --output none
+az network public-ip create -n branch3-vpngw-pip -g $rg --location $region2 --output none
+az network vnet-gateway create -n branch3-vpngw --public-ip-addresses branch3-vpngw-pip -g $rg --vnet branch3 --asn 65250 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
+
+echo Validating Branche3 VPN Gateways provisioning...
+prState=$(az network vnet-gateway show -g $rg -n branch3-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vnet-gateway delete -n branch3-vpngw -g $rg
+    az network vnet-gateway create -n branch3-vpngw --public-ip-addresses branch3-vpngw-pip -g $rg --vnet branch3 --asn 65250 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vnet-gateway show -g $rg -n branch3-vpngw --query provisioningState -o tsv)
+        echo "branch3-vpngw provisioningState="$prState
+        sleep 5
+    done
+fi
+
+# Branch 2 and Hub2 VPN Gateway variables
+bgp2=$(az network vnet-gateway show -n branch2-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+pip2=$(az network vnet-gateway show -n branch2-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+
+bgp3=$(az network vnet-gateway show -n branch3-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+pip3=$(az network vnet-gateway show -n branch3-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].tunnelIpAddresses[0]' -o tsv)
+
+az network local-gateway create -g $rg -n lng-branch3 --gateway-ip-address $pip3 --asn 65250 --bgp-peering-address $bgp3 -l $region2 --output none
+az network vpn-connection create -n branch2-to-branch3 -g $rg -l $region2 --vnet-gateway1 branch2-vpngw --local-gateway2 lng-branch3 --enable-bgp --shared-key 'abc123' --output none
+
+az network local-gateway create -g $rg -n lng-branch2 --gateway-ip-address $pip2 --asn 65509 --bgp-peering-address $bgp2 -l $region2 --output none
+az network vpn-connection create -n branch3-to-branch2 -g $rg -l $region2 --vnet-gateway1 branch3-vpngw --local-gateway2 lng-branch2 --enable-bgp --shared-key 'abc123' --output none
+
