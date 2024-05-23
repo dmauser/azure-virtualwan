@@ -40,7 +40,7 @@ elif [ "$1" == "help" ]; then
     echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
     exit 0
 elif [ -z "$1" ]; then
-    echo "No parameter passed, defaulting Azure Firewall to basic tier"
+    echo "No parameter passed, setting Azure Firewall to Basic tier"
     firewalltier=basic
 fi
 
@@ -87,14 +87,14 @@ az network vnet create --address-prefixes 172.16.6.0/24 -n spoke6 -g $rg -l $reg
 
 echo Creating NSGs in both regions...
 #Update NSGs:
-az network nsg create --resource-group $rg --name default-nsg-$hub1name-$region1 --location $region1 -o none
-az network nsg create --resource-group $rg --name default-nsg-$hub3name-$region2 --location $region2 -o none
+az network nsg create --resource-group $rg --name default-nsg-$region1 --location $region1 -o none
+az network nsg create --resource-group $rg --name default-nsg-$region2 --location $region2 -o none
 # Add my home public IP to NSG for SSH acess
-az network nsg rule create -g $rg --nsg-name default-nsg-$hub1name-$region1 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
-az network nsg rule create -g $rg --nsg-name default-nsg-$hub3name-$region2 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region1 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
 # Associated NSG to the VNET subnets (Spokes and Branches)
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region1'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$hub1name-$region1 -o none
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$hub3name-$region2 -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region1'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region2 -o none
 
 echo Creating Spoke VMs...
 # create a VM in each connected spoke
@@ -167,7 +167,7 @@ az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vh
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub connection show -n spoke1conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    prState=$(az network vhub connection show -n spoke1conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke1conn provisioningState="$prState
     sleep 5
 done
@@ -175,7 +175,7 @@ done
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke2conn provisioningState="$prState
     sleep 5
 done
@@ -183,7 +183,7 @@ done
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub connection show -n spoke3conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    prState=$(az network vhub connection show -n spoke3conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke3conn provisioningState="$prState
     sleep 5
 done
@@ -229,7 +229,7 @@ az network vhub connection create -n spoke6conn --remote-vnet spoke6 -g $rg --vh
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub3name -g $rg  --query 'provisioningState' -o tsv)
+    prState=$(az network vhub connection show -n spoke4conn --vhub-name $hub4name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke4conn provisioningState="$prState
     sleep 5
 done
@@ -237,7 +237,7 @@ done
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub connection show -n spoke5conn --vhub-name $hub3name -g $rg  --query 'provisioningState' -o tsv)
+    prState=$(az network vhub connection show -n spoke5conn --vhub-name $hub4name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke5conn provisioningState="$prState
     sleep 5
 done
@@ -245,7 +245,7 @@ done
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
-    prState=$(az network vhub connection show -n spoke6conn --vhub-name $hub3name -g $rg  --query 'provisioningState' -o tsv)
+    prState=$(az network vhub connection show -n spoke6conn --vhub-name $hub4name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke6conn provisioningState="$prState
     sleep 5
 done
@@ -274,7 +274,7 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 echo Deploying Azure Firewall inside $hub1name vHub ...
 fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
 az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
-az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub2name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
+az network firewall create -g $rg -n $hub2name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub2name --public-ip-count 1 --firewall-policy $fwpolid --location $region1 --output none
 
 echo Enabling $hub1name Azure Firewall diagnostics...
 
@@ -292,8 +292,7 @@ az provider register -n microsoft.insights --accept-terms
 fi
 
 ## Log Analytics workspace name. 
-Workspacename=$hub1name-$region1-Logs
-Workspacename=$hub2name-$region1-Logs
+Workspacename=azfw-$region1-Logs
 
 #Creating Log Analytics Workspaces
 az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
@@ -337,11 +336,11 @@ az network firewall policy rule-collection-group collection add-filter-collectio
 echo Deploying Azure Firewall inside $hub3name vHub...
 fwpolid=$(az network firewall policy show --resource-group $rg --name $fwpolicyname --query id --output tsv)
 az network firewall create -g $rg -n $hub3name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub3name --public-ip-count 1 --firewall-policy $fwpolid --location $region2 --output none
-az network firewall create -g $rg -n $hub3name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub4name --public-ip-count 1 --firewall-policy $fwpolid --location $region2 --output none
+az network firewall create -g $rg -n $hub4name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub4name --public-ip-count 1 --firewall-policy $fwpolid --location $region2 --output none
 
 echo Enabling $hub3name Azure Firewall diagnostics...
 ## Log Analytics workspace name. 
-Workspacename=$hub3name-$region2-Logs
+Workspacename=azfw-$region2-Logs
 
 #Creating Log Analytics Workspaces
 az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region2 --output none

@@ -1,0 +1,33 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {},
+    "resources": [
+        {
+            "type": "Microsoft.Network/azureFirewalls",
+            "apiVersion": "2020-05-01",
+            "name": "AzureFirewall_sechub2",
+            "location": "eastus",
+            "dependsOn": [],
+            "zones": [],
+            "properties": {
+                "virtualHub": {
+                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-svh-multihub/providers/Microsoft.Network/virtualHubs/sechub2"
+                },
+                "sku": {
+                    "name": "AZFW_Hub",
+                    "tier": "Basic"
+                },
+                "hubIPAddresses": {
+                    "publicIPs": {
+                        "count": 1,
+                        "addresses": []
+                    }
+                },
+                "firewallPolicy": {
+                    "id": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-svh-multihub/providers/Microsoft.Network/firewallPolicies/sechub1-fwpolicy"
+                }
+            }
+        }
+    ]
+}

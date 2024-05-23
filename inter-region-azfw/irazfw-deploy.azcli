@@ -22,7 +22,7 @@ elif [ "$1" == "help" ]; then
     echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
     exit 0
 elif [ -z "$1" ]; then
-    echo "No parameter passed, defaulting Azure Firewall to basic tier"
+    echo "No parameter passed, setting Azure Firewall to basic tier"
     firewalltier=basic
 fi
 

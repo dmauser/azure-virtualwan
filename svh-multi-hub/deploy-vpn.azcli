@@ -45,13 +45,13 @@ az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --
 
 # Associating NSG to the VNET subnets
 echo Associating NSG to the VNET subnets...
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region1'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$hub1name-$region1 -o none
-az network vnet subnet update --id $(az network vnet list -g $rg --query '[?location==`'$region2'`].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$hub3name-$region2 -o none
+az network vnet subnet update -g $rg --vnet-name branch1 --name main --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update -g $rg --vnet-name branch2 --name main --network-security-group default-nsg-$region2 -o none
 
 echo Creating VPN Gateways in both branches...
 # create pips for VPN GW's in each branch
-az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --output none
+az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none --only-show-errors
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $region2 --output none --only-show-errors
 
 # create VPN gateways
 az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
@@ -107,7 +107,6 @@ do
     echo "$hub3name routingState="$rtState
     sleep 5
 done
-
 
 echo Creating Hub1 VPN Gateway...
 # Creating VPN gateways in each Hub1
