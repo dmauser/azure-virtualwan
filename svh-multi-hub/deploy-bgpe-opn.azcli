@@ -1,0 +1,191 @@
+#!/bin/bash
+
+# Parameters (make changes based on your requirements)
+# Parameters (make changes based on your requirements)
+region1=eastus #set region1
+region2=westus #set region2
+rg=lab-svh-multihub #set resource group
+vwanname=svh-multihub #set vWAN name
+hub1name=sechub1
+hub3name=sechub2
+hub3name=sechub3
+hub4name=sechub4
+username=azureuser #set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1_v2 #set VM Size
+mypip=$(curl -s -4 ifconfig.io)
+
+# Deploy two OPNsense instances on $region1-nva-vnet
+echo "Deploying two OPNsense instances on $region1-nva-vnet"
+az network vnet create -g $rg -n $region1-nva-vnet --address-prefix 10.150.0.0/24 --location $region1 --output none
+az network vnet subnet create -g $rg --vnet-name $region1-nva-vnet -n untrusted --address-prefixes 10.150.0.48/28  --output none
+az network vnet subnet create -g $rg --vnet-name $region1-nva-vnet -n trusted --address-prefixes 10.150.0.64/28  --output none
+
+# Add UDR named untrusted and disable BGP propagation
+az network route-table create --name $region1-nva-vnet-untrusted-udr --resource-group $rg --disable-bgp-route-propagation --output none --location $region1
+# Associate UDR with untrusted subnet
+az network vnet subnet update -g $rg --vnet-name $region1-nva-vnet -n untrusted --route-table $region1-nva-vnet-untrusted-udr --output none
+
+# Create nsg-nva-$region1 and associate with untrusted and trusted subnets
+az network nsg create -g $rg -n nsg-nva-$region1 --location $region1 --output none
+az network vnet subnet update -g $rg --vnet-name $region1-nva-vnet -n untrusted --network-security-group nsg-nva-$region1 --output none
+az network vnet subnet update -g $rg --vnet-name $region1-nva-vnet -n trusted --network-security-group nsg-nva-$region1 --output none
+
+# Create inbound security rules for nsg-nva-$region1
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region1 -n allow-ssh --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow SSH" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region1 -n allow-https --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region1 -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region1 -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region1 -n allow-udp500 --priority 330 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region1 -n allow-udp4500 --priority 340 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+#OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineName=$region1-nva-vnet-opnnva
+virtualNetworkName=$region1-nva-vnet
+existingvirtualNetwork=existing
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az deployment group create --name $region1-nva-vnet-nva-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
+--no-wait
+
+# Continue only when $region1-nva-vnet-opnnva-trusted-nic is created
+sleep 5
+while true; do
+    if [ $(az network nic show --name $virtualMachineName-Trusted-NIC --resource-group $rg --query provisioningState -o tsv) == "Succeeded" ]; then
+        break
+    else
+        echo "Waiting for $virtualMachineName-Trusted-NIC to be provisioned"
+        sleep 10
+    fi
+done
+echo "Trusted NIC is provisioned"
+
+#Specific NVA BGP settings
+opnasn=65150 # Set ASN
+bgp_network1="10.150.0.0/16"
+hubtopeer=$hub1name 
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 and Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+# Connnect $region1-nva-vnet to $hub1name
+echo Connecting $region1-nva-vnet to $hub1name
+az network vhub connection create -n $region1-nva-vnetconn --remote-vnet $region1-nva-vnet -g $rg --vhub-name $hub1name -o none
+
+# Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hub1name \
+ --name $virtualMachineName \
+ --peer-asn $opnasn \
+ --peer-ip $(az network nic show --name $virtualMachineName-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $virtualNetworkName'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --output none
+
+### OPNsense Spoke 4
+# Deploy two OPNsense instances on $region2-nva-vnet
+echo "Deploying two OPNsense instances on $region2-nva-vnet"
+az network vnet create -g $rg -n $region2-nva-vnet --address-prefix 10.250.0.0/24 --location $region2 --output none
+az network vnet subnet create -g $rg --vnet-name $region2-nva-vnet -n untrusted --address-prefixes 10.250.0.48/28  --output none
+az network vnet subnet create -g $rg --vnet-name $region2-nva-vnet -n trusted --address-prefixes 10.250.0.64/28  --output none
+
+# Add UDR named untrusted and disable BGP propagation
+az network route-table create --name $region2-nva-vnet-untrusted-udr --resource-group $rg --disable-bgp-route-propagation --output none --location $region2
+# Associate UDR with untrusted subnet
+az network vnet subnet update -g $rg --vnet-name $region2-nva-vnet -n untrusted --route-table $region2-nva-vnet-untrusted-udr --output none
+
+# Create nsg-nva-$region2 and associate with untrusted and trusted subnets
+az network nsg create -g $rg -n nsg-nva-$region2 --location $region2 --output none
+az network vnet subnet update -g $rg --vnet-name $region2-nva-vnet -n untrusted --network-security-group nsg-nva-$region2 --output none
+az network vnet subnet update -g $rg --vnet-name $region2-nva-vnet -n trusted --network-security-group nsg-nva-$region2 --output none
+
+# Create inbound security rules for nsg-nva-$region2
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region2 -n allow-ssh --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow SSH" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region2 -n allow-https --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region2 -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region2 -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region2 -n allow-udp500 --priority 330 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name nsg-nva-$region2 -n allow-udp4500 --priority 340 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+#OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineName=$region2-nva-vnet-opnnva
+virtualNetworkName=$region2-nva-vnet
+existingvirtualNetwork=existing
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az deployment group create --name $region2-nva-vnet-nva-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
+--no-wait
+
+# Continue only when $region2-nva-vnet-opnnva-trusted-nic is created
+sleep 5
+while true; do
+    if [ $(az network nic show --name $virtualMachineName-Trusted-NIC --resource-group $rg --query provisioningState -o tsv) == "Succeeded" ]; then
+        break
+    else
+        echo "Waiting for $virtualMachineName-Trusted-NIC to be provisioned"
+        sleep 10
+    fi
+done
+echo "Trusted NIC is provisioned"
+
+#Specific NVA BGP settings
+opnasn=65250 # Set ASN
+bgp_network1="10.250.0.0/16"
+hubtopeer=$hub3name 
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 and Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub3name --query 'provisioningState' -o tsv)
+    echo "$hub3name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub3name --query 'routingState' -o tsv)
+    echo "$hub3name routingState="$rtState
+    sleep 5
+done
+
+# Connnect $region2-nva-vnet to $hub3name
+echo Connecting $region2-nva-vnet to $hub3name
+az network vhub connection create -n $region2-nva-vnetconn --remote-vnet $region2-nva-vnet -g $rg --vhub-name $hub3name -o none
+
+# Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hub3name \
+ --name $virtualMachineName \
+ --peer-asn $opnasn \
+ --peer-ip $(az network nic show --name $virtualMachineName-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $virtualNetworkName'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --output none

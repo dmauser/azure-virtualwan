@@ -1,3 +1,9 @@
+# Dump vms names and private and public ip addresses
+az vm list-ip-addresses -g $rg -o table
+
+# Dump branches ip addresses
+az vm list-ip-addresses -g lab-svh-inter -o table
+
 # 3) Dump all vHUBs route tables.
 for vhubname in `az network vhub list -g $rg --query "[].name" -o tsv | sort -n`
 do
