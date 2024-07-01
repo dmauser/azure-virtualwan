@@ -35,8 +35,8 @@ TrustedSubnetCIDR=10.100.0.16/28
 GatewaySubnet=10.100.0.32/27
 subnet1=10.100.0.96/27
 subnet2=10.100.0.160/27
-existingUntrustedSubnetName=untrusted
-existingTrustedSubnetName=trusted
+existingUntrustedSubnetName=untrusted-subnet
+existingTrustedSubnetName=trusted-subnet
 OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/vpn-over-er/opnsense/
 
 # Creating rg
@@ -65,16 +65,16 @@ echo Creating Branch VMs...
 # Depoly On-premises VM:
 # Subnet1
 az network vnet subnet create -g $rg --vnet-name branch -n main --address-prefixes $subnet1  --output none
-az vm create -n branch-vm1  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch-vm1  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch --admin-username $username --admin-password $password --nsg "" --public-ip-address "" --no-wait
 
 # Subnet2
 #az network vnet subnet create -g $rg --vnet-name branch -n subnet2 --address-prefixes $subnet2  --output none
-#az vm create -n branch-vm2  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet subnet2 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
+#az vm create -n branch-vm2  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet subnet2 --vnet-name branch --admin-username $username --admin-password $password --nsg "" --public-ip-address "" --no-wait
 
 # Indirect VNET connected to the Branch VNET
 az network vnet create --address-prefixes 10.3.0.0/24 -n extbranch -g $rg -l $region --subnet-name main --subnet-prefixes 10.3.0.0/27 --output none
 # Create VM
-az vm create -n extbranch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name extbranch --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n extbranch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name extbranch --admin-username $username --admin-password $password --nsg "" --public-ip-address "" --no-wait
 # VNET Peering between ext-branch and branch
 az network vnet peering create -g $rg -n branch-to-extbranch --vnet-name branch --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n extbranch --query id --out tsv) --output none
 az network vnet peering create -g $rg -n extbranch-to-branch --vnet-name extbranch --allow-vnet-access --allow-forwarded-traffic --remote-vnet $(az network vnet show -g $rg -n branch  --query id --out tsv) --output none
@@ -103,9 +103,9 @@ az network express-route create --bandwidth 50 -n $ername2 --peering-location "$
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --public-ip-address "" --no-wait
+az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --public-ip-address "" --no-wait
+az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --public-ip-address "" --no-wait
 
 echo Associating NSG on Spokes and Branch VNETs
 #Updating NSGs:
