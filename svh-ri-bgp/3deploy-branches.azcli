@@ -1,0 +1,326 @@
+#!/bin/bash
+
+# Parameters (make changes based on your requirements)
+rg=lab-svh-bgpe #set resource group
+vwanname=svh-bgpe #set vWAN name
+hub1name=sechub1
+region1=$(az network vhub show -g $rg -n $hub1name --query location -o tsv)
+hub2name=sechub2
+region2=$(az network vhub show -g $rg -n $hub2name --query location -o tsv)
+username=azureuser #set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1_v2 #set VM Size
+mypip=$(curl -s -4 ifconfig.io)
+
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
+### Branch1 ###
+# Deploy BGP endpoont (Make the changes based on your needs)
+branchname=branch1 #Target NET
+
+# Create NVA VNET
+az network vnet create --name $branchname-vnet --resource-group $rg --location $region1 --address-prefix 10.100.1.0/24 --subnet-name vm-subnet --subnet-prefix 10.100.1.0/28 --location $region1 -o none
+# Assing nsg to the subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet  --network-security-group default-nsg-$region1 -o none
+# Create Ubuntu VM on vm-subnet 
+az vm create -n $branchname-vm1  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $region1 --subnet vm-subnet --vnet-name $branchname-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Deploy OPNSense
+# OPNsense NVA parameters
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_DS1_v2
+virtualMachineName=$branchname-opnnva
+virtualNetworkName=$branchname-vnet
+existingvirtualNetwork=existing
+VNETAddress=10.100.1.0/24
+UntrustedSubnetCIDR=10.100.1.64/28
+TrustedSubnetCIDR=10.100.1.80/28
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+# OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Create untrusted subnetnet
+echo Creating untrusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingUntrustedSubnetName --address-prefixes $UntrustedSubnetCIDR --output none
+# Create trusted subnetnet
+echo Creating trusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingTrustedSubnetName --address-prefixes $TrustedSubnetCIDR --output none
+
+echo "Deploying OPNsense NVA1 on the $branchname"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+  az deployment group create --name $branchname-nva-$RANDOM --resource-group $rg \
+ --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+ --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
+ --no-wait
+
+# Assign nsg to nvasubnet
+echo Creating NSG and associate to NVA Subnet
+az network nsg create --resource-group $rg --name $branchname-nva-nsg --location $region1 -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-ssh' --direction Inbound --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-https' --direction Inbound --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+az network vnet subnet update -g $rg --name trusted --vnet-name $branchname-vnet --network-security-group $branchname-nva-nsg -o none
+
+# Add UDP 500 and 4500 to the NSG
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Create UDR to 10.0.0.0/8 to point to NVA
+# Get private ip of $branchname-lxnva1
+fs1nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+az network route-table create -g $rg --name $branchname-UDR -l $region1 -o none
+az network route-table route create -g $rg --name default --route-table-name $branchname-UDR --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $fs1nvaip -o none
+
+# Associate to branch main subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet --route-table $branchname-UDR -o none
+
+#echo Checking OPNSense provisioning state:
+# az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $branchname-opnnva-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $branchname-opnnva-Untrusted-NIC --network-security-group null --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+
+### Branch2 ###
+# Deploy BGP endpoont (Make the changes based on your needs)
+branchname=branch2 #Target NET
+
+# Create NVA VNET
+az network vnet create --name $branchname-vnet --resource-group $rg --location $region1 --address-prefix 10.100.2.0/24 --subnet-name vm-subnet --subnet-prefix 10.100.2.0/28 --location $region1 -o none
+# Assing nsg to the subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet  --network-security-group default-nsg-$region1 -o none
+# Create Ubuntu VM on vm-subnet 
+az vm create -n $branchname-vm1  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $region1 --subnet vm-subnet --vnet-name $branchname-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Deploy OPNSense
+# OPNsense NVA parameters
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_DS1_v2
+virtualMachineName=$branchname-opnnva
+virtualNetworkName=$branchname-vnet
+existingvirtualNetwork=existing
+VNETAddress=10.100.2.0/24
+UntrustedSubnetCIDR=10.100.2.64/28
+TrustedSubnetCIDR=10.100.2.80/28
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+# OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Create untrusted subnetnet
+echo Creating untrusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingUntrustedSubnetName --address-prefixes $UntrustedSubnetCIDR --output none
+# Create trusted subnetnet
+echo Creating trusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingTrustedSubnetName --address-prefixes $TrustedSubnetCIDR --output none
+
+echo "Deploying OPNsense NVA1 on the $branchname"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+  az deployment group create --name $branchname-nva-$RANDOM --resource-group $rg \
+ --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+ --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
+ --no-wait
+
+# Assign nsg to nvasubnet
+echo Creating NSG and associate to NVA Subnet
+az network nsg create --resource-group $rg --name $branchname-nva-nsg --location $region1 -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-ssh' --direction Inbound --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-https' --direction Inbound --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+
+az network vnet subnet update -g $rg --name trusted --vnet-name $branchname-vnet --network-security-group $branchname-nva-nsg -o none
+
+# Add UDP 500 and 4500 to the NSG
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Create UDR to 10.0.0.0/8 to point to NVA
+# Get private ip of $branchname-lxnva1
+fs1nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+az network route-table create -g $rg --name $branchname-UDR -l $region1 -o none
+az network route-table route create -g $rg --name default --route-table-name $branchname-UDR --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $fs1nvaip -o none
+
+# Associate to branch main subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet --route-table $branchname-UDR -o none
+
+#echo Checking OPNSense provisioning state:
+# az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $branchname-opnnva-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $branchname-opnnva-Untrusted-NIC --network-security-group null --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+
+### Branch3 ###
+# Deploy BGP endpoont (Make the changes based on your needs)
+branchname=branch3 #Target NET
+
+# Create NVA VNET
+az network vnet create --name $branchname-vnet --resource-group $rg --location $region2 --address-prefix 10.200.1.0/24 --subnet-name vm-subnet --subnet-prefix 10.200.1.0/28 --location $region2 -o none
+# Assing nsg to the subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet  --network-security-group default-nsg-$region2 -o none
+# Create Ubuntu VM on vm-subnet 
+az vm create -n $branchname-vm1  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $region2 --subnet vm-subnet --vnet-name $branchname-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Deploy OPNSense
+# OPNsense NVA parameters
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_DS1_v2
+virtualMachineName=$branchname-opnnva
+virtualNetworkName=$branchname-vnet
+existingvirtualNetwork=existing
+VNETAddress=10.200.1.0/24
+UntrustedSubnetCIDR=10.200.1.64/28
+TrustedSubnetCIDR=10.200.1.80/28
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+# OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Create untrusted subnetnet
+echo Creating untrusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingUntrustedSubnetName --address-prefixes $UntrustedSubnetCIDR --output none
+# Create trusted subnetnet
+echo Creating trusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingTrustedSubnetName --address-prefixes $TrustedSubnetCIDR --output none
+
+echo "Deploying OPNsense NVA1 on the $branchname"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+  az deployment group create --name $branchname-nva-$RANDOM --resource-group $rg \
+ --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+ --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
+ --no-wait
+
+# Assign nsg to nvasubnet
+echo Creating NSG and associate to NVA Subnet
+az network nsg create --resource-group $rg --name $branchname-nva-nsg --location $region2 -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-ssh' --direction Inbound --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-https' --direction Inbound --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+
+az network vnet subnet update -g $rg --name trusted --vnet-name $branchname-vnet --network-security-group $branchname-nva-nsg -o none
+
+# Add UDP 500 and 4500 to the NSG
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Create UDR to 10.0.0.0/8 to point to NVA
+# Get private ip of $branchname-lxnva1
+fs1nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+az network route-table create -g $rg --name $branchname-UDR -l $region2 -o none
+az network route-table route create -g $rg --name default --route-table-name $branchname-UDR --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $fs1nvaip -o none
+
+# Associate to branch main subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet --route-table $branchname-UDR -o none
+
+#echo Checking OPNSense provisioning state:
+# az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $branchname-opnnva-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $branchname-opnnva-Untrusted-NIC --network-security-group null --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+
+### Branch4 ###
+# Deploy BGP endpoont (Make the changes based on your needs)
+branchname=branch4 #Target NET
+
+# Create NVA VNET
+az network vnet create --name $branchname-vnet --resource-group $rg --location $region2 --address-prefix 10.200.2.0/24 --subnet-name vm-subnet --subnet-prefix 10.200.2.0/28 --location $region2 -o none
+# Assing nsg to the subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet  --network-security-group default-nsg-$region2 -o none
+# Create Ubuntu VM on vm-subnet 
+az vm create -n $branchname-vm1  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $virtualMachineSize -l $region2 --subnet vm-subnet --vnet-name $branchname-vnet --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+
+# Deploy OPNSense
+# OPNsense NVA parameters
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineSize=Standard_DS1_v2
+virtualMachineName=$branchname-opnnva
+virtualNetworkName=$branchname-vnet
+existingvirtualNetwork=existing
+VNETAddress=10.200.2.0/24
+UntrustedSubnetCIDR=10.200.2.64/28
+TrustedSubnetCIDR=10.200.2.80/28
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+# OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/
+
+# Create untrusted subnetnet
+echo Creating untrusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingUntrustedSubnetName --address-prefixes $UntrustedSubnetCIDR --output none
+# Create trusted subnetnet
+echo Creating trusted subnet
+az network vnet subnet create -g $rg --vnet-name $virtualNetworkName --name $existingTrustedSubnetName --address-prefixes $TrustedSubnetCIDR --output none
+
+echo "Deploying OPNsense NVA1 on the $branchname"
+az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+  az deployment group create --name $branchname-nva-$RANDOM --resource-group $rg \
+ --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+ --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region2 \
+ --no-wait
+
+# Assign nsg to nvasubnet
+echo Creating NSG and associate to NVA Subnet
+az network nsg create --resource-group $rg --name $branchname-nva-nsg --location $region2 -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-ssh' --direction Inbound --priority 300 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'default-allow-https' --direction Inbound --priority 301 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-in' --direction Inbound --priority 310 --source-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16  --source-port-ranges '*' --destination-address-prefixes  10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-in" --output none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg -n 'allow-rfc1918-out' --direction outbound --priority 320 --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --source-port-ranges '*' --destination-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 --destination-port-ranges '*' --access Allow --protocol '*' --description "allow-rfc1918-out" --output none
+
+az network vnet subnet update -g $rg --name trusted --vnet-name $branchname-vnet --network-security-group $branchname-nva-nsg -o none
+
+# Add UDP 500 and 4500 to the NSG
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp500 --priority 100 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 500 --direction Inbound --access Allow --protocol Udp -o none
+az network nsg rule create -g $rg --nsg-name $branchname-nva-nsg  -n allow-udp4500 --priority 101 --source-address-prefixes '*' --destination-address-prefixes '*' --destination-port-ranges 4500 --direction Inbound --access Allow --protocol Udp -o none
+
+# Create UDR to 10.0.0.0/8 to point to NVA
+# Get private ip of $branchname-lxnva1
+fs1nvaip=$(az network nic show --name $branchname-opnnva-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+az network route-table create -g $rg --name $branchname-UDR -l $region2 -o none
+az network route-table route create -g $rg --name default --route-table-name $branchname-UDR --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $fs1nvaip -o none
+
+# Associate to branch main subnet
+az network vnet subnet update -g $rg -n vm-subnet --vnet-name $branchname-vnet --route-table $branchname-UDR -o none
+
+#echo Checking OPNSense provisioning state:
+# az deployment group show --name branch-opnnva-TwoNics -g $rg --query properties.provisioningState -o tsv
+# Misc remove NSG from OPNSense NICs 
+az network nic update -g $rg -n $branchname-opnnva-Trusted-NIC --network-security-group null --output none
+az network nic update -g $rg -n $branchname-opnnva-Untrusted-NIC --network-security-group null --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group $branchname-nva-nsg  -o none
+
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."

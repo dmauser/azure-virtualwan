@@ -1,0 +1,4 @@
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy.azcli | bash
+
+
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-azfw-ri.azcli | bash

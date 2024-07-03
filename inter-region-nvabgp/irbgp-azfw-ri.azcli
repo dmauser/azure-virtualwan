@@ -1,20 +1,266 @@
-# Pre-Requisites
-echo validating pre-requisites
-az extension add --name virtual-wan 
-az extension add --name azure-firewall 
-# or updating vWAN and AzFirewall CLI extensions
-az extension update --name virtual-wan
-az extension update --name azure-firewall 
-
-
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=westus
 rg=lab-vwan-nvabgp
 vwanname=vwan-nvabgp
 hub1name=hub1
+region1=$(az network vhub show -g $rg -n $hub1name --query location -o tsv)
 hub2name=hub2
-username=azureuser
-password="Msft123Msft123" #Please change your password
-vmsize=Standard_DS1_v2
+region2=$(az network vhub show -g $rg -n $hub2name --query location -o tsv)
+
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
+# Pre-Requisites
+# Install lastes Virtual WAN extension
+az extension update --name virtual-wan
+
+# Install latest azure firewall extension
+az extension update --name azure-firewall 
+
+# Validate Firewall SKU
+if [ "$1" == "basic" ]; then
+    firewalltier=basic
+elif [ "$1" == "standard" ]; then
+    firewalltier=standard
+elif [ "$1" == "premium" ]; then
+    firewalltier=premium
+elif [ "$1" == "help" ]; then
+    echo "Usage: ./vwan-irazfw.sh [basic|standard|premium]"
+    exit 0
+elif [ -z "$1" ]; then
+    echo "No parameter passed, setting Azure Firewall to Basic tier"
+    firewalltier=basic
+fi
+
+# Loop script to check if resource group exists if not wait for 5 seconds and check again
+while [[ $(az group exists -n $rg) == false ]]; do
+    echo "Resource group $rg does not exist, waiting for 5 seconds..."
+    sleep 5
+done
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 and Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
+
+echo Creating $hub1name Azure Firewall Policy
+#Create firewall rules
+fwpolicyname1=$hub1name-fwpolicy #Firewall Policy Name
+az network firewall policy create --name $fwpolicyname1 --resource-group $rg --sku $firewalltier --output none --only-show-errors
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname1 --resource-group $rg --output none --only-show-errors
+#Adding any-to-any firewall rule
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $fwpolicyname1 \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+echo Deploying Azure Firewall inside $hub1name vHub ...
+fwpolid1=$(az network firewall policy show --resource-group $rg --name $fwpolicyname1 --query id --output tsv)
+az network firewall create -g $rg -n $hub1name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub1name --public-ip-count 1 --firewall-policy $fwpolid1 --location $region1 --output none &>/dev/null &
+
+echo Creating $hub2name Azure Firewall Policy
+#Create firewall rules
+fwpolicyname2=$hub2name-fwpolicy #Firewall Policy Name
+az network firewall policy create --name $fwpolicyname2 --resource-group $rg --sku $firewalltier --output none --only-show-errors
+az network firewall policy rule-collection-group create --name NetworkRuleCollectionGroup --priority 200 --policy-name $fwpolicyname2 --resource-group $rg --output none --only-show-errors
+#Adding any-to-any firewall rule
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg \
+ --policy-name $fwpolicyname2 \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+echo Deploying Azure Firewall inside $hub2name vHub...
+fwpolid2=$(az network firewall policy show --resource-group $rg --name $fwpolicyname2 --query id --output tsv)
+az network firewall create -g $rg -n $hub2name-azfw --sku AZFW_Hub --tier $firewalltier --virtual-hub $hub2name --public-ip-count 1 --firewall-policy $fwpolid2 --location $region2 --output none &>/dev/null &
+
+# Only continue if Firewall if $hub1name-azfw is provisioned
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network firewall show -g $rg -n $hub1name-azfw --query 'provisioningState' -o tsv)
+    echo "$hub1name-azfw provisioningState="$prState
+    sleep 5
+done
+
+echo Enabling $hub1name Azure Firewall diagnostics...
+
+echo Checking MS Insights subscription registration state
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
+
+## Log Analytics workspace name. 
+Workspacename=azfw-$region1-Logs
+
+#Creating Log Analytics Workspaces
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region1 --output none
+
+#EnablingAzure Firewall diagnostics
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name $hub1name-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+# Only continue if Firewall if $hub2name-azfw is provisioned
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network firewall show -g $rg -n $hub2name-azfw --query 'provisioningState' -o tsv)
+    echo "$hub2name-azfw provisioningState="$prState
+    sleep 5
+done
+
+echo Enabling $hub2name Azure Firewall diagnostics...
+## Log Analytics workspace name. 
+Workspacename=azfw-$region2-Logs
+
+#Creating Log Analytics Workspaces
+az monitor log-analytics workspace create -g $rg --workspace-name $Workspacename --location $region2 --output none
+
+echo Enabling Azure Firewall diagnostics
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name $hub2name-azfw --resource-group $rg --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg --workspace-name $Workspacename --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+echo Validating vHubs VPN Gateways provisioning...
+#vWAN Hubs VPN Gateway Status
+prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub1name-vpngw -g $rg
+    az network vpn-gateway create -n $hub1name-vpngw -g $rg --location $region1 --vhub $hub1name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub1name-vpngw --query provisioningState -o tsv)
+        echo $hub1name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
+if [[ $prState == 'Failed' ]];
+then
+    echo VPN Gateway is in fail state. Deleting and rebuilding.
+    az network vpn-gateway delete -n $hub2name-vpngw -g $rg
+    az network vpn-gateway create -n $hub2name-vpngw -g $rg --location $region2 --vhub $hub2name --no-wait
+    sleep 5
+else
+    prState=''
+    while [[ $prState != 'Succeeded' ]];
+    do
+        prState=$(az network vpn-gateway show -g $rg -n $hub2name-vpngw --query provisioningState -o tsv)
+        echo $hub2name-vpngw "provisioningState="$prState
+        sleep 5
+    done
+fi
+
+#Enabling Secured-vHUB + Routing intenet
+echo "Enabling Secured-vHUB + Routing intent (Private and Internet Traffic)"
+nexthophub1=$(az network vhub show -g $rg -n $hub1name --query azureFirewall.id -o tsv)
+az deployment group create --name $hub1name-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
+--parameters scenarioOption=Private-and-Internet hubname=$hub1name nexthop=$nexthophub1 \
+--no-wait
+
+nexthophub2=$(az network vhub show -g $rg -n $hub2name --query azureFirewall.id -o tsv)
+az deployment group create --name $hub2name-ri \
+--resource-group $rg \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/bicep/main.json \
+--parameters scenarioOption=Private-and-Internet hubname=$hub2name nexthop=$nexthophub2 \
+--no-wait
+
+
+echo "Waiting for Routing Intent to complete..."
+subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub1name routing intent provisioningState="$prState
+    sleep 5
+done
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name/routingIntent/$hub2name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv)
+    echo "$hub2name routing intent provisioningState="$prState
+    sleep 5
+done
+echo Base Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."
+
+
 
