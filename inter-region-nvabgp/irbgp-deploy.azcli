@@ -10,8 +10,8 @@ if ! az extension list | grep -q virtual-wan; then
 fi
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=westus
+region1=eastus2
+region2=westus3
 rg=lab-vwan-nvabgp
 vwanname=vwan-nvabgp
 hub1name=hub1

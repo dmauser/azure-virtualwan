@@ -12,10 +12,12 @@ echo "Script started at $(date)"
 
 # Pre-Requisites
 # Install lastes Virtual WAN extension
-az extension update --name virtual-wan
+echo "Installing latest Virtual WAN extension"
+az extension update --name virtual-wan --only-show-errors
 
 # Install latest azure firewall extension
-az extension update --name azure-firewall 
+echo "Installing latest Azure Firewall extension"
+az extension update --name azure-firewall --only-show-errors
 
 # Validate Firewall SKU
 if [ "$1" == "basic" ]; then
