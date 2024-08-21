@@ -6,7 +6,7 @@ if ! az extension list | grep -q virtual-wan; then
 fi
 
 #Variables
-region=eastus
+region=westus3
 rg=lab-vwan-vpn
 vwanname=vwan-vpn
 hubname=vhub1
