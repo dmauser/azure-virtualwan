@@ -68,7 +68,7 @@ az network vnet create --address-prefixes 172.16.1.0/24 -n spoke1 -g $rg -l $reg
 az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $region1 --subnet-name main --subnet-prefixes 172.16.2.0/27 --output none
 
 # Region2
-az network vnet create --address-prefixes 172.16.4.0/24 -n spoke3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.3.0/27 --output none
+az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.3.0/27 --output none
 az network vnet create --address-prefixes 172.16.4.0/24 -n spoke3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.4.0/27 --output none
 
 echo Creating VMs in both branches...
