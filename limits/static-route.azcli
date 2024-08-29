@@ -1,0 +1,93 @@
+# Check default azure subscription
+az account show --output table
+# Set azure subscription
+az account set --subscription "your subscription id"
+
+# Define variables
+#Variables
+region=westus3
+rg=lab-vwan-vpn
+vwanname=vwan-vpn
+hubname=vhub1
+
+# Get spoke1conn vnet connection resource ID
+spoke1vnetid=$(az network vhub connection list --resource-group $rg --vhub-name $hubname --query "[?name=='spoke1conn'].id" -o tsv)
+
+# Loop to add routes
+for i in {1..1001}
+do
+    routeName="Route$i"
+    addressPrefix="10.0.$i.0/24"  # Example address prefix, adjust as needed
+
+    # Add route to the route table
+    echo "Adding route $routeName to $addressPrefix"
+    az network vhub route-table route add \
+        --resource-group $rg \
+        --vhub-name $hubname \
+        --name defaultRouteTable \
+        --route-name $routeName \
+        --destination-type CIDR \
+        --destinations $addressPrefix \
+        --next-hop-type resourceid \
+        --next-hop $spoke1vnetid \
+        --output none   
+done
+
+# Add 1000 static routes to the spoke1conn
+for i in {1..3}
+do
+    routeName="Route$i"
+    addressPrefix="10.0.$i.0/24"  # Example address prefix, adjust as needed
+    # Add route to the spoke1conn
+    echo "Adding route $routeName to $addressPrefix"
+    az network vhub connection create \
+        --resource-group $rg \
+        --vhub-name $hubname \
+        --connection-name spoke1conn \
+        --route-name $routeName \
+        --destination-type CIDR \
+        --destinations $addressPrefix \
+        --next-hop-type vnetconnection \
+        --next-hop $spoke1vnetid \
+        --output none
+done
+
+az network vhub connection create -n MyConnection --vhub-name MyHub -g MyRG --remote-vnet MyVNet --associated-route-table /subscriptions/MySub/resourceGroups/MyRG/providers/Microsoft.Network/virtualHubs/MyHub/hubRouteTables/RouteTable1 --propagated-route-tables /subscriptions/MySub/resourceGroups/MyRG/providers/Microsoft.Network/virtualHubs/MyHub/hubRouteTables/RouteTable1 /subscriptions/MySub/resourceGroups/MyRG/providers/Microsoft.Network/virtualHubs/MyHub/hubRouteTables/RouteTable2 --labels label1 label2 --route-name route1 --next-hop 70.0.0.2 --address-prefixes 10.80.0.0/16 10.90.0.0/16
+
+# Add 1000 static routes to the spoke1conn
+for i in {1..3}
+do
+    routeName="Route$i"
+    addressPrefix="10.0.$i.0/24"  # Example address prefix, adjust as needed
+    # Add route to the spoke1conn
+destinations
+done
+
+# echo script
+for i in {1..254}
+do
+    routeName="Route$i"
+    addressPrefix="10.0.$i.0/24"  # Example address prefix, adjust as needed
+
+    # Add route to the spoke1conn
+    echo "Adding route $routeName to $addressPrefix"
+done
+for i in {1..254}
+do
+    routeName="Route$i"
+    addressPrefix="10.1.$i.0/24"  # Example address prefix, adjust as needed
+
+    # Add route to the spoke1conn
+    echo "Adding route $routeName to $addressPrefix"
+done
+for i in {1..254}
+do
+    routeName="Route$i"
+    addressPrefix="10.2.$i.0/24"  # Example address prefix, adjust as needed
+
+    # Add route to the spoke1conn
+    echo "Adding route $routeName to $addressPrefix"
+done
+
+
+

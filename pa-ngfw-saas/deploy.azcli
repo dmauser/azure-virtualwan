@@ -56,22 +56,25 @@ az network vhub create -g $rg --name $hub2name --address-prefix 10.252.0.0/16 --
 
 echo Creating branches VNETs...
 # create location1 branch virtual network
-az network vnet create --address-prefixes 192.168.0.0/22 -n branch1 -g $rg -l $region1 --subnet-name subnet1 --subnet-prefixes 192.168.0.0/24 --output none
+az network vnet create --address-prefixes 192.168.0.0/22 -n branch1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 192.168.0.0/24 --output none
 
 # create location2 branch virtual network
-az network vnet create --address-prefixes 192.168.128.0/22 -n branch2 -g $rg -l $region2 --subnet-name subnet2 --subnet-prefixes 192.168.128.0/24 --output none
+az network vnet create --address-prefixes 192.168.128.0/22 -n branch2 -g $rg -l $region2 --subnet-name main --subnet-prefixes 192.168.128.0/24 --output none
 
 echo Creating spoke VNETs...
 # create spokes virtual network
 # Region1
-az network vnet create --address-prefixes 172.16.1.0/24 -n spoke1 -g $rg -l $region1 --subnet-name subnet1 --subnet-prefixes 172.16.1.0/27 --output none
+az network vnet create --address-prefixes 172.16.1.0/24 -n spoke1 -g $rg -l $region1 --subnet-name main --subnet-prefixes 172.16.1.0/27 --output none
+az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $region1 --subnet-name main --subnet-prefixes 172.16.2.0/27 --output none
+
 # Region2
-az network vnet create --address-prefixes 172.16.2.0/24 -n spoke2 -g $rg -l $region2 --subnet-name subnet2 --subnet-prefixes 172.16.2.0/27 --output none
+az network vnet create --address-prefixes 172.16.4.0/24 -n spoke3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.3.0/27 --output none
+az network vnet create --address-prefixes 172.16.4.0/24 -n spoke3 -g $rg -l $region2 --subnet-name main --subnet-prefixes 172.16.4.0/27 --output none
 
 echo Creating VMs in both branches...
 # create a VM in each branch spoke
-az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet subnet2 --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name branch1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 
 echo Creating NSGs in both branches...
 #Update NSGs:
@@ -98,8 +101,10 @@ az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vp
 
 echo Creating Spoke VMs...
 # create a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet subnet1 --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
-az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet subnet2 --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region1 --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
+az vm create -n spoke4VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region2 --subnet main --vnet-name spoke4 --admin-username $username --admin-password $password --nsg "" --no-wait --only-show-errors
 # Continue only if all VMs are created
 echo Waiting VMs to complete provisioning...
 az vm wait -g $rg --created --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) --only-show-errors -o none
@@ -159,11 +164,19 @@ echo Creating Cloud NGFW in Hub1...
 echo Creating Hub1 vNET connections
 # create spoke to Vwan connections to hub1
 az network vhub connection create -n spoke1conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
+az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg --vhub-name $hub1name --no-wait
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network vhub connection show -n spoke1conn --vhub-name $hub1name -g $rg  --query 'provisioningState' -o tsv)
+    echo "vnet connection spoke1conn provisioningState="$prState
+    sleep 5
+done
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub connection show -n spoke2conn --vhub-name $hub2name -g $rg  --query 'provisioningState' -o tsv)
     echo "vnet connection spoke1conn provisioningState="$prState
     sleep 5
 done
@@ -195,7 +208,8 @@ echo Creating Cloud NGFW in Hub2...
     az palo-alto cloudngfw firewall create --name $hub2name --resource-group $rg --location $region2 --dns-settings "{enable-dns-proxy:DISABLED,enabled-dns-type:CUSTOM}" --marketplace-details "{marketplace-subscription-status:Subscribed,offer-id:pan_swfw_cloud_ngfw,publisher-id:paloaltonetworks}" --plan-data "{billing-cycle:MONTHLY,plan-id:panw-cloud-ngfw-payg,usage-type:PAYG}" --is-panorama-managed FALSE --associated-rulestack "{location:$region2,resource-id:/subscriptions/$subscription_id/resourceGroups/$rg/providers/PaloAltoNetworks.Cloudngfw/localRulestacks/$hub2name-rulestack}" --network-profile "{network-type:VWAN,public-ips:[{address:$hub2_cngfw_pip,resource-id:/subscriptions/$subscription_id/resourceGroups/$rg/providers/Microsoft.Network/publicIPAddresses/$hub2name-cngfw-pip}],vwan-configuration:{v-hub:{resource-id:/subscriptions/$subscription_id/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub2name},network-virtual-appliance-id:/subscriptions/$subscription_id/resourceGroups/$rg/providers/Microsoft.Network/networkVirtualAppliances/$hub2name-cngfw-nva},enable-egress-nat:DISABLED}" --no-wait
 
 # create spoke to Vwan connections to hub2
-az network vhub connection create -n spoke2conn --remote-vnet spoke2 -g $rg --vhub-name $hub2name --no-wait
+az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
+az network vhub connection create -n spoke4conn --remote-vnet spoke4 -g $rg --vhub-name $hub2name --no-wait
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
