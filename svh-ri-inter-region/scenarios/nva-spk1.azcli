@@ -1,0 +1,87 @@
+# Parameters (make changes based on your requirements)
+region=eastus2 #set region1
+rg=lab-svh-inter #set resource group
+vwanname=svh-inter #set vWAN name
+hubname=sechub1 #set Hub1 name
+username=azureuser #set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1_v2 #set VM Size
+
+#NVA specific variables:
+# Deploy BGP endpoint (Make the changes based on your needs)
+nvavnetnamer1=spoke1 #Target NET
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
+hubtopeer=$hubname #Note: VNET has to be connected to the same hub
+nvanames=$(i=1;while [ $i -le $instances ];do echo $nvavnetnamer1-$nvaintname$i; ((i++));done)
+
+#Specific NVA BGP settings
+asn_frr=65011 # Set ASN
+bgp_network1="10.10.0.0/22"
+
+# Creating spoke1 nvasubnet
+echo Creating spoke1 nvasubnet...
+az network vnet subnet create -g $rg --vnet-name spoke1 -n nvasubnet --address-prefixes 172.16.1.32/28  --output none
+
+# Deploy NVA instances on the target VNET above.
+for nvaname in $nvanames
+do
+ # Enable routing, NAT and BGP on Linux NVA:
+ az network public-ip create --name $nvaname-pip --resource-group $rg --location $region --sku Standard --output none --only-show-errors
+ az network nic create --name $nvaname-nic --resource-group $rg --subnet $nvasubnetname --vnet $nvavnetnamer1 --public-ip-address $nvaname-pip --ip-forwarding true --location $region -o none
+ az vm create --resource-group $rg --location $region --name $nvaname --size $vmsize --nics $nvaname-nic  --image Ubuntu2204 --admin-username $username --admin-password $password -o none --only-show-errors
+
+ #NVA BGP config variables (do not change)
+ bgp_routerId=$(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv)
+ routeserver_IP1=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[0] -o tsv)
+ routeserver_IP2=$(az network vhub show -n $hubtopeer -g $rg --query virtualRouterIps[1] -o tsv)
+
+ # Enable routing and NAT on Linux NVA:
+ scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/scripts/linuxrouterbgpfrr.sh"
+ az vm extension set --resource-group $rg --vm-name $nvaname  --name customScript --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouterbgpfrr.sh $asn_frr $bgp_routerId $bgp_network1 $routeserver_IP1 $routeserver_IP2\"}" \
+ --no-wait
+
+ # Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hubtopeer \
+ --name $nvaname \
+ --peer-asn $asn_frr \
+ --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $nvavnetnamer1'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --output none
+done
+
+#Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
+echo Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
+az network lb create -g $rg --name $nvavnetnamer1-$nvaintname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $nvavnetnamer1 --subnet=$nvasubnetname --location $region --output none --only-show-errors
+az network lb probe create -g $rg --lb-name $nvavnetnamer1-$nvaintname-ilb --name sshprobe --protocol tcp --port 22 --output none  
+az network lb rule create -g $rg --lb-name $nvavnetnamer1-$nvaintname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
+
+# Attach NVAs to the Backend as NICs
+for nvaname in $nvanames
+do
+  az network nic ip-config address-pool add \
+  --address-pool nvabackend \
+  --ip-config-name ipconfig1 \
+  --nic-name $nvaname-nic \
+  --resource-group $rg \
+  --lb-name $nvavnetnamer1-$nvaintname-ilb \
+  --output none
+done
+
+#Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
+az network nsg create --resource-group $rg --name default-nsg-$region --location $region -o none
+az network nsg rule create -g $rg --nsg-name default-nsg-$region -n allow-RFC-1918 \
+    --direction Inbound \
+    --priority 110 \
+    --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
+    --source-port-ranges '*' \
+    --destination-address-prefixes '*' \
+    --destination-port-ranges '*' \
+    --access Allow \
+    --protocol '*' \
+    --description "Allow-Traffic-RFC-1918" \
+    --output none
+az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name $nvavnet --network-security-group default-nsg-$region -o none

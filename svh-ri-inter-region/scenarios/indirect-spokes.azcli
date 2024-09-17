@@ -1,0 +1,74 @@
+
+# Parameters (make changes based on your requirements)
+region=eastus2 #set region1
+rg=lab-svh-inter #set resource group
+vwanname=svh-inter #set vWAN name
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+username=azureuser #set username
+password="Msft123Msft123" #set password
+vmsize=Standard_DS1_v2 #set VM Size
+
+#NVA specific variables:
+# Deploy BGP endpoint (Make the changes based on your needs)
+nvavnetnamer1=spoke1 #Target NET
+asn_frr=65002 # Set ASN
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
+hubtopeer=$hubname2 #Note: VNET has to be connected to the same hub
+hubtoremove=$hubname1
+nvanames=$(i=1;while [ $i -le $instances ];do echo $nvavnetnamer1-$nvaintname$i; ((i++));done)
+
+# Create indirect-spokes VNETs
+az network vnet create -g $rg -n indirect-spk1 --address-prefix 10.10.1.0/24 --location $region -o none --subnet-name main --subnet-prefix 10.10.1.0/27
+az network vnet create -g $rg -n indirect-spk2 --address-prefix 10.10.2.0/24 --location $region -o none --subnet-name main --subnet-prefix 10.10.2.0/27
+
+# Create VMs in indirect-spokes
+az vm create -g $rg --name vm1 --vnet-name indirect-spk1 --subnet main --image Ubuntu2204 --admin-username $username --admin-password $password --size $vmsize --no-wait -o none
+az vm create -g $rg --name vm2 --vnet-name indirect-spk2 --subnet main --image Ubuntu2204 --admin-username $username --admin-password $password --size $vmsize --no-wait -o none
+
+
+# Get spoke1-linux-nva-ilb private ip as variable
+spoke1lbpip=$(az network lb show -g $rg -n spoke1-linux-nva-ilb --query frontendIPConfigurations[0].privateIPAddress -o tsv)
+# Create UDR indirect-spokes-to-nva
+az network route-table create -g $rg --name indirect-spokes-to-nva --location $region -o none
+# Add route to UDR indirect-spokes-to-nva
+az network route-table route create -g $rg --route-table indirect-spokes-to-nva --name default --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $spoke1lbpip -o none
+
+# Associate UDR to indirect-spk1 and spoke 3 main subnets
+az network vnet subnet update -g $rg --vnet-name indirect-spk1 -n main --route-table indirect-spokes-to-nva -o none
+az network vnet subnet update -g $rg --vnet-name indirect-spk2 -n main --route-table indirect-spokes-to-nva -o none
+
+# VNET Peer Spoke 2 and Spoke 3 to Spoke 1
+az network vnet peering create -g $rg -n indirect-spk1-to-spoke1 --vnet-name indirect-spk1 --remote-vnet spoke1 --allow-vnet-access --allow-forwarded-traffic -o none
+az network vnet peering create -g $rg -n indirect-spk2-to-spoke1 --vnet-name indirect-spk2 --remote-vnet spoke1 --allow-vnet-access --allow-forwarded-traffic -o none
+
+# VNET peer Spoke 1 to Spoke 2 and Spoke 3
+az network vnet peering create -g $rg -n spoke1-to-indirect-spk1 --vnet-name spoke1 --remote-vnet indirect-spk1 --allow-vnet-access --allow-forwarded-traffic -o none
+az network vnet peering create -g $rg -n spoke1-to-indirect-spk2 --vnet-name spoke1 --remote-vnet indirect-spk2 --allow-vnet-access --allow-forwarded-traffic -o none
+
+# Add Spoke 2 and Spoke 3 Address Prefixes on FFR
+for nvaname in $nvanames
+do
+  az vm run-command invoke -g $rg -n $nvaname --command-id RunShellScript --no-wait -o none --scripts '
+#!/bin/bash
+
+vtysh <<EOF
+configure terminal
+
+# Change to router bgp mode
+router bgp 65002
+
+# Add new network entries
+ address-family ipv4 unicast
+  network 172.16.0.0/22
+  network 172.16.2.0/24
+  network 172.16.3.0/24
+ exit-address-family
+
+end
+write memory
+EOF
+'
+done

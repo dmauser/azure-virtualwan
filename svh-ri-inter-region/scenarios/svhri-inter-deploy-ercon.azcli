@@ -43,7 +43,7 @@ fi
 # Connect sechub1 to both ERs
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default
+az network express-route gateway connection create --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default -o none
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
@@ -55,7 +55,7 @@ done
 
 peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name $hub1name-conn-to-$ername2 -g $rg --gateway-name $hub1name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default
+az network express-route gateway connection create --name $hub1name-conn-to-$ername2 -g $rg --gateway-name $hub1name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default -o 
 
 prState=''
 while [[ $prState != 'Succeeded' ]];

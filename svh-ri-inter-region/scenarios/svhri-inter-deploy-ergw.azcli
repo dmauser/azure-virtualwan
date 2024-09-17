@@ -16,7 +16,7 @@ region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
 region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 
 #ExpressRoute specific variables
-perloc1="Dallas"
+perloc1="Washington DC"
 perloc2="Chicago"
 providerloc1=Megaport
 providerloc2=Megaport

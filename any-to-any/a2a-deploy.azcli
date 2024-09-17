@@ -6,8 +6,8 @@ az extension add --name virtual-wan
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=westus
+region1=eastus2
+region2=westus3
 rg=lab-vwan-a2a
 vwanname=vwan-a2a
 hub1name=hub1
