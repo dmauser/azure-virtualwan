@@ -7,8 +7,8 @@ az extension add --name virtual-wan
 az extension update --name virtual-wan
 
 # Parameters (make changes based on your requirements)
-loc1=eastus
-loc2=westus
+loc1=eastus2
+loc2=westus3
 rg=lab-vwan-rb
 vwanname=vwan-rb
 hub1name=hub1
@@ -65,8 +65,8 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?cont
 
 echo Creating Braches VNET VPN Gateways
 # create pips for VPN GW's in each branch
-az network public-ip create -n branch1-vpngw-pip -g $rg --location $loc1 --sku Basic --output none
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $loc2 --sku Basic --output none
+az network public-ip create -n branch1-vpngw-pip -g $rg --location $loc1 --sku Standard --output none
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $loc2 --sku Standard --output none
 
 # create VPN gateways
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $loc1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
