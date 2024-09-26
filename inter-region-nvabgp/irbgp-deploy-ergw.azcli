@@ -27,41 +27,28 @@ fi
 start=`date +%s`
 echo "Script started at $(date)"
 
-echo Checking Hub1 provisioning status...
-# Checking Hub1 and Hub2 provisioning and routing state 
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
-    echo "$hub1name provisioningState="$prState
-    sleep 5
-done
+check_provisioning_and_routing_state() {
+    local hub_name=$1
+    echo "Checking $hub_name provisioning status..."
 
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
-    echo "$hub1name routingState="$rtState
-    sleep 5
-done
+    local prState=''
+    local rtState=''
 
-echo Checking Hub2 provisioning status...
-# Checking Hub2 provisioning and routing state 
-prState=''
-rtState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
-    echo "$hub2name provisioningState="$prState
-    sleep 5
-done
+    while [[ $prState != 'Succeeded' ]]; do
+        prState=$(az network vhub show -g $rg -n $hub_name --query 'provisioningState' -o tsv)
+        echo "$hub_name provisioningState=$prState"
+        sleep 5
+    done
 
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
-    echo "$hub2name routingState="$rtState
-    sleep 5
-done
+    while [[ $rtState != 'Provisioned' ]]; do
+        rtState=$(az network vhub show -g $rg -n $hub_name --query 'routingState' -o tsv)
+        echo "$hub_name routingState=$rtState"
+        sleep 5
+    done
+}
+
+check_provisioning_and_routing_state $hub1name
+check_provisioning_and_routing_state $hub2name
 
 echo Creating ExpressRoute Circuits...
 #Create ER circuits
