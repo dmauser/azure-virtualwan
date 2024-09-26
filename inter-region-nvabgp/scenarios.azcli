@@ -2,3 +2,6 @@ curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-re
 
 
 curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-azfw-ri.azcli | bash
+
+
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nvabgp/irbgp-deploy-ergw.azcli| bash
