@@ -140,7 +140,7 @@ existingvirtualNetwork=existing
 existingUntrustedSubnetName=untrusted
 existingTrustedSubnetName=trusted
 
-az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
 az deployment group create --name spoke2-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
 --parameters OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \

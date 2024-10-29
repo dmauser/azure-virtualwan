@@ -197,7 +197,7 @@ bgpip1=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettin
 bgpip2=$(az network vpn-gateway show -n $hubname-vpngw -g $rg --query 'bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]' -o tsv)
 
 echo "Deploying OPNsense NVA on the branch"
-az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
 az deployment group create --name branch-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/natvpn-over-er/opnsense/main.json" \
 --parameters bgpip1=$bgpip1 bgpip2=$bgpip2 OpnScriptURI=$OpnScriptURI scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region \

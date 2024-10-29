@@ -48,7 +48,7 @@ for ((i=1; i<=region1branches; i++)); do
     
 
     echo "Deploying OPNsense NVA1 on the $branchname"
-    az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+    az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
     az deployment group create --name $branchname-nva-$RANDOM --resource-group $rg \
         --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
         --parameters OpnVersion=$opnversion scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$vnetaddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$location \
@@ -124,7 +124,7 @@ for ((i=1; i<=region2branches; i++)); do
     
 
     echo "Deploying OPNsense NVA1 on the $branchname"
-    az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+    az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
     az deployment group create --name $branchname-nva-$RANDOM --resource-group $rg \
         --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
         --parameters OpnVersion=$opnversion scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$vnetaddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$location \

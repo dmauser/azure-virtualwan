@@ -1,0 +1,141 @@
+#!/bin/bash
+
+# Parameters (make changes based on your requirements)
+region1=eastus2
+region2=westus3
+rg=lab-vwan-transithub
+vwanname=vwan-transithub
+hub1name=hub1
+hub2name=hub2
+username=azureuser
+password="Msft123Msft123" #Please change your password
+vmsize=Standard_DS1_v2 #Standard_B1s
+
+# VNET transit parameters
+vnetrg=lab-vnet-transithub
+AzurehubName=az-hub
+vnetnvalb=$(az network lb frontend-ip list -g $vnetrg --lb-name az-hub-opnnva-ilb --query '[].privateIPAddress' -o tsv)
+vwannvalb=$(az network lb frontend-ip list -g $rg --lb-name spoke2-opnnv-ilb --query '[].privateIPAddress' -o tsv)
+
+
+# Deploy two OPNsense instances on Spoke2
+az network vnet subnet create -g $rg --vnet-name spoke2 -n untrusted --address-prefixes 10.2.0.48/28  --output none
+az network vnet subnet create -g $rg --vnet-name spoke2 -n trusted --address-prefixes 10.2.0.64/28  --output none
+
+#OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineName=spoke2-opnnva1
+virtualNetworkName=spoke2
+existingvirtualNetwork=existing
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+
+az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
+az deployment group create --name spoke2-nva-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
+--no-wait
+
+#OpnScriptURI=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/inter-region-nva/scripts/
+ShellScriptName=configureopnsense.sh
+scenarioOption="TwoNics"
+virtualMachineName=spoke2-opnnva2
+virtualNetworkName=spoke2
+existingvirtualNetwork=existing
+existingUntrustedSubnetName=untrusted
+existingTrustedSubnetName=trusted
+
+az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
+az deployment group create --name spoke2-nva-$RANDOM --resource-group $rg \
+--template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
+--parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName existingvirtualNetwork=$existingvirtualNetwork virtualNetworkName=$virtualNetworkName existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$region1 \
+--no-wait
+
+#Specific NVA BGP settings
+nvaname=spoke2-opnnva
+asn_frr=65002 # Set ASN
+hubtopeer=$hub1name 
+
+# Peer NVA BGP with vHub1
+echo Peering NVAs with Route Server
+sleep 10
+nvanames=$(az vm list -g $rg --query '[?contains(name,`'$nvaname'`)].name' -o tsv)
+for nvaintname in $nvanames
+do
+# Build Virtual Router BGP Peering
+ az network vhub bgpconnection create --resource-group $rg \
+ --vhub-name $hub1name \
+ --name $nvaintname \
+ --peer-asn $asn_frr \
+ --peer-ip $(az network nic show --name $nvaintname-Trusted-NIC --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $virtualNetworkName'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --output none
+done
+
+#Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
+echo Creating Internal Load Balancer, Frontend IP, Backend, probe and LB Rule.
+az network lb create -g $rg --name $nvaname-ilb --sku Standard --frontend-ip-name frontendip1 --backend-pool-name nvabackend --vnet-name $virtualNetworkName --subnet=$existingTrustedSubnetName --location $region1 --output none --only-show-errors
+az network lb probe create -g $rg --lb-name $nvaname-ilb --name sshprobe --protocol tcp --port 22 --output none  
+az network lb rule create -g $rg --lb-name $nvaname-ilb --name haportrule1 --protocol all --frontend-ip-name frontendip1 --backend-pool-name nvabackend --probe-name sshprobe --frontend-port 0 --backend-port 0 --output none
+
+# Attach NVAs to the Backend as NICs
+for nvaintname in $nvanames
+do
+  az network nic ip-config address-pool add \
+  --address-pool nvabackend \
+  --ip-config-name ipconfig1 \
+  --nic-name "$nvaintname"-Trusted-NIC \
+  --resource-group $rg \
+  --lb-name $nvaname-ilb \
+  --output none
+done
+
+# Update NSG to allow HTTPS access from $mypip
+echo Updating NSG to allow HTTPS access from $mypip
+az network nsg rule create -g $rg --nsg-name default-nsg-$region1 -n 'allow-https-from-mypip' --direction Inbound --priority 310 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 443 --access Allow --protocol Tcp --description "Allow inbound HTTPS" --output none
+# Ensure default NSG is associated to OPNSense Trusted and Untrusted Networks
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group "" -o none
+# az network vnet subnet update --id $(az network vnet subnet list -g $rg --vnet-name $virtualNetworkName --query '[?contains(name,`'-Subnet'`)].id' -o tsv) --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null  -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group null -o none
+az network vnet subnet update --name trusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group default-nsg-$region1 -o none
+az network vnet subnet update --name untrusted --resource-group $rg --vnet-name $virtualNetworkName --network-security-group default-nsg-$region1 -o none
+
+# Misc remove NSG from OPNSense NICs 
+for nvaintname in $nvanames
+do
+  az network nic update -g $rg -n "$nvaintname"-Trusted-NIC --network-security-group null --output none
+  az network nic update -g $rg -n "$nvaintname"-Untrusted-NIC --network-security-group null --output none
+done
+
+# Add UDR named untrusted and disable BGP propagation
+az network route-table create --name spoke2-untrusted-udr --resource-group $rg --disable-bgp-route-propagation --output none
+# Add RFC 1918 address space to the UDR
+az network route-table route create --resource-group $rg --route-table-name spoke2-untrusted-udr --name rfc1918-10 --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $vnetnvalb --output none
+az network route-table route create --resource-group $rg --route-table-name spoke2-untrusted-udr --name rfc1918-172 --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $vnetnvalb --output none
+az network route-table route create --resource-group $rg --route-table-name spoke2-untrusted-udr --name rfc1918-192 --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $vnetnvalb --output none
+# Associate the UDR with the subnet
+az network vnet subnet update --resource-group $rg --vnet-name spoke2 --name untrusted --route-table spoke2-untrusted-udr --output none
+# Create a udr named disable route propagation
+az network route-table create --name spoke2-prop-off --resource-group $rg --disable-bgp-route-propagation --output none
+# Associate the UDR with the trusted subnet
+az network vnet subnet update --resource-group $rg --vnet-name spoke2 --name trusted --route-table spoke2-prop-off --output none
+
+# Changes below on the VNETRG
+
+# Add UDR named untrusted and disable BGP propagation
+az network route-table create --name $AzurehubName-untrusted-udr --resource-group $vnetrg --disable-bgp-route-propagation --output none
+# Add RFC 1918 address space to the UDR
+az network route-table route create --resource-group $vnetrg --route-table-name $AzurehubName-untrusted-udr --name rfc1918-10 --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $vwannvalb --output none
+az network route-table route create --resource-group $vnetrg --route-table-name $AzurehubName-untrusted-udr --name rfc1918-172 --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $vwannvalb --output none
+az network route-table route create --resource-group $vnetrg --route-table-name $AzurehubName-untrusted-udr --name rfc1918-192 --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $vwannvalb --output none
+# Associate the UDR with the subnet
+az network vnet subnet update --resource-group $vnetrg --vnet-name $AzurehubName-vnet --name untrusted --route-table $AzurehubName-untrusted-udr --output none
+
+# Create a udr named disable route propagation
+az network route-table create --name $AzurehubName-prop-off --resource-group $vnetrg --disable-bgp-route-propagation --output none
+# Associate the UDR with the trusted subnet
+az network vnet subnet update --resource-group $vnetrg --vnet-name $AzurehubName-vnet --name trusted --route-table $AzurehubName-prop-off --output none
+
+

@@ -1,6 +1,6 @@
 #Parameters
 rg=lab-vnet-transithub #Define your resource group
-location=eastus #Set location
+location=eastus2 #Set location
 username=azureuser #Set username
 password=Msft123Msft123 #Set password
 virtualMachineSize=Standard_DS1_v2 #Set VM size
@@ -32,7 +32,7 @@ echo Deploying base lab: Hub with Spoke1 and 2. VMs and Azure Route Server.
 echo "*** It will take around 20 minutes to finish the deployment ***"
 az group create --name $rg --location $location --output none
 az deployment group create --name lab-$RANDOM --resource-group $rg \
---template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeployv4.json \
+--template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeployv6.json \
 --parameters Restrict_SSH_VM_AccessByPublicIP=$mypip deployHubERGateway=false deployAzureRouteServer=true Azure=$JsonAzure VmAdminUsername=$username VmAdminPassword=$password virtualMachineSize=$virtualMachineSize deployBastion=false \
 --output none
 
@@ -58,7 +58,7 @@ az network vnet subnet create -g $rg --vnet-name $AzurehubName-vnet --name $exis
 
 echo "Deploying OPNsense NVA1 on the $AzurehubName"
 virtualMachineName=$AzurehubName-opnnva1
-az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
 az deployment group create --name $AzurehubName-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
 --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$location \
@@ -66,7 +66,7 @@ az deployment group create --name $AzurehubName-nva-$RANDOM --resource-group $rg
 
 virtualMachineName=$AzurehubName-opnnva2
 echo "Deploying OPNsense NVA2 on the $AzurehubName"
-az vm image terms accept --urn thefreebsdfoundation:freebsd-13_1:13_1-release:13.1.0 -o none
+az vm image terms accept --urn thefreebsdfoundation:freebsd-14_1:14_1-release-amd64-gen2-zfs:14.1.0 -o none
 az deployment group create --name $AzurehubName-nva-$RANDOM --resource-group $rg \
 --template-uri "https://raw.githubusercontent.com/dmauser/opnazure/master/ARM/main.json" \
 --parameters scenarioOption=$scenarioOption virtualMachineName=$virtualMachineName virtualMachineSize=$virtualMachineSize existingvirtualNetwork=$existingvirtualNetwork VNETAddress="[\"$VNETAddress\"]" virtualNetworkName=$virtualNetworkName UntrustedSubnetCIDR=$UntrustedSubnetCIDR TrustedSubnetCIDR=$TrustedSubnetCIDR existingUntrustedSubnetName=$existingUntrustedSubnetName existingTrustedSubnetName=$existingTrustedSubnetName Location=$location \
