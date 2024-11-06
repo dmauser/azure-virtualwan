@@ -17,6 +17,10 @@ AzurehubName=az-hub
 vnetnvalb=$(az network lb frontend-ip list -g $vnetrg --lb-name az-hub-opnnva-ilb --query '[].privateIPAddress' -o tsv)
 vwannvalb=$(az network lb frontend-ip list -g $rg --lb-name spoke2-opnnv-ilb --query '[].privateIPAddress' -o tsv)
 
+# Options add instance 1 of each NVA
+vnetnvalb=$(az network nic show -g $vnetrg --name az-hub-opnnva1-Untrusted-NIC --query "ipConfigurations[0].privateIPAddress" -o tsv)
+vwannvalb=$(az network nic show -g $rg --name spoke2-opnnva1-Untrusted-NIC --query "ipConfigurations[0].privateIPAddress" -o tsv)
+
 
 # Deploy two OPNsense instances on Spoke2
 az network vnet subnet create -g $rg --vnet-name spoke2 -n untrusted --address-prefixes 10.2.0.48/28  --output none
