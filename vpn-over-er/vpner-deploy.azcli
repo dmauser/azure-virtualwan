@@ -139,7 +139,7 @@ done
 echo Creating Branch ExpressRoute Gateway
 az network vnet subnet create --address-prefix $GatewaySubnet --name GatewaySubnet -g $rg --vnet-name branch --output none
 az network public-ip create --name branch-ergw-pip --resource-group $rg --location $region -o none
-az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --no-wait
+az network vnet-gateway create --name branch-ergw --resource-group $rg --location $region --public-ip-address branch-ergw-pip --vnet branch --gateway-type "ExpressRoute" --sku "Standard" --allow-remote-vnet-traffic true --no-wait
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
@@ -162,7 +162,7 @@ echo Creating vHub VPN Gateway...
 az network vpn-gateway create -n $hubname-vpngw -g $rg --location $region --vhub $hubname --no-wait 
 # az network vpn-gateway show -n $hubname-vpngw -g $rg
 echo Creating vHub ExpressRoute Gateway...
-az network express-route gateway create -g $rg -n $hubname-ergw --location $region --min-val 1 --virtual-hub $hubname --output none &>/dev/null &
+az network express-route gateway create -g $rg -n $hubname-ergw --location $region --min-val 1 --virtual-hub $hubname --allow-non-vwan-traffic true --output none &>/dev/null &
 
 echo Validating ER Gateways provisioning...
 #Branches VPN Gateways provisioning status
