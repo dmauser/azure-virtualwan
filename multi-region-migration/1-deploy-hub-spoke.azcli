@@ -1,7 +1,6 @@
 # Run both command below to create Hub1+On-Premises and Hub2
 
 #Paramters
-labname=multi-region-er-ars #Github repo folder name
 rg=lab-hsmulti-region
 hub1name=hub1
 hub2name=hub2
@@ -42,8 +41,8 @@ az deployment group create --name Hub2-$hub2location --resource-group $rg-$hub2l
 
 # 1) Create ExpressRoute Circuit
 # In this example ExpressRoute is created in "Washington DC" using Mepgaport as Provider. Make the necessary changes based on your needs
-az network express-route create --bandwidth 50 -n $ername1 --peering-location $edge1 -g $rg-$hub1location --provider $provider -l $rg-$hub1location --sku-family MeteredData --sku-tier Standard -o none
-az network express-route create --bandwidth 50 -n $ername2 --peering-location $edge2 -g $rg-$hub2location --provider $provider -l $rg-$hub2location --sku-family MeteredData --sku-tier Standard -o none
+az network express-route create --bandwidth 50 -n $ername1 --peering-location "$edge1" -g $rg-$hub1location --provider $provider -l $hub1location --sku-family MeteredData --sku-tier Standard -o none
+az network express-route create --bandwidth 50 -n $ername2 --peering-location "$edge2" -g $rg-$hub2location --provider $provider -l $hub2location --sku-family MeteredData --sku-tier Standard -o none
 
 # Get the expressroute servicekey
 echo "ExpressRoute Service Key: " $(az network express-route show -n $ername1 -g $rg-$hub1location --query serviceKey -o tsv)
@@ -74,7 +73,7 @@ while true; do
     state1=$(az network vnet-gateway show -n Az-Hub1-ergw -g $rg-$hub1location --query provisioningState -o tsv)
     state2=$(az network vnet-gateway show -n Az-Hub2-ergw -g $rg-$hub2location --query provisioningState -o tsv)
     if [ $state1 == "Succeeded" ] && [ $state2 == "Succeeded" ]; then
-        break
+        echo "VNET ERGWs are provisioned."
     fi
     echo "Waiting for VNET ERGW to be provisioned..."
     sleep 10
@@ -119,5 +118,4 @@ do
  --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
  --no-wait
 done
-
 echo "Deployment hs been completed successfully."
