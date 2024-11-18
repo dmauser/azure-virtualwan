@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "deployHubVPNGateway": {
+      "value": "false"
+    },
+    "deployOnpremisesVPNGateway": {
+      "value": "false"
+    },
+    "gatewaySku": {
+      "value": "VpnGw1"
+    },
+    "vpnGatewayGeneration": {
+      "value": "Generation1"
+    },
+    "enableBgp": {
+      "value": "true"
+    },
+    "sharedKey": {
+      "value": "abc123"
+    },
+    "deployHubERGateway": {
+      "value": "true"
+    },
+    "connect-to-ExpressRouteCircuit": {
+      "value": "false"
+    },
+    "ExpressRouteEnvironmentName": {
+      "value": "null"
+    },
+    "expressRouteCircuitID": {
+      "value": "null"
+    },
+    "UseAutorizationKey": {
+      "value": "false"
+    },
+    "AutorizationKey": {
+      "value": "null"
+    },
+    "deployAzureRouteServer": {
+      "value": "false"
+    },
+    "RouteServerB2B": {
+      "value": "false"
+    },
+    "Onprem": {
+      "value": {
+        "name": "OnPrem",
+        "addressSpacePrefix": "192.168.100.0/24",
+        "subnet1Prefix": "192.168.100.0/25",
+        "gatewaySubnetPrefix": "192.168.100.128/27",
+        "asn": "65002"
+      }
+    },
+    "Azure": {
+      "value": {
+        "hubName": "Az-Hub2",
+        "addressSpacePrefix": "10.20.0.0/24",
+        "subnetName": "subnet1",
+        "subnet1Prefix": "10.20.0.0/27",
+        "gatewaySubnetPrefix": "10.20.0.32/27",
+        "AzureFirewallPrefix": "10.20.0.64/26",
+        "rssubnetPrefix": "10.20.0.128/27",
+        "spoke1Name": "Az-Spk3",
+        "spoke1AddressSpacePrefix": "10.20.1.0/24",
+        "spoke1Subnet1Prefix": "10.20.1.0/27",
+        "spoke2Name": "Az-Spk4",
+        "spoke2AddressSpacePrefix": "10.20.2.0/24",
+        "spoke2Subnet1Prefix": "10.20.2.0/27"
+      }
+    }
+  }
+}
