@@ -23,14 +23,14 @@ provider=Megaport # Provider
 az group create --name $rg --location $hub1location --output none
 az deployment group create --name Hub1-$hub1location --resource-group $rg \
 --template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeployv5.json \
---parameters https://raw.githubusercontent.com/dmauser/azure-hub-spoke/main/multi-region-er-ars/parameters1.json \
+--parameters https://raw.githubusercontent.com/dmauser/azure-virtualwan/refs/heads/main/multi-region-migration/parameters1.json \
 --parameters location=$hub1location VmAdminUsername=$VmAdminUsername VmAdminPassword=$VmAdminPassword \
 --no-wait
 
 az group create --name $rg --location $hub2location --output none
 az deployment group create --name Hub2-$hub2location --resource-group $rg \
 --template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeployv5.json \
---parameters https://raw.githubusercontent.com/dmauser/azure-hub-spoke/main/multi-region-er-ars/parameters2.json \
+--parameters https://raw.githubusercontent.com/dmauser/azure-virtualwan/refs/heads/main/multi-region-migration/parameters2.json \
 --parameters location=$hub2location VmAdminUsername=$VmAdminUsername VmAdminPassword=$VmAdminPassword \
 --no-wait
 
