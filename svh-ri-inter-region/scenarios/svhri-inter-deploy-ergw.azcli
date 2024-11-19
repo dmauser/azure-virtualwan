@@ -32,6 +32,42 @@ echo Creating ExpressRoute Circuits...
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region1 --sku-family MeteredData --sku-tier Standard -o none
 az network express-route create --bandwidth 50 -n $ername2 --peering-location "$perloc2" -g $rg --provider $providerloc2 -l $region2 --sku-family MeteredData --sku-tier Standard -o none
 
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+    echo "$hub1name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+    echo "$hub1name routingState="$rtState
+    sleep 5
+done
+
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
+
 echo Creating ExpressRoute Gateways...
 #Create vHub ER Gateways
 echo Creating vHub ExpressRoute Gateway...
