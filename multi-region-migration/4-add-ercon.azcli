@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# Pre-Requisite
-# Check if virtual wan extension is installed if not install it
-if ! az extension list | grep -q virtual-wan; then
-    echo "virtual-wan extension is not installed, installing it now..."
-    az extension add --name virtual-wan --only-show-errors
-fi
-
 # Parameters (make changes based on your requirements)
 rg=lab-svh-inter
 vwanname=svh-inter #set vWAN name
@@ -40,10 +33,24 @@ else
  echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
 fi
 
+echo Checking ExpressRoute Gateway Provisioning State...
+#Check vHub ER Gateway Provisioning State
+echo checking ExpressRoute Gateway deployment...
+prState1=''
+prState2=''
+while [[ $prState1 != 'Succeeded' && $prState2 != 'Succeeded' ]];
+do
+    prState1=$(az network express-route gateway show -g $rg -n $hub1name-ergw --query 'provisioningState' -o tsv)
+    echo "$hub1name-ergw provisioningState="$prState1
+    prState2=$(az network express-route gateway show -g $rg -n $hub2name-ergw --query 'provisioningState' -o tsv)
+    echo "$hub2name-ergw provisioningState="$prState2
+    sleep 5
+done
+
 # Connect sechub1 to both ERs
 peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default -o none
+az network express-route gateway connection create --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default -o none &>/dev/null &
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
@@ -53,43 +60,53 @@ do
     sleep 5
 done
 
-peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
-routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub1name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name $hub1name-conn-to-$ername2 -g $rg --gateway-name $hub1name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default -o 
-
-prState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network express-route gateway connection show --name $hub1name-conn-to-$ername2 -g $rg --gateway-name $hub1name-ergw --query 'provisioningState' -o tsv)
-    echo "ER connection $hub1name-conn-to-$ername2 provisioningState="$prState
-    sleep 5
-done
-
 # Connect sechub2 to both ERs
 
-peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
-routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub2name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name $hub2name-conn-to-$ername1 -g $rg --gateway-name $hub2name-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default
-
-
-prState=''
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network express-route gateway connection show --name $hub2name-conn-to-$ername1 -g $rg --gateway-name $hub2name-ergw --query 'provisioningState' -o tsv)
-    echo "ER connection $hub2name-conn-to-$ername1 provisioningState="$prState
-    sleep 5
-done
-
-
 peering2=$(az network express-route show -g $rg --name $ername2 --query peerings[].id -o tsv)
 routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hub2name -g $rg --query id -o tsv)
-az network express-route gateway connection create --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default
+az network express-route gateway connection create --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw --peering $peering2 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default &>/dev/null &
 
 prState=''
 while [[ $prState != 'Succeeded' ]];
 do
     prState=$(az network express-route gateway connection show --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw --query 'provisioningState' -o tsv)
     echo "ER connection $hub2name-conn-to-$ername2 provisioningState="$prState
+    sleep 5
+done
+
+# Connect branch to ErCircuit1 to Vnet Hub1
+rg1=lab-hsmulti-region-$region1
+rg2=lab-hsmulti-region-$region2
+
+echo connecting $ername1 to $rg1
+erid=$(az network express-route show -g $rg --name $ername1 --query id -o tsv)
+az network vpn-connection create --name connection-to-$ername1 \
+ --resource-group $rg1 --vnet-gateway1 az-hub1-ergw \
+ --express-route-circuit2 $erid \
+ --routing-weight 0 \
+ &>/dev/null &
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vpn-connection show --name connection-to-$ername1 -g $rg1 --query 'provisioningState' -o tsv)
+    echo "ER connection connection-to-$ername1 provisioningState="$prState
+    sleep 5
+done
+
+echo connecting $ername2 to $rg2
+erid=$(az network express-route show -g $rg --name $ername2 --query id -o tsv)
+az network vpn-connection create --name connection-to-$ername2 \
+ --resource-group $rg2 --vnet-gateway1 az-hub2-ergw \
+ --express-route-circuit2 $erid \
+ --routing-weight 0 \
+ &>/dev/null &
+
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vpn-connection show --name connection-to-$ername2 -g $rg2 --query 'provisioningState' -o tsv)
+    echo "ER connection connection-to-$ername2 provisioningState="$prState
     sleep 5
 done
 

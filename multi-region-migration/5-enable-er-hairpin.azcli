@@ -1,0 +1,45 @@
+rg1=lab-hsmulti-region-$region1
+rg2=lab-hsmulti-region-$region2
+
+# Parameters (make changes based on your requirements)
+rg=lab-svh-inter
+vwanname=svh-inter #set vWAN name
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
+
+# Allow remote VNE traffic from vWAN and Hub and Spokes
+
+az network express-route gateway update -g $rg -n $hub1name-ergw --location $region1 --virtual-hub $hub1name --allow-non-vwan-traffic true -o none &>/dev/null &
+az network express-route gateway update -g $rg -n $hub2name-ergw --location $region2 --virtual-hub $hub2name --allow-non-vwan-traffic true -o none &>/dev/null &
+
+az network vnet-gateway update --name az-hub1-ergw --resource-group $rg1 --allow-remote-vnet-traffic true --no-wait
+az network vnet-gateway update --name az-hub2-ergw --resource-group $rg2 --allow-remote-vnet-traffic true --no-wait
+
+echo Checking ExpressRoute Gateway Provisioning State...
+#Check vHub ER Gateway Provisioning State
+echo checking ExpressRoute Gateway deployment...
+prState1=''
+prState2=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]];
+do
+    prState1=$(az network express-route gateway show -g $rg -n $hub1name-ergw --query 'provisioningState' -o tsv)
+    echo "$hub1name-ergw provisioningState="$prState1
+    prState2=$(az network express-route gateway show -g $rg -n $hub2name-ergw --query 'provisioningState' -o tsv)
+    echo "$hub2name-ergw provisioningState="$prState2
+    sleep 5
+done
+
+
+echo checking ExpressRoute Gateway deployment...
+prState1=''
+prState2=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]];
+do
+    prState1=$(az network vnet-gateway show -g $rg1 -n az-hub1-ergw --query 'provisioningState' -o tsv)
+    echo "az-hub1-ergw provisioningState="$prState1
+    prState2=$(az network vnet-gateway show -g $rg2 -n az-hub2-ergw --query 'provisioningState' -o tsv)
+    echo "az-hub2-ergw provisioningState="$prState2
+    sleep 5
+done
