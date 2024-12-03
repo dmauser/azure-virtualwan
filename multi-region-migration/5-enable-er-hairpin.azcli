@@ -14,8 +14,8 @@ region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
 az network express-route gateway update -g $rg -n $hub1name-ergw --location $region1 --virtual-hub $hub1name --allow-non-vwan-traffic true -o none &>/dev/null &
 az network express-route gateway update -g $rg -n $hub2name-ergw --location $region2 --virtual-hub $hub2name --allow-non-vwan-traffic true -o none &>/dev/null &
 
-az network vnet-gateway update --name az-hub1-ergw --resource-group $rg1 --allow-remote-vnet-traffic true --no-wait
-az network vnet-gateway update --name az-hub2-ergw --resource-group $rg2 --allow-remote-vnet-traffic true --no-wait
+az network vnet-gateway update --name az-hub1-ergw --resource-group $rg1 --allow-vwan-traffic true --allow-remote-vnet-traffic true --no-wait
+az network vnet-gateway update --name az-hub2-ergw --resource-group $rg2 --allow-vwan-traffic true --allow-remote-vnet-traffic true --no-wait
 
 echo Checking ExpressRoute Gateway Provisioning State...
 #Check vHub ER Gateway Provisioning State
@@ -32,7 +32,7 @@ do
 done
 
 
-echo checking ExpressRoute Gateway deployment...
+echo checking VNET Hub ExpressRoute Gateways deployment...
 prState1=''
 prState2=''
 while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]];

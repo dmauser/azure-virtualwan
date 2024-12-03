@@ -1,0 +1,21 @@
+
+# Parameters (make changes based on your requirements)
+hub1name=sechub1 #set Hub1 name
+hub2name=sechub2 #set Hub2 name
+region1=$(az network vhub show -n $hub1name -g $rg --query location -o tsv)
+region2=$(az network vhub show -n $hub2name -g $rg --query location -o tsv)
+rg1=lab-hsmulti-region-$region1
+rg2=lab-hsmulti-region-$region2
+rg=lab-svh-inter
+
+# Using AZ CLI list all vms inside the resource group $rg and their privte and public IP addresses
+az vm list-ip-addresses --resource-group $rg --output table
+
+# Using AZ CLI list all vms inside the resource group $rg1 and their privte and public IP addresses
+az vm list-ip-addresses --resource-group $rg1 --output table
+
+# Using AZ CLI list all vms inside the resource group $rg2 and their privte and public IP addresses
+az vm list-ip-addresses --resource-group $rg2 --output table
+
+
+
