@@ -1,24 +1,28 @@
 # Run both command below to create Hub1+On-Premises and Hub2
 
 #Paramters
-rg=lab-hsmulti-region
+rg=lab-hs
 hub1name=hub1
-hub2name=hub2
 hub1location=eastus2
+hub2name=hub2
 hub2location=centralus
+
+# Define ExpressRoute parameters
+ername1=az-er-ashburn # ExpressRoute Circuit Name
+edge1="Washington DC" #Peering Location
+provider=Megaport # Provider
+
+#Variables:
 VmAdminUsername=azureuser
 VmAdminPassword=Msft123Msft123
 mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
 
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
 
-# Define ExpressRoute parameters
-ername1=az-er-ashburn # ExpressRoute Circuit Name
-ername2=az-er-chicago
-edge1="Washington DC" #Peering Location
-edge2="Chicago" #Peering Location
-provider=Megaport # Provider
-
-# Step 1 - Deploy Hub1 and Hub2 base Lab using the following ARM templates
+# Create Hub1
+echo "Deploying Hub1..."
 az group create --name $rg-$hub1location --location $hub1location --output none
 az deployment group create --name Hub1-$hub1location --resource-group $rg-$hub1location \
 --template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeployv5.json \
@@ -26,6 +30,8 @@ az deployment group create --name Hub1-$hub1location --resource-group $rg-$hub1l
 --parameters location=$hub1location VmAdminUsername=$VmAdminUsername VmAdminPassword=$VmAdminPassword \
 --no-wait
 
+# Create Hub2
+echo "Deploying Hub2..."
 az group create --name $rg-$hub2location --location $hub2location --output none
 az deployment group create --name Hub2-$hub2location --resource-group $rg-$hub2location \
 --template-uri https://raw.githubusercontent.com/dmauser/azure-hub-spoke-base-lab/main/azuredeployv5.json \
@@ -33,34 +39,18 @@ az deployment group create --name Hub2-$hub2location --resource-group $rg-$hub2l
 --parameters location=$hub2location VmAdminUsername=$VmAdminUsername VmAdminPassword=$VmAdminPassword \
 --no-wait
 
-# It will prompt you to add usename and password twice (excepcted beahvior)
-# Please provide string value for 'VmAdminUsername'
-# Please provide securestring value for 'VmAdminPassword'
-
-# Step 2 - Create an ExpressRoute Circuit
-
-# 1) Create ExpressRoute Circuit
+#Creating an ExpressRoute Circuit
+echo "Creating an ExpressRoute Circuit..."
 # In this example ExpressRoute is created in "Washington DC" using Mepgaport as Provider. Make the necessary changes based on your needs
 az network express-route create --bandwidth 50 -n $ername1 --peering-location "$edge1" -g $rg-$hub1location --provider $provider -l $hub1location --sku-family MeteredData --sku-tier Standard -o none
-az network express-route create --bandwidth 50 -n $ername2 --peering-location "$edge2" -g $rg-$hub2location --provider $provider -l $hub2location --sku-family MeteredData --sku-tier Standard -o none
 
 # Get the expressroute servicekey
 echo "ExpressRoute Service Key: " $(az network express-route show -n $ername1 -g $rg-$hub1location --query serviceKey -o tsv)
-echo "ExpressRoute Service Key: " $(az network express-route show -n $ername2 -g $rg-$hub2location --query serviceKey -o tsv)
 
-# Step 3 - Provision ExpressRoute Circuit with you provider
+# Provision ExpressRoute Circuit with you provider
 # Loop script to continue only when express route provider provisioning state is "Provisioned"
 while true; do
     state=$(az network express-route show -n $ername1 -g $rg-$hub1location --query serviceProviderProvisioningState -o tsv)
-    if [ $state == "Provisioned" ]; then
-        break
-    fi
-    echo "Waiting for ExpressRoute Circuit $ername1 to be provisioned..."
-    sleep 10
-done
-
-while true; do
-    state=$(az network express-route show -n $ername2 -g $rg-$hub2location --query serviceProviderProvisioningState -o tsv)
     if [ $state == "Provisioned" ]; then
         break
     fi
@@ -73,28 +63,29 @@ while true; do
     state1=$(az network vnet-gateway show -n Az-Hub1-ergw -g $rg-$hub1location --query provisioningState -o tsv)
     state2=$(az network vnet-gateway show -n Az-Hub2-ergw -g $rg-$hub2location --query provisioningState -o tsv)
     if [ $state1 == "Succeeded" ] && [ $state2 == "Succeeded" ]; then
-        echo "VNET ERGWs are provisioned."
+        break
     fi
-    echo "Waiting for VNET ERGW to be provisioned..."
+    echo "Waiting for ERGW to be provisioned..."
     sleep 10
 done
 
-# Step 4 - Attach ER Circuit to the VNET ERGW on Hub1 and Hub2
 # Add check for Service Provider serviceProviderProvisioningState = Provisioned
+# Validate Circuits Provider privisionaing status:
+echo $ername1
+if  [ $(az network express-route show -g $rg-$hub1location --name $ername1 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
+ echo "Provisioned"
+else
+ echo $(az network express-route show -g $rg-$hub1location --name $ername1 --query serviceProviderProvisioningState -o tsv)
+ echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
+fi
+
+#Attach ER Circuit to the VNET ERGW on Hub1 and Hub2
 erid=$(az network express-route show -n $ername1 -g $rg-$hub1location --query id -o tsv) 
 az network vpn-connection create --name ER-Connection-to-Hub1 \
 --resource-group $rg-$hub1location --vnet-gateway1 Az-Hub1-ergw \
 --express-route-circuit2 $erid \
 --routing-weight 0 \
 --output none
-
-erid=$(az network express-route show -n $ername2 -g $rg-$hub2location --query id -o tsv) 
-az network vpn-connection create --name ER-Connection-to-Hub2 \
---resource-group $rg-$hub2location--vnet-gateway1 Az-Hub2-ergw \
---express-route-circuit2 $erid \
---routing-weight 0 \
---output none
-
 
 echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, hping3, and others)"
 nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
@@ -108,14 +99,10 @@ do
  --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
  --no-wait
 done
-for vm in `az vm list -g $rg-$hub2location --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
-do
- az vm extension set --force-update \
- --resource-group $rg-$hub2location \
- --vm-name $vm \
- --name customScript \
- --publisher Microsoft.Azure.Extensions \
- --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
- --no-wait
-done
 echo "Deployment hs been completed successfully."
+
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."

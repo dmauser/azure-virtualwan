@@ -1,0 +1,4 @@
+#Base
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/scenarios/svhri-inter-deploy-base.azcli | bash
+#ERgw
+curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/scenarios/svhri-inter-deploy-ergw.azcli | bash

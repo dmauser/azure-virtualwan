@@ -1,0 +1,94 @@
+#Paramters
+rg=lab-hs-region
+hub1name=hub1
+hub1location=eastus2
+VmAdminUsername=azureuser
+VmAdminPassword=Msft123Msft123
+mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
+firewalltier=Basic
+
+echo Deploying Azure Firewall...
+# Deploy Azure Firewall on az-$hub1name-vnet and az-$hub2name-vnet
+
+# Create Firewall Policy for each region:
+echo Creating Azure Firewall Policy for each region...
+az network firewall policy create -g $rg-$hub1location -n $hub1location-AZFW-Policy --threat-intel-mode Alert --location $hub1location --sku $firewalltier --output none
+
+# Create firewall policy rule collection group for each region:
+echo Creating Azure Firewall Policy Rule Collection Group for each region...
+az network firewall policy rule-collection-group create -g $rg-$hub1location --policy-name $hub1location-AZFW-Policy -n NetworkRuleCollectionGroup --priority 200 --output none
+
+# Create a any to any Network Rule Collection for each region:
+# For $hub1location-AZFW-Policy
+az network firewall policy rule-collection-group collection add-filter-collection \
+ --resource-group $rg-$hub1location \
+ --policy-name $hub1location-AZFW-Policy \
+ --name GenericCollection \
+ --rcg-name NetworkRuleCollectionGroup \
+ --rule-type NetworkRule \
+ --rule-name AnytoAny \
+ --action Allow \
+ --ip-protocols "Any" \
+ --source-addresses "*" \
+ --destination-addresses  "*" \
+ --destination-ports "*" \
+ --collection-priority 100 \
+ --output none
+
+#Build Azure Firewall / Note this section takes few minutes to complete.
+echo Building Azure Firewall...
+# Create Azure Firewall Subnet and Management Subnets
+az network vnet subnet create -g $rg-$hub1location --vnet-name az-$hub1name-vnet -n AzureFirewallSubnet --address-prefixes 10.10.0.64/26 --output none
+az network public-ip create --name az-$hub1name-vnet-azfw-pip --resource-group $rg-$hub1location --location $hub1location --allocation-method static --sku standard --output none --only-show-errors
+
+az network vnet subnet create -g $rg-$hub1location --vnet-name az-$hub1name-vnet -n AzureFirewallManagementSubnet --address-prefixes 10.10.0.192/26 --output none
+az network public-ip create --name az-$hub1name-vnet-azfw-mgmtpip --resource-group $rg-$hub1location --location $hub1location --allocation-method static --sku standard --output none --only-show-errors
+
+# Create Azure Firewall
+az network firewall create --name az-$hub1name-vnet-azfw --resource-group $rg-$hub1location --location $hub1location --firewall-policy $hub1location-AZFW-Policy --vnet-name az-$hub1name-vnet --sku AZFW_VNet --tier basic --conf-name FW-config --m-conf-name FW-mgmconfig --m-public-ip az-$hub1name-vnet-azfw-mgmtpip --output none
+# Add Public IP to the firewall
+az network firewall ip-config create --firewall-name az-$hub1name-vnet-azfw --name FW-config --m-name FW-mgmconfig --public-ip-address az-$hub1name-vnet-azfw-pip --m-public-ip-address az-$hub1name-vnet-azfw-mgmtpip --m-vnet-name az-$hub1name-vnet --resource-group $rg-$hub1location --vnet-name az-$hub1name-vnet --output none
+az network firewall update --name az-$hub1name-vnet-azfw --resource-group $rg-$hub1location --output none --only-show-errors
+
+#Creating Log Analytics Workspaces
+## Log Analytics workspace name. 
+Workspacename1=AZFirewall-$hub1location-Logs 
+echo Creating Log Analytics Workspaces...
+msinsights=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+if [ $msinsights == 'NotRegistered' ] || [ $msinsights == 'Unregistered' ]; then
+az provider register -n microsoft.insights --accept-terms
+ prState=''
+ while [[ $prState != 'Registered' ]];
+ do
+    prState=$(az provider show -n microsoft.insights --query registrationState -o tsv)
+    echo "MS Insights State="$prState
+    sleep 5
+ done
+fi
+
+#az-$hub1name-vnet-azfw
+az monitor log-analytics workspace create -g $rg-$hub1location --workspace-name $Workspacename1 --location $hub1location --no-wait
+
+#EnablingAzure Firewall diagnostics
+#az-$hub1name-vnet-azfw
+az monitor diagnostic-settings create -n 'toLogAnalytics' \
+--resource $(az network firewall show --name az-$hub1name-vnet-azfw --resource-group $rg-$hub1location --query id -o tsv) \
+--workspace $(az monitor log-analytics workspace show -g $rg-$hub1location --workspace-name $Workspacename1 --query id -o tsv) \
+--logs '[{"category":"AzureFirewallApplicationRule","Enabled":true}, {"category":"AzureFirewallNetworkRule","Enabled":true}, {"category":"AzureFirewallDnsProxy","Enabled":true}]' \
+--metrics '[{"category": "AllMetrics","enabled": true}]' \
+--output none
+
+echo Updating indirect spoke UDRs to use Firewall as next hop...
+#UDRs for Spoke 1 and 2
+## Creating UDR + Disable BGP Propagation
+az network route-table create --name RT-to-az-$hub1name-vnet-AzFW  --resource-group $rg-$hub1location --location $hub1location --disable-bgp-route-propagation true --output none
+## Default route to AzFW
+az network route-table route create --resource-group $rg-$hub1location --name Default-to-AzFw --route-table-name RT-to-az-$hub1name-vnet-AzFW \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $(az network firewall show --name az-$hub1name-vnet-azfw --resource-group $rg-$hub1location --query "ipConfigurations[].privateIPAddress" -o tsv) \
+--output none
+## Associated RT-Hub-to-AzFW to Spoke 5 and 6.
+az network vnet subnet update -n subnet1 -g $rg-$hub1location --vnet-name az-spk1-vnet --route-table RT-to-az-$hub1name-vnet-AzFW --output none
+az network vnet subnet update -n subnet1 -g $rg-$hub1location --vnet-name az-spk2-vnet --route-table RT-to-az-$hub1name-vnet-AzFW --output none
+
