@@ -31,6 +31,12 @@ The lab is also available in the above .azcli that you can rename as .sh (shell 
 curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/svhri-inter-deploy.azcli | bash
 ```
 
+```bash
+wget -O svhri-inter-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/svhri-inter-deploy.azcli 
+chmod +xr svhri-inter-deploy.sh
+./svhri-inter-deploy.sh
+```
+
 **Note:** the provisioning process will take 60-90 minutes to complete. Also, note that Azure Cloud Shell has a 20 minutes timeout and make sure you watch the process to make sure it will not timeout causing the deployment to stop. You can hit enter during the process just to make sure Serial Console will not timeout. Otherwise, you can install it using any Linux. In can you have Windows OS you can get a Ubuntu + WSL2 and install Azure CLI.
 
 Alternatively (recommended), you can run step-by-step to get familiar with the provisioning process and the components deployed:

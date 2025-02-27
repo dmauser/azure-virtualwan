@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Parameters (make changes based on your requirements)
-region1=westcentralus #set region1
+region1=eastus2 #set region1
 region2=westus3 #set region2
 rg=lab-svh-inter #set resource group
 vwanname=svh-inter #set vWAN name
