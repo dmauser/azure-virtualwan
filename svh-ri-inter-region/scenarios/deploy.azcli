@@ -1,0 +1,4 @@
+wget -O svhri-inter-deploy.sh https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/svh-ri-inter-region/scenarios/svhri-inter-deploy-base.azcli 
+chmod +xr svhri-inter-deploy.sh
+./svhri-inter-deploy.sh standard
+

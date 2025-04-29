@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Variables
+storage_account_name=mauserstgeus2
+container_name="public"
+file_name="hello.txt"
+file_content="${storage_account_name} Hello World"
+
+# Create a container with public access
+az storage container create --name $container_name --account-name $storage_account_name --public-access blob --auth-mode login
+
+# Create a text file with "Hello World" content
+echo $file_content > $file_name
+
+# Upload the text file to the container
+# Generate a SAS token
+sas_token=$(az storage account generate-sas --permissions acdlrw --account-name $storage_account_name --services b --resource-types sco --expiry $(date -u -d '1 hour' '+%Y-%m-%dT%H:%MZ') -o tsv)
+
+# Upload the text file to the container using SAS token
+az storage blob upload --container-name $container_name --name $file_name --file $file_name --account-name $storage_account_name --sas-token $sas_token
+
+# Set container access level to public
+az storage container set-permission --name $container_name --public-access blob --account-name $storage_account_name --auth-mode login
+
+# Output the URL to access the file
+echo "File URL: https://$storage_account_name.blob.core.windows.net/$container_name/$file_name"

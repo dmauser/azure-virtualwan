@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Parameters (make changes based on your requirements)
-region1=eastus
-region2=eastus
-region3=eastus
+region1=eastus2
+region2=eastus2
+region3=eastus2
 
 rg=lab-vwan-vrf
 vwanname=vwan-vrf

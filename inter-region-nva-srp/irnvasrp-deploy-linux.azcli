@@ -431,7 +431,7 @@ dstcidr=10.2.0.0/16
 conn=spoke2conn
 propagateStaticRoutes=true #Static Route propagation true or false
 vnetLocalRouteOverrideCriteria=Equal #Equal = Onlink enabled Contains=Onlink disabled
-apiversion='2023-05-01' #Set API version
+apiversion='2024-05-01' #Set API version
 #SubID
 subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 #vHubRegion
@@ -448,7 +448,7 @@ dstcidr="10.4.0.0/16"
 conn=spoke4conn
 propagateStaticRoutes=true #Static Route propagation true or false
 vnetLocalRouteOverrideCriteria=Equal #Equal = Onlink enabled Contains=Onlink disabled
-apiversion='2023-05-01' #Set API version
+apiversion='2024-05-01' #Set API version
 #SubID
 subid=$(az account list --query "[?isDefault == \`true\`].id" --all -o tsv)
 #vHubRegion

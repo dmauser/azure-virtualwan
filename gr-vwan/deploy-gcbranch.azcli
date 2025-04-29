@@ -1,9 +1,9 @@
 # Define your variables
 project=angular-expanse-327722 #Set your project Name. Get your PROJECT_ID use command: gcloud projects list 
-region=us-central1 #Set your region. Get Regions/Zones Use command: gcloud compute zones list
-zone=us-central1-c # Set availability zone: a, b or c.
-vpcrange=10.100.0.0/16
-envname=onprem-central
+region=southamerica-east1 #Set your region. Get Regions/Zones Use command: gcloud compute zones list
+zone=southamerica-east1-c # Set availability zone: a, b or c.
+vpcrange=10.90.0.0/16
+envname=oci-brazil
 vmname=vm1
 mypip=$(curl -4 ifconfig.io -s) #Gets your Home Public IP or replace with that information. It will add it to the Firewall Rule.
 
@@ -35,8 +35,8 @@ gcloud compute interconnects attachments describe $envname-vlan --region $region
 project=angular-expanse-327722 #Set your project Name. Get your PROJECT_ID use command: gcloud projects list 
 region=us-east1 #Set your region. Get Regions/Zones Use command: gcloud compute zones list
 zone=us-east1-c # Set availability zone: a, b or c.
-vpcrange=10.200.0.0/16
-envname=onprem-east
+vpcrange=10.91.0.0/16
+envname=oci-us
 vmname=vm1
 mypip=$(curl -4 ifconfig.io -s) #Gets your Home Public IP or replace with that information. It will add it to the Firewall Rule.
 

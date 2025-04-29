@@ -103,6 +103,23 @@ do
     sleep 5
 done
 
+echo Checking Hub2 provisioning status...
+# Checking Hub2 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv)
+    echo "$hub2name provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hub2name --query 'routingState' -o tsv)
+    echo "$hub2name routingState="$rtState
+    sleep 5
+done
 
 # create spoke to Vwan connections to hub2
 az network vhub connection create -n spoke3conn --remote-vnet spoke3 -g $rg --vhub-name $hub2name --no-wait
@@ -146,8 +163,8 @@ az network express-route create --bandwidth 50 -n $ername1 --peering-location "$
 
 #Create vHub ER Gateways
 echo Creating vHub ExpressRoute Gateway...
-az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name &>/dev/null
-az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name &>/dev/null
+az network express-route gateway create -g $rg -n $hub1name-ergw --location $region1 --min-val 1 --virtual-hub $hub1name &>/dev/null &
+az network express-route gateway create -g $rg -n $hub2name-ergw --location $region2 --min-val 1 --virtual-hub $hub2name &>/dev/null &
 
 # Loop script to waiting circuit to be provisioned at the provider
 
@@ -183,8 +200,8 @@ sleep 10
 prState1=''
 while [[ $prState1 != 'Succeeded' ]];
 do
-    prState1=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --query 'provisioningState' -o tsv)
-    echo ER connection connection-to-$ername1 "provisioningState="$prState1
+    prState1=$(az network express-route gateway connection show --name $hub1name-connection-to-$ername1 -g $rg --gateway-name $hub1name-ergw --query 'provisioningState' -o tsv)
+    echo ER connection $hub1name-connection-to-$ername1 "provisioningState="$prState1
     sleep 10
 done
 
@@ -196,8 +213,8 @@ sleep 10
 prState1=''
 while [[ $prState1 != 'Succeeded' ]];
 do
-    prState1=$(az network express-route gateway connection show --name connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --query 'provisioningState' -o tsv)
-    echo ER connection connection-to-$ername1 "provisioningState="$prState1
+    prState1=$(az network express-route gateway connection show --name $hub2name-connection-to-$ername1 -g $rg --gateway-name $hub2name-ergw --query 'provisioningState' -o tsv)
+    echo ER connection $hub2name-connection-to-$ername1 "provisioningState="$prState1
     sleep 10
 done
 echo Deployment has finished
