@@ -71,6 +71,18 @@ az network nsg create --resource-group $rg --name default-nsg-$region1 --locatio
 az network nsg rule create -g $rg --nsg-name default-nsg-$region1 -n 'default-allow-ssh' --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' --destination-address-prefixes '*' --destination-port-ranges 22 --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
 az network vnet subnet update --id $(az network vnet list -g $rg --query '[].{id:subnets[0].id}' -o tsv) --network-security-group default-nsg-$region1 -o none
 
+# Create UDR from spoke3 and spoke 4 to spoke2 nvalb
+echo "Creating UDR from spoke3 and spoke4 to spoke2 NVA load balancer..."
+# Get load balancer spoke2-linux-nva-ilb ip address
+nvalbip=$(az network lb frontend-ip list -g $rg --lb-name spoke2-linux-nva-ilb --query "[?contains(name, 'frontend')].{Name:privateIPAddress}" -o tsv)
+az network route-table create -g $rg -n spoke3-rt --location $region1 --output none
+az network route-table route create -g $rg --route-table-name spoke3-rt -n spoke2 --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $nvalbip --output none
+az network vnet subnet update --vnet-name spoke3 -g $rg --name main --route-table spoke3-rt --output none
+
+az network route-table create -g $rg -n spoke4-rt --location $region1 --output none
+az network route-table route create -g $rg --route-table-name spoke4-rt -n spoke2 --address-prefix 0.0.0.0/0 --next-hop-type VirtualAppliance --next-hop-ip-address $nvalbip --output none
+az network vnet subnet update --vnet-name spoke4 -g $rg --name main --route-table spoke4-rt --output none
+
 echo Creating VPN Gateway in branch1...
 az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --address-prefixes 10.100.100.0/26 --output none
 az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none
