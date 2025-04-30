@@ -76,10 +76,22 @@ az network vnet subnet create -g $rg --vnet-name branch1 -n GatewaySubnet --addr
 az network public-ip create -n branch1-vpngw-pip -g $rg --location $region1 --output none
 az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65510 --gateway-type Vpn -l $region1 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
 
-echo Checking Hub1 provisioning status...
-while [[ $(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv) != 'Succeeded' ]]; do sleep 5; done
-while [[ $(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv) != 'Provisioned' ]]; do sleep 5; done
+echo "Checking Hub1 provisioning status..."
+prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+while [[ $prState != 'Succeeded' ]]; do
+    echo "provisioningState=$prState"
+    sleep 5
+    prState=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv)
+done
+echo "provisioningState=Succeeded"
 
+rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+while [[ $rtState != 'Provisioned' ]]; do
+    echo "routingState=$rtState"
+    sleep 5
+    rtState=$(az network vhub show -g $rg -n $hub1name --query 'routingState' -o tsv)
+done
+echo "routingState=Provisioned"
 
 # Create spoke to Vwan connections to hub1
 az network vhub connection create -n spoke1-conn --remote-vnet spoke1 -g $rg --vhub-name $hub1name --no-wait
@@ -98,6 +110,18 @@ do
         sleep 5
     fi
 done
+
+######## Deploying NVA on spoke2 ########
+echo "Creating spoke2 NVA..."
+
+#NVA specific variables:
+# Deploy BGP endpoint (Make the changes based on your needs)
+nvavnetnamer1=spoke2 #Target NET
+instances=2 #Set number of NVA instaces to be created
+nvaintname=linux-nva #NVA instance name
+nvasubnetname=nvasubnet #Existing Subnet where NVA gets deployed
+hubtopeer=$hub1name #Note: VNET has to be connected to the same hub
+nvanames=$(i=1;while [ $i -le $instances ];do echo $nvavnetnamer1-$nvaintname$i; ((i++));done)
 
 #Specific NVA BGP settings
 asn_frr=65002 # Set ASN
@@ -132,7 +156,7 @@ do
  --name $nvaname \
  --peer-asn $asn_frr \
  --peer-ip $(az network nic show --name $nvaname-nic --resource-group $rg --query ipConfigurations[0].privateIPAddress -o tsv) \
- --vhub-conn $(az network vhub connection show --name $nvavnetnamer1'conn' --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
+ --vhub-conn $(az network vhub connection show --name $nvavnetnamer1-conn --resource-group $rg --vhub-name $hubtopeer --query id -o tsv) \
  --output none
 done
 
@@ -194,6 +218,23 @@ else
         sleep 5
     done
 fi
+
+echo Enabling boot diagnostics
+az vm boot-diagnostics enable --ids $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
+
+### Installing tools for networking connectivity validation such as traceroute, tcptraceroute, iperf and others (check link below for more details) 
+echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, hping3, and others)"
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+for vm in `az vm list -g $rg --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
+do
+ az vm extension set --force-update \
+ --resource-group $rg \
+ --vm-name $vm \
+ --name customScript \
+ --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+done
 
 echo Building VPN connections from VPN Gateways to the respective Branch...
 # get bgp peering and public ip addresses of VPN GW and VWAN to set up connection
