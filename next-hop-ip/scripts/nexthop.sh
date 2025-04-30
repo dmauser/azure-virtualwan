@@ -3,7 +3,7 @@
 sudo vtysh << EOVTYSH
 conf t
 route-map lbnexthop permit 10
- set ip next-hop 10.2.0.38
+ set ip next-hop %1
 exit
 
 router bgp 65002

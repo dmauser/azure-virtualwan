@@ -11,8 +11,9 @@ echo Configuring iptables rules on DMZ-NVA...
 scripturi="https://raw.githubusercontent.com/dmauser/azure-virtualwan/refs/heads/main/next-hop-ip/scripts/nexthop.sh"
 az vm run-command invoke -g $rg -n spoke2-linux-nva1 --command-id RunShellScript --scripts "curl -s $scripturi | bash" --output none --no-wait
 
-# Get spoke2-nvalb
+# Get load balancer spoke2-linux-nva-ilb ip address
+nvalbip=$(az network lb frontend-ip list -g $rg --lb-name spoke2-linux-nva-ilb --query "[?contains(name, 'frontend')].{Name:privateIPAddress}" -o tsv)
 
-echo Configuring iptables rules on DMZ-NVA...
+# Pass $nvalbip as a parameter to the script
 scripturi="https://raw.githubusercontent.com/dmauser/azure-virtualwan/refs/heads/main/next-hop-ip/scripts/nexthop.sh"
-az vm run-command invoke -g $rg -n spoke2-linux-nva1 --command-id RunShellScript --scripts "curl -s $scripturi | bash" --output none --no-wait
+az vm run-command invoke -g $rg -n spoke2-linux-nva1 --command-id RunShellScript --scripts "curl -s $scripturi | bash -s -- $nvalbip" --output none --no-wait
