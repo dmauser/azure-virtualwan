@@ -1,0 +1,3 @@
+echo Configuring iptables rules on DMZ-NVA...
+scripturi="https://raw.githubusercontent.com/dmauser/azure-vwan-vrf/refs/heads/main/scripts/iptables.sh"
+az vm run-command invoke -g $rg -n dmz-nva --command-id RunShellScript --scripts "curl -s $scripturi | bash" --output none --no-wait
