@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ip=%1
+ip=$1
 sudo vtysh << EOVTYSH
 conf t
 route-map lbnexthop permit 10
