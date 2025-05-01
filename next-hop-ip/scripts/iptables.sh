@@ -1,7 +1,8 @@
 #!/bin/sh
 
 # This script configures iptables rules for a Linux-based NVA (Network Virtual Appliance) VM.
-apt-get install iptables-persistent
+apt-get update -y
+apt-get install iptables-persistent -y
 
 # Flush existing rules (optional, depending on use case)
 iptables -F FORWARD

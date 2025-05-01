@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Parameters
 region1=eastus2
 rg=lab-vwan-nexthopip
