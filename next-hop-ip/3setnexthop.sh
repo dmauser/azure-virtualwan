@@ -1,10 +1,7 @@
 #!/bin/bash
 
 # Parameters
-region1=eastus2
 rg=lab-vwan-nexthopip
-vwanname=vwan-nexthopip
-hub1name=hub1
 
 # Get all vms with nva in the name
 az vm list -g $rg --query "[?contains(name, 'nva')].{Name:name}" -o table
