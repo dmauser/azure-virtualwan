@@ -1,16 +1,45 @@
-# Virtual Hub VPN Gateway
+# Pre-Requisites
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+# Parameters
 rg=lab-vwan-vpn
 vhub1name=vhub1
 subid=$(az account show --query id -o tsv)
 vhubgwname=$(az network vpn-gateway list --resource-group $rg --query "[?contains(name, '$vhub1name')].name" -o tsv)
 
+# List all BGP peers
 ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
 
 response=$(curl -i -X POST \
  -H "Authorization: Bearer $ACCESS_TOKEN" \
  -H "Content-Type: application/json" \
- -d '{"peer": ""}' \
+ -d '{}' \
  "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01")
+
+location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
+sleep 5
+if [ -n "$location" ]; then
+    # Wait for the operation to complete (optional: add sleep/retry logic if needed)
+    final_result=$(curl -s -X GET -H "Authorization: Bearer $ACCESS_TOKEN" "$location")
+    echo "$final_result" | jq -r '.value[] | [.neighbor, .state, .asn, .connectedDuration, .routesReceived, .routesAdvertised] | @tsv' | \
+    awk 'BEGIN {print "Neighbor\tState\tASN\tConnectedDuration\tRoutesReceived\tRoutesAdvertised"} {print $0}' | column -t -s $'\t'
+else
+    echo "No Location header found. Response:"
+    echo "$response"
+fi
+
+# List BGP status for a specific peer
+bgppeer=10.100.100.62
+ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
+
+response=$(curl -i -X POST \
+ -H "Authorization: Bearer $ACCESS_TOKEN" \
+ -H "Content-Type: application/json" \
+ -d '{}' \
+ "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01&peer=$bgppeer")
 
 location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
 sleep 5
