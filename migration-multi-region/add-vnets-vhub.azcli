@@ -1,0 +1,12 @@
+#Paramters
+rg=lab-hsmulti-region
+hub1name=hub1
+hub2name=hub2
+hub1location=eastus2
+hub2location=centralus
+VmAdminUsername=azureuser
+VmAdminPassword=Msft123Msft123
+mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
+
+
+# Create spoke 

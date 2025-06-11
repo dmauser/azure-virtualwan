@@ -1,0 +1,39 @@
+
+#Paramters
+rg=lab-hsmulti-region
+hub1name=hub1
+hub2name=hub2
+hub1location=eastus2
+hub2location=centralus
+VmAdminUsername=azureuser
+VmAdminPassword=Msft123Msft123
+mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
+
+
+
+echo Updating indirect spoke UDRs to use Firewall as next hop...
+#UDRs for Spoke 5 and 6
+## Creating UDR + Disable BGP Propagation
+az network route-table create --name RT-to-az-$hub1name-vnet-AzFW  --resource-group $rg-$hub1name --location $hub1location --disable-bgp-route-propagation true --output none
+## Default route to AzFW
+az network route-table route create --resource-group $rg-$hub1name --name Default-to-AzFw --route-table-name RT-to-az-$hub1name-vnet-AzFW \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $(az network firewall show --name az-$hub1name-vnet-azfw --resource-group $rg-$hub1name --query "ipConfigurations[].privateIPAddress" -o tsv) \
+--output none
+## Associated RT-Hub-to-AzFW to Spoke 5 and 6.
+az network vnet subnet update -n main -g $rg-$hub1name --vnet-name spoke5 --route-table RT-to-az-$hub1name-vnet-AzFW --output none
+az network vnet subnet update -n main -g $rg-$hub1name --vnet-name spoke6 --route-table RT-to-az-$hub1name-vnet-AzFW --output none
+
+#UDRs for Spoke 7 and 8
+## Creating UDR + Disable BGP Propagation
+az network route-table create --name RT-to-az-$hub2name-vnet-AzFW  --resource-group $rg-$hub2name --location $hub2location --disable-bgp-route-propagation true --output none
+## Default route to AzFW
+az network route-table route create --resource-group $rg-$hub2name --name Default-to-AzFw --route-table-name RT-to-az-$hub2name-vnet-AzFW \
+--address-prefix 0.0.0.0/0 \
+--next-hop-type VirtualAppliance \
+--next-hop-ip-address $(az network firewall show --name az-$hub2name-vnet-azfw --resource-group $rg-$hub2name --query "ipConfigurations[].privateIPAddress" -o tsv) \
+--output none
+## Associated RT-Hub-to-AzFW to Spoke 7 and 8.
+az network vnet subnet update -n main -g $rg-$hub2name --vnet-name spoke7 --route-table RT-to-az-$hub2name-vnet-AzFW --output none
+az network vnet subnet update -n main -g $rg-$hub2name --vnet-name spoke8 --route-table RT-to-az-$hub2name-vnet-AzFW --output none

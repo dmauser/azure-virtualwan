@@ -8,7 +8,7 @@ hub2location=centralus
 VmAdminUsername=azureuser
 VmAdminPassword=Msft123Msft123
 mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
-
+firewalltier=Basic
 
 echo Deploying Azure Firewall...
 # Deploy Azure Firewall on az-$hub1name-vnet and az-$hub2name-vnet

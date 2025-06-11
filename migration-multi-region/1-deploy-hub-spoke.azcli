@@ -74,6 +74,7 @@ while true; do
     state2=$(az network vnet-gateway show -n Az-Hub2-ergw -g $rg-$hub2location --query provisioningState -o tsv)
     if [ $state1 == "Succeeded" ] && [ $state2 == "Succeeded" ]; then
         echo "VNET ERGWs are provisioned."
+        break
     fi
     echo "Waiting for VNET ERGW to be provisioned..."
     sleep 10
