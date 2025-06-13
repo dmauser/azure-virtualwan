@@ -1,9 +1,3 @@
-# Pre-Requisites
-# Check if virtual wan extension is installed if not install it
-if ! az extension list | grep -q virtual-wan; then
-    echo "virtual-wan extension is not installed, installing it now..."
-    az extension add --name virtual-wan --only-show-errors
-fi
 # Parameters
 rg=lab-vwan-vpn
 vhub1name=vhub1
@@ -17,7 +11,7 @@ response=$(curl -i -X POST \
  -H "Authorization: Bearer $ACCESS_TOKEN" \
  -H "Content-Type: application/json" \
  -d '{}' \
- "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01")
+ "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01")
 
 location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
 sleep 5
@@ -39,7 +33,7 @@ response=$(curl -i -X POST \
  -H "Authorization: Bearer $ACCESS_TOKEN" \
  -H "Content-Type: application/json" \
  -d '{}' \
- "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01&peer=$bgppeer")
+ "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01&peer=$bgppeer")
 
 location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
 sleep 5

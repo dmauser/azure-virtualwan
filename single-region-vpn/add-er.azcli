@@ -1,0 +1,96 @@
+#!/bin/bash
+
+# Pre-Requisite
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
+#Variables
+rg=lab-vwan-vpn
+region=$(az group show -n $rg --query "location" -o tsv)
+vwanname=vwan-vpn
+hubname=vhub1
+
+#ExpressRoute specific variables
+perloc1="Washington DC"
+providerloc1=Megaport
+ername1="er-ckt-$hubname"
+ 
+# Adding script starting time and finish time
+start=`date +%s`
+echo "Script started at $(date)"
+
+echo Creating ExpressRoute Circuits...
+#Create ER circuits
+az network express-route create --bandwidth 50 -n $ername1 --peering-location "$perloc1" -g $rg --provider $providerloc1 -l $region --sku-family MeteredData --sku-tier Standard -o none
+
+echo Checking Hub1 provisioning status...
+# Checking Hub1 provisioning and routing state 
+prState=''
+rtState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network vhub show -g $rg -n $hubname --query 'provisioningState' -o tsv)
+    echo "$hubname provisioningState="$prState
+    sleep 5
+done
+
+while [[ $rtState != 'Provisioned' ]];
+do
+    rtState=$(az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv)
+    echo "$hubname routingState="$rtState
+    sleep 5
+done
+
+echo Creating ExpressRoute Gateways...
+#Create vHub ER Gateways
+echo Creating vHub ExpressRoute Gateway...
+az network express-route gateway create -g $rg -n $hubname-ergw --location $region --min-val 1 --virtual-hub $hubname -o none &>/dev/null &
+
+echo Checking ExpressRoute Gateway Provisioning State...
+#Check vHub ER Gateway Provisioning State
+sleep 5
+echo checking ExpressRoute Gateway deployment...
+prState1=''
+while [[ $prState1 != 'Succeeded' ]];
+do
+    prState1=$(az network express-route gateway show -g $rg -n $hubname-ergw --query 'provisioningState' -o tsv)
+    echo "$hubname-ergw provisioningState="$prState1
+    sleep 5
+done
+
+
+
+# Validate Circuits Provider privisionaing status:
+echo $ername1
+if  [ $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv) == 'Provisioned' ]; then
+ echo "Provisioned"
+else
+ echo $(az network express-route show -g $rg --name $ername1 --query serviceProviderProvisioningState -o tsv)
+ echo "Please proceeed with the ER Circuit provisioning with your Service Provider before proceed"
+fi
+
+# Connect sechub1 to both ERs
+peering1=$(az network express-route show -g $rg --name $ername1 --query peerings[].id -o tsv)
+routetableid=$(az network vhub route-table show --name defaultRouteTable --vhub-name $hubname -g $rg --query id -o tsv)
+az network express-route gateway connection create --name $hubname-conn-to-$ername1 -g $rg --gateway-name $hubname-ergw --peering $peering1 --associated-route-table $routetableid  --propagated-route-tables $routetableid --labels default -o none &>/dev/null &
+
+sleep 5
+prState=''
+while [[ $prState != 'Succeeded' ]];
+do
+    prState=$(az network express-route gateway connection show --name $hubname-conn-to-$ername1 -g $rg --gateway-name $hubname-ergw --query 'provisioningState' -o tsv)
+    echo "ER connection $hubname-conn-to-$ername1 provisioningState="$prState
+    sleep 5
+done
+
+
+
+echo ER GW Deployment has finished
+# Add script ending time but hours, minutes and seconds
+end=`date +%s`
+runtime=$((end-start))
+echo "Script finished at $(date)"
+echo "Total script execution time: $(($runtime / 3600)) hours $((($runtime / 60) % 60)) minutes and $(($runtime % 60)) seconds."

@@ -6,7 +6,65 @@ hub1location=eastus2
 hub2location=centralus
 VmAdminUsername=azureuser
 VmAdminPassword=Msft123Msft123
+vmsize=Standard_B1ms
 mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
 
 
-# Create spoke 
+# Create spoke az-spk3-vnet and az-spk4-vnet
+az network vnet create -g $rg-$hub1location -n az-spk3-vnet --address 10.10.3.0/24 --subnet-name subnet1 --subnet-prefix 10.10.3.0/27 --location $hub1location --output none
+az network vnet create -g $rg-$hub1location -n az-spk4-vnet --address 10.10.4.0/24 --subnet-name subnet1 --subnet-prefix 10.10.4.0/27 --location $hub1location --output none
+
+# Peer az-spk3-vnet and az-spk4-vnet to az-$hub1name-vnet and use remote gateways
+az network vnet peering create -g $rg-$hub1location --name az-spk3-vnet-to-az-$hub1name-vnet --vnet-name az-spk3-vnet --remote-vnet /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$rg-$hub1location/providers/Microsoft.Network/virtualNetworks/az-$hub1name-vnet --allow-vnet-access --use-remote-gateways --output none
+az network vnet peering create -g $rg-$hub1location --name az-spk4-vnet-to-az-$hub1name-vnet --vnet-name az-spk4-vnet --remote-vnet /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$rg-$hub1location/providers/Microsoft.Network/virtualNetworks/az-$hub1name-vnet --allow-vnet-access --use-remote-gateways --output none
+
+# Peer az-$hub1name-vnet to az-spk3-vnet and az-spk4-vnet and allow gateway transit
+az network vnet peering create -g $rg-$hub1location --name az-$hub1name-vnet-to-az-spk3-vnet --vnet-name az-$hub1name-vnet --remote-vnet /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$rg-$hub1location/providers/Microsoft.Network/virtualNetworks/az-spk3-vnet --allow-vnet-access --allow-gateway-transit --output none
+az network vnet peering create -g $rg-$hub1location --name az-$hub1name-vnet-to-az-spk4-vnet --vnet-name az-$hub1name-vnet --remote-vnet /subscriptions/$(az account show --query id -o tsv)/resourceGroups/$rg-$hub1location/providers/Microsoft.Network/virtualNetworks/az-spk4-vnet --allow-vnet-access --allow-gateway-transit --output none
+
+
+# Create a vm in the az-spk3-vnet and az-spk3-vnet and no public IP:
+echo Creating a vm in az-spk3-vnet and az-spk4-vnet...
+az vm create --resource-group $rg-$hub1location --name az-spk3-lxvm --image Ubuntu2204 --public-ip-address "" --size $vmsize  --vnet-name az-spk3-vnet --subnet subnet1 --admin-username $VmAdminUsername --admin-password $VmAdminPassword --nsg "" --no-wait --only-show-errors
+az vm create --resource-group $rg-$hub1location --name az-spk4-lxvm --image Ubuntu2204 --public-ip-address "" --size $vmsize  --vnet-name az-spk4-vnet --subnet subnet1 --admin-username $VmAdminUsername --admin-password $VmAdminPassword --nsg "" --no-wait --only-show-errors
+
+# Associate $hub1location-default-nsg to subnet1 on az-spk3-vnet and az-spk4-vnet
+echo Associating $hub1location-default-nsg to subnet1 on az-spk3-vnet and az-spk4-vnet...
+az network vnet subnet update --resource-group $rg-$hub1location --vnet-name az-spk3-vnet --name subnet1 --network-security-group $hub1location-default-nsg -o none
+az network vnet subnet update --resource-group $rg-$hub1location --vnet-name az-spk4-vnet --name subnet1 --network-security-group $hub1location-default-nsg -o none
+
+# Turning az-$hub1name-lxvm into a router
+echo Turning az-$hub1name-lxvm into a router...
+### Enable IP Forwarded on the az-$hub1name-lxvm nic
+az network nic update --resource-group $rg-$hub1location --name az-$hub1name-lxvm-nic --ip-forwarding true -o none --no-wait
+### az run command on az-$hub1name-lxvm using uri: https://raw.githubusercontent.com/dmauser/AzureVM-Router/refs/heads/master/linuxrouter.sh
+az vm run-command invoke -g $rg-$hub1location -n az-$hub1name-lxvm --command-id RunShellScript --scripts "curl -s https://raw.githubusercontent.com/dmauser/AzureVM-Router/refs/heads/master/linuxrouter.sh | bash" -o none --no-wait
+
+# Create UDRs and associate to subnets
+echo Creating UDRs and associate them to the subnets...
+# Get private ip froom az-$hub1name-lxvm network interface
+hub_private_ip=$(az network nic show --resource-group $rg-$hub1location --name az-$hub1name-lxvm-nic --query "ipConfigurations[0].privateIPAddress" -o tsv)
+# Create a route table named spoke-to-$hub1name
+az network route-table create --name az-rt-spoke-to-$hub1name --resource-group $rg-$hub1location --location $hub1location --disable-bgp-route-propagation true -o none
+# Add a route to the route table
+az network route-table route create --name 10prefix  --resource-group $rg-$hub1location --route-table-name az-rt-spoke-to-$hub1name --address-prefix 10.0.0.0/8 --next-hop-type VirtualAppliance --next-hop-ip-address $hub_private_ip -o none
+az network route-table route create --name 172prefix --resource-group $rg-$hub1location --route-table-name az-rt-spoke-to-$hub1name --address-prefix 172.16.0.0/12 --next-hop-type VirtualAppliance --next-hop-ip-address $hub_private_ip -o none
+az network route-table route create --name 192prefix --resource-group $rg-$hub1location --route-table-name az-rt-spoke-to-$hub1name --address-prefix 192.168.0.0/16 --next-hop-type VirtualAppliance --next-hop-ip-address $hub_private_ip -o none
+# Associate route table to subnet1 on az-spk1-vnet and az-spk2-vnet
+az network vnet subnet update --resource-group $rg-$hub1location --vnet-name az-spk1-vnet --name subnet1 --route-table az-rt-spoke-to-$hub1name -o none
+az network vnet subnet update --resource-group $rg-$hub1location --vnet-name az-spk2-vnet --name subnet1 --route-table az-rt-spoke-to-$hub1name -o none
+az network vnet subnet update --resource-group $rg-$hub1location --vnet-name az-spk3-vnet --name subnet1 --route-table az-rt-spoke-to-$hub1name -o none
+az network vnet subnet update --resource-group $rg-$hub1location --vnet-name az-spk4-vnet --name subnet1 --route-table az-rt-spoke-to-$hub1name -o none
+
+echo "Installing net utilities inside VMs (traceroute, tcptraceroute, iperf3, hping3, and others)"
+nettoolsuri="https://raw.githubusercontent.com/dmauser/azure-vm-net-tools/main/script/nettools.sh"
+for vm in `az vm list -g $rg-$hub1location --query "[?contains(storageProfile.imageReference.publisher,'Canonical')].name" -o tsv`
+do
+ az vm extension set --force-update \
+ --resource-group $rg-$hub1location \
+ --vm-name $vm \
+ --name customScript \
+ --publisher Microsoft.Azure.Extensions \
+ --protected-settings "{\"fileUris\": [\"$nettoolsuri\"],\"commandToExecute\": \"./nettools.sh\"}" \
+ --no-wait
+done
