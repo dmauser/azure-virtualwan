@@ -1,0 +1,46 @@
+{
+  "agents": {
+    "holden": {
+      "persistent_name": "holden",
+      "universe": "The Expanse",
+      "created_at": "2026-05-04T16:36:09Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "naomi": {
+      "persistent_name": "naomi",
+      "universe": "The Expanse",
+      "created_at": "2026-05-04T16:36:09Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "alex": {
+      "persistent_name": "alex",
+      "universe": "The Expanse",
+      "created_at": "2026-05-04T16:36:09Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "amos": {
+      "persistent_name": "amos",
+      "universe": "The Expanse",
+      "created_at": "2026-05-04T16:36:09Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "scribe": {
+      "persistent_name": "scribe",
+      "universe": "The Expanse",
+      "created_at": "2026-05-04T16:36:09Z",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "ralph": {
+      "persistent_name": "ralph",
+      "universe": "The Expanse",
+      "created_at": "2026-05-04T16:36:09Z",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}

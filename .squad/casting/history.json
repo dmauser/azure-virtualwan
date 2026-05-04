@@ -1,0 +1,55 @@
+{
+  "universe_usage_history": [
+    {
+      "assignment_id": "2026-05-04-vwan-initial",
+      "universe": "The Expanse",
+      "timestamp": "2026-05-04T16:36:09Z",
+      "agents": [
+        "holden",
+        "naomi",
+        "alex",
+        "amos",
+        "scribe",
+        "ralph"
+      ]
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "2026-05-04-vwan-initial": {
+      "universe": "The Expanse",
+      "timestamp": "2026-05-04T16:36:09Z",
+      "agents": [
+        {
+          "persistent_name": "holden",
+          "role": "Lead",
+          "charter": "Architecture, scope decisions, script review, triage"
+        },
+        {
+          "persistent_name": "naomi",
+          "role": "Infra Dev",
+          "charter": "Azure CLI scripts, Bicep, ARM templates, deployments"
+        },
+        {
+          "persistent_name": "alex",
+          "role": "Network Eng",
+          "charter": "Routing, BGP, VPN, ExpressRoute design, topology"
+        },
+        {
+          "persistent_name": "amos",
+          "role": "Tester",
+          "charter": "Validation scripts, connectivity checks, troubleshooting"
+        },
+        {
+          "persistent_name": "scribe",
+          "role": "Memory",
+          "charter": "Decisions log, cross-agent context, session logs"
+        },
+        {
+          "persistent_name": "ralph",
+          "role": "Monitor",
+          "charter": "Work queue, backlog, keep-alive"
+        }
+      ]
+    }
+  }
+}
