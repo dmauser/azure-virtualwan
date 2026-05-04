@@ -1,0 +1,16 @@
+{
+  "moduleAliases": {
+    "public": {
+      "registry": "mcr.microsoft.com/bicep",
+      "modulePath": ""
+    }
+  },
+  "analyzers": {
+    "core": {
+      "rules": {
+        "no-unused-params": { "level": "warning" },
+        "no-unused-vars": { "level": "warning" }
+      }
+    }
+  }
+}
