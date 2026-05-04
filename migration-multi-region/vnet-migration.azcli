@@ -1,0 +1,24 @@
+# Run both command below to create Hub1+On-Premises and Hub2
+
+#Paramters
+rg=lab-hsmulti-region
+hub1name=hub1
+hub2name=hub2
+hub1location=eastus2
+hub2location=centralus
+VmAdminUsername=azureuser
+VmAdminPassword=Msft123Msft123
+mypip=$(curl -4 ifconfig.io -s) #Captures your local Public IP and adds it to NSG to restrict access to SSH only for your Public IP.
+
+
+
+# list all vnets in the resource group
+az network vnet list -g $rg-$hub1location --query "[].{Name:name, AddressSpace:addressSpace.addressPrefixes[0], Subnet:subnets[0].name, SubnetPrefix:subnets[0].addressPrefix}" -o table
+
+# parse only spk3 and spk4 vnets as variables
+spkvnets=$(az network vnet list -g $rg-$hub1location --query "[?contains(name, 'spk3') || contains(name, 'spk4')].name" -o tsv)
+
+# For each vnet in spkvnets, uncheck use remote gateway to the peering to hub1 vnet
+for vnet in $spkvnets; do
+    az network vnet peering update -g $rg-$hub1location --vnet-name $vnet --name "${vnet}-to-az-$hub1name-vnet" --use-remote-gateways false --output none
+done

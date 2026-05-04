@@ -1,6 +1,6 @@
 #!/bin/bash
 #Parameters
-region=southcentralus
+region=westcentralus
 rg=lab-vwan-ft
 vwanname=vwan-ft
 hubname=vhub1
