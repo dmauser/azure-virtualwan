@@ -11,16 +11,43 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║  Azure Virtual WAN — Unified Lab Builder                  ║" -ForegroundColor Cyan
-Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "📋 Preset:   $Preset"
-Write-Host "📦 RG:       $ResourceGroup"
-Write-Host "📍 Location: $Location"
-Write-Host ""
+# ─────────────────────────────────────────────────────────────
+# Pre-requisite checks
+# ─────────────────────────────────────────────────────────────
 
-# Check preset exists
+# 1. Check Azure CLI is installed
+if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+    Write-Host "ERROR: Azure CLI not found. Install from https://aka.ms/installazurecli" -ForegroundColor Red
+    exit 1
+}
+
+# 2. Check user is logged in
+try {
+    $account = az account show --output json | ConvertFrom-Json
+} catch {
+    Write-Host "ERROR: Not logged in. Run 'az login' first." -ForegroundColor Red
+    exit 1
+}
+if (-not $account) {
+    Write-Host "ERROR: Not logged in. Run 'az login' first." -ForegroundColor Red
+    exit 1
+}
+
+# 3. Check virtual-wan extension is installed; auto-install if missing
+$extCheck = az extension show --name virtual-wan 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "⚙️  Installing required extension: virtual-wan..." -ForegroundColor Yellow
+    az extension add --name virtual-wan --yes --output none
+}
+
+# 4. Check Bicep CLI is available; install if missing
+$bicepCheck = az bicep version 2>&1
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "⚙️  Installing Bicep CLI..." -ForegroundColor Yellow
+    az bicep install
+}
+
+# 5. Validate preset file exists
 $PresetFile = "presets/$Preset.bicepparam"
 if (-not (Test-Path $PresetFile)) {
     Write-Host "❌ Preset not found: $PresetFile" -ForegroundColor Red
@@ -29,6 +56,19 @@ if (-not (Test-Path $PresetFile)) {
     Get-ChildItem presets/*.bicepparam | ForEach-Object { Write-Host "  • $($_.BaseName)" }
     exit 1
 }
+
+# 6. Print formatted summary
+$subscriptionName = $account.name
+
+Write-Host "╔══════════════════════════════════════════════════════════╗" -ForegroundColor Cyan
+Write-Host "║  Azure Virtual WAN — Unified Lab Builder                  ║" -ForegroundColor Cyan
+Write-Host "╚══════════════════════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "📋 Preset:       $Preset"
+Write-Host "📦 RG:           $ResourceGroup"
+Write-Host "📍 Location:     $Location"
+Write-Host "🔑 Subscription: $subscriptionName"
+Write-Host ""
 
 # Generate password
 $Password = -join ((65..90) + (97..122) + (48..57) + (33, 64, 35) | Get-Random -Count 16 | ForEach-Object {[char]$_})
