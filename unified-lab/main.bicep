@@ -12,6 +12,8 @@ Usage:
 
 targetScope = 'resourceGroup'
 
+import { nvaConfigType } from 'types/scenario-types.bicep'
+
 // ╔══════════════════════════════════════════════════════════════╗
 // ║  DECISION TREE PARAMETERS                                    ║
 // ╚══════════════════════════════════════════════════════════════╝
@@ -95,6 +97,10 @@ param adminPassword string
 @description('VM size for test VMs (lab-grade)')
 param vmSize string = 'Standard_B2s'
 
+// --- NVA Configuration ---
+@description('NVA configurations for BGP peering scenarios')
+param nvaConfigs nvaConfigType[] = []
+
 // --- Add-ons ---
 @description('Deploy Log Analytics workspace for diagnostics')
 param deployLogAnalytics bool = false
@@ -177,6 +183,83 @@ module vpnSiteConnections 'modules/connectivity/vpn-site.bicep' = [for (branch, 
 }]
 
 // ╔══════════════════════════════════════════════════════════════╗
+// ║  NVA DEPLOYMENT (conditional - Phase 3)                      ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+// --- NVA Spoke VNets (dedicated VNet per NVA) ---
+module nvaSpokeDeployments 'modules/core/spoke-vnet.bicep' = [for (nva, i) in nvaConfigs: {
+  name: 'deploy-nva-spoke-${i}'
+  params: {
+    name: '${labName}-nva-${i}'
+    location: primaryLocation
+    addressPrefix: nva.addressPrefix!
+    subnetPrefix: nva.addressPrefix!
+    deployVm: false
+    vmSize: vmSize
+    adminUsername: adminUsername
+    adminPassword: adminPassword
+    tags: tags
+  }
+}]
+
+// --- NVA Spoke-to-Hub Connections ---
+module nvaConnections 'modules/connectivity/vnet-connection.bicep' = [for (nva, i) in nvaConfigs: {
+  name: 'connect-nva-spoke-${i}'
+  params: {
+    hubName: hubs[0].name
+    spokeVnetId: nvaSpokeDeployments[i].outputs.vnetId
+    spokeName: '${labName}-nva-${i}'
+  }
+  dependsOn: [vwanDeployment]
+}]
+
+// --- Linux NVA Instances ---
+module nvaDeployments 'modules/security/linux-nva.bicep' = [for (nva, i) in nvaConfigs: if (nva.nvaType == 'linux-frr') {
+  name: 'deploy-nva-${i}'
+  params: {
+    name: '${labName}-nva-${i}'
+    location: primaryLocation
+    subnetId: nvaSpokeDeployments[i].outputs.subnetId
+    privateIpAddress: nva.privateIp!
+    vmSize: vmSize
+    adminUsername: adminUsername
+    adminPassword: adminPassword
+    bgpAsn: nva.bgpAsn ?? 65001
+    bgpNeighbors: []
+    enableIpForwarding: true
+    tags: tags
+  }
+  dependsOn: [nvaSpokeDeployments[i]]
+}]
+
+// --- NVA Internal Load Balancers (HA scenarios) ---
+module nvaIlbDeployments 'modules/shared/nva-ilb.bicep' = [for (nva, i) in nvaConfigs: if (nva.deployIlb == true) {
+  name: 'deploy-nva-ilb-${i}'
+  params: {
+    name: '${labName}-nva-ilb-${i}'
+    location: primaryLocation
+    subnetId: nvaSpokeDeployments[i].outputs.subnetId
+    privateIpAddress: nva.privateIp!
+    healthProbePort: 22
+    tags: tags
+  }
+  dependsOn: [nvaDeployments[i]]
+}]
+
+// --- Hub BGP Peering for NVAs ---
+module nvaBgpPeers 'modules/connectivity/hub-bgp-peer.bicep' = [for (nva, i) in nvaConfigs: if (nva.enableHubBgpPeering == true) {
+  name: 'deploy-nva-bgp-peer-${i}'
+  params: {
+    hubName: hubs[0].name
+    connectionName: '${labName}-nva-${i}-bgp'
+    peerIp: nva.privateIp!
+    peerAsn: nva.bgpAsn ?? 65001
+    hubVirtualNetworkConnectionId: nvaConnections[i].outputs.connectionId
+  }
+  dependsOn: [nvaDeployments[i], nvaConnections[i]]
+}]
+
+// ╔══════════════════════════════════════════════════════════════╗
 // ║  ADD-ONS (conditional)                                       ║
 // ╚══════════════════════════════════════════════════════════════╝
 
@@ -204,12 +287,16 @@ output hubIds array = vwanDeployment.outputs.hubIds
 @description('Spoke VNet IDs')
 output spokeVnetIds array = [for (spoke, i) in spokes: spokeDeployments[i].outputs.vnetId]
 
+@description('NVA private IP addresses')
+output nvaPrivateIps array = [for (nva, i) in nvaConfigs: nva.privateIp ?? '']
+
 @description('Lab summary')
 output summary object = {
   labName: labName
   hubCount: length(hubs)
   spokeCount: length(spokes)
   branchCount: deployBranches ? length(branches) : 0
+  nvaCount: length(nvaConfigs)
   firewallDeployed: !empty(filter(hubs, h => h.deployFirewall == true))
   routingIntentEnabled: !empty(filter(hubs, h => h.enableRoutingIntent == true))
 }
