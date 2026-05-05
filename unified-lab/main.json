@@ -1,13 +1,83 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "languageVersion": "2.0",
   "contentVersion": "1.0.0.0",
   "metadata": {
     "_generator": {
       "name": "bicep",
       "version": "0.42.1.51946",
-      "templateHash": "14940389598772041741"
+      "templateHash": "15880290040195537638"
     },
     "description": "Azure Virtual WAN Unified Lab Builder\r\n======================================\r\nA decision-tree based deployment for Azure Virtual WAN lab scenarios.\r\nSelect your scenario through parameters — from a single hub with VPN\r\nto multi-hub with NVA BGP peering and custom routing.\r\n\r\nUsage:\r\n  az deployment group create -g <rg> -f main.bicep -p presets/single-hub-vpn.bicepparam\r\n  az deployment group create -g <rg> -f main.bicep -p presets/any-to-any.bicepparam\r\n"
+  },
+  "definitions": {
+    "nvaConfigType": {
+      "type": "object",
+      "properties": {
+        "nvaType": {
+          "type": "string",
+          "allowedValues": [
+            "linux-frr",
+            "opnsense"
+          ],
+          "nullable": true,
+          "metadata": {
+            "description": "NVA type"
+          }
+        },
+        "placement": {
+          "type": "string",
+          "allowedValues": [
+            "hub",
+            "spoke"
+          ],
+          "nullable": true,
+          "metadata": {
+            "description": "Deploy in hub or spoke"
+          }
+        },
+        "addressPrefix": {
+          "type": "string",
+          "nullable": true,
+          "metadata": {
+            "description": "NVA VNet address prefix"
+          }
+        },
+        "privateIp": {
+          "type": "string",
+          "nullable": true,
+          "metadata": {
+            "description": "NVA private IP"
+          }
+        },
+        "bgpAsn": {
+          "type": "int",
+          "nullable": true,
+          "metadata": {
+            "description": "BGP ASN for NVA"
+          }
+        },
+        "enableHubBgpPeering": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Enable BGP peering with virtual hub"
+          }
+        },
+        "deployIlb": {
+          "type": "bool",
+          "nullable": true,
+          "metadata": {
+            "description": "Deploy Internal Load Balancer for HA"
+          }
+        }
+      },
+      "metadata": {
+        "__bicep_imported_from!": {
+          "sourceTemplate": "types/scenario-types.bicep"
+        }
+      }
+    }
   },
   "parameters": {
     "labName": {
@@ -136,6 +206,16 @@
         "description": "VM size for test VMs (lab-grade)"
       }
     },
+    "nvaConfigs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/nvaConfigType"
+      },
+      "defaultValue": [],
+      "metadata": {
+        "description": "NVA configurations for BGP peering scenarios"
+      }
+    },
     "deployLogAnalytics": {
       "type": "bool",
       "defaultValue": false,
@@ -144,8 +224,8 @@
       }
     }
   },
-  "resources": [
-    {
+  "resources": {
+    "logAnalytics": {
       "condition": "[parameters('deployLogAnalytics')]",
       "type": "Microsoft.OperationalInsights/workspaces",
       "apiVersion": "2023-09-01",
@@ -159,7 +239,7 @@
         "retentionInDays": 30
       }
     },
-    {
+    "vwanDeployment": {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
       "name": "deploy-vwan-hubs",
@@ -429,7 +509,7 @@
         }
       }
     },
-    {
+    "spokeDeployments": {
       "copy": {
         "name": "spokeDeployments",
         "count": "[length(parameters('spokes'))]"
@@ -685,7 +765,7 @@
         }
       }
     },
-    {
+    "spokeConnections": {
       "copy": {
         "name": "spokeConnections",
         "count": "[length(parameters('spokes'))]"
@@ -703,7 +783,7 @@
             "value": "[parameters('spokes')[copyIndex()].associatedHub]"
           },
           "spokeVnetId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('deploy-spoke-{0}', parameters('spokes')[copyIndex()].name)), '2025-04-01').outputs.vnetId.value]"
+            "value": "[reference(format('spokeDeployments[{0}]', copyIndex())).outputs.vnetId.value]"
           },
           "spokeName": {
             "value": "[parameters('spokes')[copyIndex()].name]"
@@ -780,11 +860,11 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', format('deploy-spoke-{0}', parameters('spokes')[copyIndex()].name))]",
-        "[resourceId('Microsoft.Resources/deployments', 'deploy-vwan-hubs')]"
+        "[format('spokeDeployments[{0}]', copyIndex())]",
+        "vwanDeployment"
       ]
     },
-    {
+    "branchDeployments": {
       "copy": {
         "name": "branchDeployments",
         "count": "[length(parameters('branches'))]"
@@ -985,7 +1065,7 @@
         }
       }
     },
-    {
+    "vpnSiteConnections": {
       "copy": {
         "name": "vpnSiteConnections",
         "count": "[length(parameters('branches'))]"
@@ -1007,19 +1087,19 @@
             "value": "[parameters('branches')[copyIndex()].location]"
           },
           "vwanId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vwan-hubs'), '2025-04-01').outputs.vwanId.value]"
+            "value": "[reference('vwanDeployment').outputs.vwanId.value]"
           },
           "vpnGatewayId": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vwan-hubs'), '2025-04-01').outputs.vpnGatewayIds.value[indexOf(parameters('hubs'), filter(parameters('hubs'), lambda('h', equals(lambdaVariables('h').name, parameters('branches')[copyIndex()].connectedHub)))[0])]]"
+            "value": "[reference('vwanDeployment').outputs.vpnGatewayIds.value[indexOf(parameters('hubs'), filter(parameters('hubs'), lambda('h', equals(lambdaVariables('h').name, parameters('branches')[copyIndex()].connectedHub)))[0])]]"
           },
           "branchPublicIp": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name)), '2025-04-01').outputs.gatewayPublicIp.value]"
+            "value": "[reference(format('branchDeployments[{0}]', copyIndex())).outputs.gatewayPublicIp.value]"
           },
           "branchBgpAddress": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name)), '2025-04-01').outputs.bgpPeeringAddress.value]"
+            "value": "[reference(format('branchDeployments[{0}]', copyIndex())).outputs.bgpPeeringAddress.value]"
           },
           "branchBgpAsn": {
-            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name)), '2025-04-01').outputs.bgpAsn.value]"
+            "value": "[reference(format('branchDeployments[{0}]', copyIndex())).outputs.bgpAsn.value]"
           },
           "psk": {
             "value": "[coalesce(tryGet(parameters('branches')[copyIndex()], 'psk'), 'VwanLabPsk2024!')]"
@@ -1162,28 +1242,895 @@
         }
       },
       "dependsOn": [
-        "[resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name))]",
-        "[resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name))]",
-        "[resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name))]",
-        "[resourceId('Microsoft.Resources/deployments', format('deploy-branch-{0}', parameters('branches')[copyIndex()].name))]",
-        "[resourceId('Microsoft.Resources/deployments', 'deploy-vwan-hubs')]"
+        "[format('branchDeployments[{0}]', copyIndex())]",
+        "[format('branchDeployments[{0}]', copyIndex())]",
+        "[format('branchDeployments[{0}]', copyIndex())]",
+        "[format('branchDeployments[{0}]', copyIndex())]",
+        "vwanDeployment"
+      ]
+    },
+    "nvaSpokeDeployments": {
+      "copy": {
+        "name": "nvaSpokeDeployments",
+        "count": "[length(parameters('nvaConfigs'))]"
+      },
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-nva-spoke-{0}', copyIndex())]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('{0}-nva-{1}', parameters('labName'), copyIndex())]"
+          },
+          "location": {
+            "value": "[parameters('primaryLocation')]"
+          },
+          "addressPrefix": {
+            "value": "[parameters('nvaConfigs')[copyIndex()].addressPrefix]"
+          },
+          "subnetPrefix": {
+            "value": "[parameters('nvaConfigs')[copyIndex()].addressPrefix]"
+          },
+          "deployVm": {
+            "value": false
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "1696970471041602215"
+            },
+            "description": "Deploys a spoke VNet with subnet, NSG, and optional test VM"
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "addressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "VNet address space"
+              }
+            },
+            "subnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Default subnet prefix"
+              }
+            },
+            "deployVm": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Deploy a test VM"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_B2s",
+              "metadata": {
+                "description": "VM size (lab-grade)"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "defaultValue": "azureuser",
+              "metadata": {
+                "description": "Admin username for VM"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Admin password for VM"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nsg', parameters('name'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-SSH",
+                    "properties": {
+                      "priority": 1000,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourceAddressPrefix": "*",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRange": "22"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('addressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "default",
+                    "properties": {
+                      "addressPrefix": "[parameters('subnetPrefix')]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+              ]
+            },
+            {
+              "condition": "[parameters('deployVm')]",
+              "type": "Microsoft.Network/networkInterfaces",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-vm-nic', parameters('name'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "ipConfigurations": [
+                  {
+                    "name": "ipconfig1",
+                    "properties": {
+                      "subnet": {
+                        "id": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2024-05-01').subnets[0].id]"
+                      },
+                      "privateIPAllocationMethod": "Dynamic"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('deployVm')]",
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2024-07-01",
+              "name": "[format('{0}-vm', parameters('name'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "hardwareProfile": {
+                  "vmSize": "[parameters('vmSize')]"
+                },
+                "osProfile": {
+                  "computerName": "[take(format('{0}-vm', parameters('name')), 15)]",
+                  "adminUsername": "[parameters('adminUsername')]",
+                  "adminPassword": "[parameters('adminPassword')]"
+                },
+                "storageProfile": {
+                  "imageReference": {
+                    "publisher": "Canonical",
+                    "offer": "0001-com-ubuntu-server-jammy",
+                    "sku": "22_04-lts-gen2",
+                    "version": "latest"
+                  },
+                  "osDisk": {
+                    "createOption": "FromImage",
+                    "managedDisk": {
+                      "storageAccountType": "Standard_LRS"
+                    }
+                  }
+                },
+                "networkProfile": {
+                  "networkInterfaces": [
+                    {
+                      "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-vm-nic', parameters('name')))]"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-vm-nic', parameters('name')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vnetId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('name'))]"
+            },
+            "vnetName": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "subnetId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('name')), '2024-05-01').subnets[0].id]"
+            },
+            "vmPrivateIp": {
+              "type": "string",
+              "value": "[if(parameters('deployVm'), reference(resourceId('Microsoft.Network/networkInterfaces', format('{0}-vm-nic', parameters('name'))), '2024-05-01').ipConfigurations[0].properties.privateIPAddress, '')]"
+            }
+          }
+        }
+      }
+    },
+    "nvaConnections": {
+      "copy": {
+        "name": "nvaConnections",
+        "count": "[length(parameters('nvaConfigs'))]"
+      },
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('connect-nva-spoke-{0}', copyIndex())]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "hubName": {
+            "value": "[parameters('hubs')[0].name]"
+          },
+          "spokeVnetId": {
+            "value": "[reference(format('nvaSpokeDeployments[{0}]', copyIndex())).outputs.vnetId.value]"
+          },
+          "spokeName": {
+            "value": "[format('{0}-nva-{1}', parameters('labName'), copyIndex())]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "3455971362878257411"
+            },
+            "description": "Creates a VNet connection from a spoke to a Virtual Hub"
+          },
+          "parameters": {
+            "hubName": {
+              "type": "string",
+              "metadata": {
+                "description": "Virtual Hub name (must already exist)"
+              }
+            },
+            "spokeVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet resource ID"
+              }
+            },
+            "spokeName": {
+              "type": "string",
+              "metadata": {
+                "description": "Connection name suffix"
+              }
+            },
+            "routeTableLabel": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Route table label for isolation (empty = default)"
+              }
+            },
+            "enableInternetSecurity": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Enable internet security (route internet through hub)"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualHubs/hubVirtualNetworkConnections",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}-connection', parameters('hubName'), parameters('spokeName'))]",
+              "properties": {
+                "remoteVirtualNetwork": {
+                  "id": "[parameters('spokeVnetId')]"
+                },
+                "enableInternetSecurity": "[parameters('enableInternetSecurity')]",
+                "routingConfiguration": "[if(not(empty(parameters('routeTableLabel'))), createObject('associatedRouteTable', createObject('id', resourceId('Microsoft.Network/virtualHubs/hubRouteTables', parameters('hubName'), parameters('routeTableLabel')))), null())]"
+              }
+            }
+          ],
+          "outputs": {
+            "connectionId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualHubs/hubVirtualNetworkConnections', split(format('{0}/{1}-connection', parameters('hubName'), parameters('spokeName')), '/')[0], split(format('{0}/{1}-connection', parameters('hubName'), parameters('spokeName')), '/')[1])]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[format('nvaSpokeDeployments[{0}]', copyIndex())]",
+        "vwanDeployment"
+      ]
+    },
+    "nvaDeployments": {
+      "copy": {
+        "name": "nvaDeployments",
+        "count": "[length(parameters('nvaConfigs'))]"
+      },
+      "condition": "[equals(parameters('nvaConfigs')[copyIndex()].nvaType, 'linux-frr')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-nva-{0}', copyIndex())]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('{0}-nva-{1}', parameters('labName'), copyIndex())]"
+          },
+          "location": {
+            "value": "[parameters('primaryLocation')]"
+          },
+          "subnetId": {
+            "value": "[reference(format('nvaSpokeDeployments[{0}]', copyIndex())).outputs.subnetId.value]"
+          },
+          "privateIpAddress": {
+            "value": "[parameters('nvaConfigs')[copyIndex()].privateIp]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "bgpAsn": {
+            "value": "[coalesce(parameters('nvaConfigs')[copyIndex()].bgpAsn, 65001)]"
+          },
+          "bgpNeighbors": {
+            "value": []
+          },
+          "enableIpForwarding": {
+            "value": true
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "5737294688886367570"
+            },
+            "description": "Deploys a Linux NVA with IP forwarding and FRR (BGP) via cloud-init"
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "NVA name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet resource ID where NVA will be deployed"
+              }
+            },
+            "privateIpAddress": {
+              "type": "string",
+              "metadata": {
+                "description": "Static private IP for the NVA"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_B2s",
+              "metadata": {
+                "description": "VM size"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "defaultValue": "azureuser",
+              "metadata": {
+                "description": "Admin username"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Admin password"
+              }
+            },
+            "bgpAsn": {
+              "type": "int",
+              "defaultValue": 65001,
+              "metadata": {
+                "description": "BGP ASN for FRR"
+              }
+            },
+            "bgpNeighbors": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "BGP neighbors (array of {ip, asn} objects)"
+              }
+            },
+            "enableIpForwarding": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Enable IP forwarding on NIC"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags"
+              }
+            }
+          },
+          "variables": {
+            "copy": [
+              {
+                "name": "frrNeighborConfig",
+                "count": "[length(parameters('bgpNeighbors'))]",
+                "input": "[format('  neighbor {0} remote-as {1}\n  neighbor {2} soft-reconfiguration inbound\n  neighbor {3} route-map ALLOW-ALL in\n  neighbor {4} route-map ALLOW-ALL out', parameters('bgpNeighbors')[copyIndex('frrNeighborConfig')].ip, parameters('bgpNeighbors')[copyIndex('frrNeighborConfig')].asn, parameters('bgpNeighbors')[copyIndex('frrNeighborConfig')].ip, parameters('bgpNeighbors')[copyIndex('frrNeighborConfig')].ip, parameters('bgpNeighbors')[copyIndex('frrNeighborConfig')].ip)]"
+              }
+            ],
+            "cloudInitScript": "#!/bin/bash\r\n# Enable IP forwarding\r\necho \"net.ipv4.ip_forward=1\" >> /etc/sysctl.conf\r\nsysctl -p\r\n\r\n# Install FRR\r\napt-get update\r\napt-get install -y frr frr-pythontools\r\n\r\n# Enable BGP daemon\r\nsed -i 's/bgpd=no/bgpd=yes/' /etc/frr/daemons\r\nsed -i 's/zebra=no/zebra=yes/' /etc/frr/daemons\r\n\r\n# FRR configuration\r\ncat > /etc/frr/frr.conf << 'EOF'\r\nfrr version 8.1\r\nfrr defaults traditional\r\nhostname ${name}\r\n!\r\nrouter bgp ${bgpAsn}\r\n bgp router-id ${privateIpAddress}\r\n no bgp ebgp-requires-policy\r\n${neighborsBlock}\r\n!\r\nroute-map ALLOW-ALL permit 10\r\n!\r\nline vty\r\n!\r\nEOF\r\n\r\n# Restart FRR\r\nsystemctl restart frr\r\nsystemctl enable frr\r\n",
+            "neighborsBlock": "[join(variables('frrNeighborConfig'), '\n')]",
+            "finalCloudInit": "[replace(replace(replace(variables('cloudInitScript'), format('{0}', parameters('name')), parameters('name')), format('{0}', parameters('bgpAsn')), string(parameters('bgpAsn'))), format('{0}', parameters('privateIpAddress')), parameters('privateIpAddress'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkInterfaces",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}-nic', parameters('name'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "enableIPForwarding": "[parameters('enableIpForwarding')]",
+                "ipConfigurations": [
+                  {
+                    "name": "ipconfig1",
+                    "properties": {
+                      "subnet": {
+                        "id": "[parameters('subnetId')]"
+                      },
+                      "privateIPAddress": "[parameters('privateIpAddress')]",
+                      "privateIPAllocationMethod": "Static"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Compute/virtualMachines",
+              "apiVersion": "2024-07-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "hardwareProfile": {
+                  "vmSize": "[parameters('vmSize')]"
+                },
+                "osProfile": {
+                  "computerName": "[take(parameters('name'), 15)]",
+                  "adminUsername": "[parameters('adminUsername')]",
+                  "adminPassword": "[parameters('adminPassword')]",
+                  "customData": "[base64(variables('finalCloudInit'))]"
+                },
+                "storageProfile": {
+                  "imageReference": {
+                    "publisher": "Canonical",
+                    "offer": "0001-com-ubuntu-server-jammy",
+                    "sku": "22_04-lts-gen2",
+                    "version": "latest"
+                  },
+                  "osDisk": {
+                    "createOption": "FromImage",
+                    "managedDisk": {
+                      "storageAccountType": "Standard_LRS"
+                    }
+                  }
+                },
+                "networkProfile": {
+                  "networkInterfaces": [
+                    {
+                      "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('name')))]"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('name')))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vmId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('name'))]"
+            },
+            "nicId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', parameters('name')))]"
+            },
+            "privateIp": {
+              "type": "string",
+              "value": "[parameters('privateIpAddress')]"
+            },
+            "bgpAsn": {
+              "type": "int",
+              "value": "[parameters('bgpAsn')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[format('nvaSpokeDeployments[{0}]', copyIndex())]",
+        "[format('nvaSpokeDeployments[{0}]', copyIndex())]"
+      ]
+    },
+    "nvaIlbDeployments": {
+      "copy": {
+        "name": "nvaIlbDeployments",
+        "count": "[length(parameters('nvaConfigs'))]"
+      },
+      "condition": "[equals(parameters('nvaConfigs')[copyIndex()].deployIlb, true())]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-nva-ilb-{0}', copyIndex())]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[format('{0}-nva-ilb-{1}', parameters('labName'), copyIndex())]"
+          },
+          "location": {
+            "value": "[parameters('primaryLocation')]"
+          },
+          "subnetId": {
+            "value": "[reference(format('nvaSpokeDeployments[{0}]', copyIndex())).outputs.subnetId.value]"
+          },
+          "privateIpAddress": {
+            "value": "[parameters('nvaConfigs')[copyIndex()].privateIp]"
+          },
+          "healthProbePort": {
+            "value": 22
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "7676854989380089079"
+            },
+            "description": "Deploys a Standard SKU Internal Load Balancer for NVA high-availability (HA ports rule)"
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Load balancer name"
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet resource ID for the frontend IP configuration"
+              }
+            },
+            "privateIpAddress": {
+              "type": "string",
+              "metadata": {
+                "description": "Static private IP address for the frontend"
+              }
+            },
+            "healthProbePort": {
+              "type": "int",
+              "defaultValue": 22,
+              "metadata": {
+                "description": "Health probe port (default: SSH 22)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/loadBalancers",
+              "apiVersion": "2024-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "frontendIPConfigurations": [
+                  {
+                    "name": "frontend",
+                    "properties": {
+                      "subnet": {
+                        "id": "[parameters('subnetId')]"
+                      },
+                      "privateIPAddress": "[parameters('privateIpAddress')]",
+                      "privateIPAllocationMethod": "Static"
+                    }
+                  }
+                ],
+                "backendAddressPools": [
+                  {
+                    "name": "nva-backend"
+                  }
+                ],
+                "probes": [
+                  {
+                    "name": "health-probe",
+                    "properties": {
+                      "protocol": "Tcp",
+                      "port": "[parameters('healthProbePort')]",
+                      "intervalInSeconds": 5,
+                      "numberOfProbes": 2
+                    }
+                  }
+                ],
+                "loadBalancingRules": [
+                  {
+                    "name": "ha-ports-rule",
+                    "properties": {
+                      "frontendIPConfiguration": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', parameters('name'), 'frontend')]"
+                      },
+                      "backendAddressPool": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', parameters('name'), 'nva-backend')]"
+                      },
+                      "probe": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/probes', parameters('name'), 'health-probe')]"
+                      },
+                      "protocol": "All",
+                      "frontendPort": 0,
+                      "backendPort": 0,
+                      "enableFloatingIP": true,
+                      "idleTimeoutInMinutes": 4
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "lbId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/loadBalancers', parameters('name'))]"
+            },
+            "backendPoolId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/loadBalancers', parameters('name')), '2024-05-01').backendAddressPools[0].id]"
+            },
+            "frontendIpAddress": {
+              "type": "string",
+              "value": "[parameters('privateIpAddress')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[format('nvaDeployments[{0}]', copyIndex())]",
+        "[format('nvaSpokeDeployments[{0}]', copyIndex())]"
+      ]
+    },
+    "nvaBgpPeers": {
+      "copy": {
+        "name": "nvaBgpPeers",
+        "count": "[length(parameters('nvaConfigs'))]"
+      },
+      "condition": "[equals(parameters('nvaConfigs')[copyIndex()].enableHubBgpPeering, true())]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('deploy-nva-bgp-peer-{0}', copyIndex())]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "hubName": {
+            "value": "[parameters('hubs')[0].name]"
+          },
+          "connectionName": {
+            "value": "[format('{0}-nva-{1}-bgp', parameters('labName'), copyIndex())]"
+          },
+          "peerIp": {
+            "value": "[parameters('nvaConfigs')[copyIndex()].privateIp]"
+          },
+          "peerAsn": {
+            "value": "[coalesce(parameters('nvaConfigs')[copyIndex()].bgpAsn, 65001)]"
+          },
+          "hubVirtualNetworkConnectionId": {
+            "value": "[reference(format('nvaConnections[{0}]', copyIndex())).outputs.connectionId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "7739373846450713790"
+            },
+            "description": "Creates a BGP connection between an NVA and a Virtual Hub (AVM gap-fill)"
+          },
+          "parameters": {
+            "hubName": {
+              "type": "string",
+              "metadata": {
+                "description": "Virtual Hub name"
+              }
+            },
+            "connectionName": {
+              "type": "string",
+              "metadata": {
+                "description": "BGP connection name"
+              }
+            },
+            "peerIp": {
+              "type": "string",
+              "metadata": {
+                "description": "NVA peer IP address"
+              }
+            },
+            "peerAsn": {
+              "type": "int",
+              "metadata": {
+                "description": "NVA BGP ASN"
+              }
+            },
+            "hubVirtualNetworkConnectionId": {
+              "type": "string",
+              "metadata": {
+                "description": "Hub VNet connection resource ID (the connection of the NVA VNet to the hub)"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualHubs/bgpConnections",
+              "apiVersion": "2024-05-01",
+              "name": "[format('{0}/{1}', parameters('hubName'), parameters('connectionName'))]",
+              "properties": {
+                "peerIp": "[parameters('peerIp')]",
+                "peerAsn": "[parameters('peerAsn')]",
+                "hubVirtualNetworkConnection": {
+                  "id": "[parameters('hubVirtualNetworkConnectionId')]"
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "bgpConnectionId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/virtualHubs/bgpConnections', split(format('{0}/{1}', parameters('hubName'), parameters('connectionName')), '/')[0], split(format('{0}/{1}', parameters('hubName'), parameters('connectionName')), '/')[1])]"
+            },
+            "connectionState": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Network/virtualHubs/bgpConnections', split(format('{0}/{1}', parameters('hubName'), parameters('connectionName')), '/')[0], split(format('{0}/{1}', parameters('hubName'), parameters('connectionName')), '/')[1]), '2024-05-01').connectionState]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[format('nvaConnections[{0}]', copyIndex())]",
+        "[format('nvaConnections[{0}]', copyIndex())]",
+        "[format('nvaDeployments[{0}]', copyIndex())]"
       ]
     }
-  ],
+  },
   "outputs": {
     "vwanId": {
       "type": "string",
       "metadata": {
         "description": "Virtual WAN resource ID"
       },
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vwan-hubs'), '2025-04-01').outputs.vwanId.value]"
+      "value": "[reference('vwanDeployment').outputs.vwanId.value]"
     },
     "hubIds": {
       "type": "array",
       "metadata": {
         "description": "Hub resource IDs"
       },
-      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'deploy-vwan-hubs'), '2025-04-01').outputs.hubIds.value]"
+      "value": "[reference('vwanDeployment').outputs.hubIds.value]"
     },
     "spokeVnetIds": {
       "type": "array",
@@ -1192,7 +2139,17 @@
       },
       "copy": {
         "count": "[length(parameters('spokes'))]",
-        "input": "[reference(resourceId('Microsoft.Resources/deployments', format('deploy-spoke-{0}', parameters('spokes')[copyIndex()].name)), '2025-04-01').outputs.vnetId.value]"
+        "input": "[reference(format('spokeDeployments[{0}]', copyIndex())).outputs.vnetId.value]"
+      }
+    },
+    "nvaPrivateIps": {
+      "type": "array",
+      "metadata": {
+        "description": "NVA private IP addresses"
+      },
+      "copy": {
+        "count": "[length(parameters('nvaConfigs'))]",
+        "input": "[coalesce(parameters('nvaConfigs')[copyIndex()].privateIp, '')]"
       }
     },
     "summary": {
@@ -1205,6 +2162,7 @@
         "hubCount": "[length(parameters('hubs'))]",
         "spokeCount": "[length(parameters('spokes'))]",
         "branchCount": "[if(parameters('deployBranches'), length(parameters('branches')), 0)]",
+        "nvaCount": "[length(parameters('nvaConfigs'))]",
         "firewallDeployed": "[not(empty(filter(parameters('hubs'), lambda('h', equals(lambdaVariables('h').deployFirewall, true())))))]",
         "routingIntentEnabled": "[not(empty(filter(parameters('hubs'), lambda('h', equals(lambdaVariables('h').enableRoutingIntent, true())))))]"
       }

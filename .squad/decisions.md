@@ -48,6 +48,32 @@ The repository has grown to 30+ labs but the root README only listed ~9 of them.
 
 ---
 
+## Decision: Unified IaC Framework — Architectural Analysis
+
+**Date:** 2026-05-04
+**Author:** Holden (Lead)
+**Status:** Proposed
+**Requested by:** Daniel Mauser
+
+### Context
+
+Daniel wants to consolidate all 30+ lab scenarios into a single deployable Bicep framework using Azure Verified Modules (AVM) as the foundation. This analysis covers the full scope, AVM gaps, architecture design, effort estimation, and risks.
+
+### Analysis Delivered
+
+See full report in session output. Summary:
+- 30 lab scenarios cataloged across 5 complexity tiers
+- AVM covers ~60% of base VWAN infrastructure; 7 critical gaps identified
+- Hybrid architecture recommended (AVM core + custom modules for NVA/BGP)
+- Estimated effort: XL (16-20 weeks for 2 engineers)
+- Highest risks: NVA post-deployment config, BGP peering automation, AVM breaking changes
+
+### Decision Pending
+
+Awaiting Daniel's approval on architecture approach before implementation begins.
+
+---
+
 ## Decision: LABS_INDEX.md Categorization Approach
 
 **Author:** Naomi (Infra Dev)  

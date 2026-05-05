@@ -1,0 +1,10 @@
+feat: Add unified-lab Bicep builder (Phase 1 - Foundation)
+
+- Decision-tree based vWAN lab deployment with modular Bicep
+- Core modules: vwan-hub, spoke-vnet, branch-sim
+- Connectivity modules: vnet-connection, vpn-site  
+- 3 presets: single-hub-vpn, any-to-any, secured-vhub
+- Deploy scripts (bash + PowerShell) + cleanup
+- README with decision tree docs and roadmap
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
