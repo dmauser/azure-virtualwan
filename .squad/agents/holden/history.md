@@ -62,3 +62,6 @@ Consistency at scale requires clear templates and conventions. Flexible adoption
 Parameter files (.bicepparam) reduce preset-to-preset duplication while maintaining readability. Cross-platform scripts (Bash/PowerShell with shared logic) maximize team adoption across Windows/Unix workflows. Decision tree in README acts as CMS for preset selection, reducing support overhead. Cleanup scripts with explicit resource group deletion enable safe lab resets for classroom/sandbox environments.
 
 ## Learnings
+
+## Team Update: 3vhub-er-ri Lab (2026-05-26)
+- Naomi delivered new `3vhub-er-ri/` lab: 3-region vWAN with ER (East+West via Megaport), AzFw Basic all hubs, RI (private). Uses native CLI for RI (no Bicep), ASPath hub preference, single interactive script with ER pause-poll pattern. LABS_INDEX.md updated.

@@ -100,3 +100,39 @@ Created `LABS_INDEX.md` as a comprehensive index of all 30 lab folders in the re
 ### Impact
 
 This file serves as the entry point for anyone discovering the repo. It should be updated when new labs are added or when draft labs get completed.
+
+---
+
+## Decision: New Lab `3vhub-er-ri` Added
+
+**Date:** 2026-05-26
+**Author:** Naomi (Infra Dev)
+**Status:** Accepted
+**Requested by:** Daniel Mauser
+
+### Context
+
+Added a new lab folder `3vhub-er-ri/` demonstrating a 3-region Virtual WAN topology with ExpressRoute on 2 hubs, Azure Firewall Basic on all 3 hubs, and Routing Intent (private traffic only) across all 3 hubs. This fills a gap in the lab catalog for multi-hub + ER + AzFw Basic + RI in a single scenario.
+
+### Decisions Made
+
+#### 1. Single interactive script with `read -p` ER pause
+
+The deployment uses one script (`3vhub-er-ri-deploy.azcli`) rather than separate deploy + erconn scripts. The script pauses at Phase 7 after printing the ER service keys, allowing the user to hand them to Megaport. This matches the intent of reducing context-switching for the operator and keeps the full workflow in one file.
+
+#### 2. ASPath routing preference on all hubs at create time with update fallback
+
+All 3 vHubs are created with `--hub-routing-preference ASPath`. After waiting for the hubs to succeed, the script verifies the property and applies `az network vhub update --hub-routing-preference ASPath` as a fallback for CLI extension versions that silently ignore the create-time flag.
+
+#### 3. Native CLI for Routing Intent (no Bicep)
+
+Routing Intent is enabled using `az network vhub routing-intent create` with a JSON routing-policies array, polling `az network vhub routing-intent show --query provisioningState`. This avoids the Bicep/ARM deployment used in older `enable-ri.azcli` references and aligns with current CLI extension capabilities.
+
+#### 4. Azure Firewall Basic SKU in vHub
+
+All three hubs use `--sku AZFW_Hub --tier Basic`. The AzFw policy is also created with `--sku Basic`. Management IPs are handled transparently by the vHub-managed deployment (no explicit `--management-ip-configuration` needed for hub firewalls).
+
+### Impact
+
+- `LABS_INDEX.md` updated with new row for `3vhub-er-ri` (status: ✅ Complete).
+- New lab added to repository. No existing labs modified.
