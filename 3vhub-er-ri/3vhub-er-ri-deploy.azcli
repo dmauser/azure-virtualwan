@@ -1,0 +1,594 @@
+#!/bin/bash
+
+# =============================================================================
+# Lab: 3-Region Virtual WAN with ExpressRoute, Azure Firewall Basic & Routing Intent
+# Script: 3vhub-er-ri-deploy.azcli
+# Description: Deploys a 3-hub vWAN (eastus, westus, centralus) with ER on 2 hubs,
+#              Azure Firewall Basic on all 3 hubs, and Routing Intent (private only).
+#              Creates ER circuits early so service-key handoff overlaps Azure work.
+# =============================================================================
+
+# ============================================================
+# Phase 1: Pre-flight — extensions + variables + password prompt
+# ============================================================
+echo "### Pre-flight: validating CLI extensions ###"
+az extension add --name virtual-wan --upgrade -o none
+az extension add --name azure-firewall --upgrade -o none
+
+# Verify Azure login
+az account show &>/dev/null || { echo "ERROR: Not logged in. Run 'az login' first."; exit 1; }
+
+# Variables (make changes based on your requirements)
+rg=lab-3vhub-er-ri                  # resource group
+vwanname=vwan-3vhub-er-ri            # virtual WAN name
+region1=eastus                       # hub 1 region
+region2=westus                       # hub 2 region
+region3=centralus                    # hub 3 region
+hub1name=vhub-eastus                 # hub 1 name
+hub2name=vhub-westus                 # hub 2 name
+hub3name=vhub-centralus              # hub 3 name
+hub1prefix=10.1.0.0/23               # hub 1 address space
+hub2prefix=10.2.0.0/23               # hub 2 address space
+hub3prefix=10.3.0.0/23               # hub 3 address space
+spoke1name=spoke-east                # spoke 1 VNet name
+spoke2name=spoke-west                # spoke 2 VNet name
+spoke3name=spoke-central             # spoke 3 VNet name
+spoke1prefix=10.1.10.0/24            # spoke 1 address space
+spoke2prefix=10.2.10.0/24            # spoke 2 address space
+spoke3prefix=10.3.10.0/24            # spoke 3 address space
+vm1name=vm-spoke-east                # VM in spoke-east
+vm2name=vm-spoke-west                # VM in spoke-west
+vm3name=vm-spoke-central             # VM in spoke-central
+username=azureuser                   # VM admin username
+VM_SKU_CANDIDATES=(Standard_B2s Standard_D2s_v5 Standard_D2s_v3) # VM size candidates, in preference order
+
+# ExpressRoute variables (East = Washington DC, West = Silicon Valley, both Megaport)
+ername1=er-vhub-eastus               # ER circuit name for East hub
+perloc1="Washington DC"              # ER peering location (East)
+ername2=er-vhub-westus               # ER circuit name for West hub
+perloc2="Silicon Valley"             # ER peering location (West)
+erprovider=Megaport                  # ER provider for both circuits
+erbandwidth=50                       # ER bandwidth in Mbps
+ersku=Standard                       # ER SKU tier
+erfamily=MeteredData                 # ER billing family
+
+# Azure Firewall variables (Basic SKU on vHub)
+firewallsku=Basic                    # Azure Firewall tier
+fwpolicynamehub1=$hub1name-fwpolicy  # firewall policy for hub 1
+fwpolicynamehub2=$hub2name-fwpolicy  # firewall policy for hub 2
+fwpolicynamehub3=$hub3name-fwpolicy  # firewall policy for hub 3
+
+# ER provisioning poll timeout — increase if your provider is slow
+MAX_WAIT_MIN=180
+
+# Get caller's public IP for NSG SSH rule
+mypip=$(curl -4 ifconfig.io -s) # caller public IP for SSH NSG rule
+
+# Prompt for VM admin password (used for all 3 VMs)
+read -s -p "VM admin password: " password; echo
+
+# Record deployment start time for duration summary
+deploy_start=$(date +%s)
+
+# ============================================================
+# Phase 0: Pre-flight — VM SKU regional availability
+# ============================================================
+echo ""
+echo "### Phase 0: Checking VM SKU availability in spoke regions ###"
+
+pick_vm_sku() {
+    local region=$1
+    local result_var=$2
+    local picked_sku=""
+    local restrictions=""
+
+    for sku in "${VM_SKU_CANDIDATES[@]}"; do
+        restrictions=$(az vm list-skus -l "$region" --resource-type virtualMachines \
+          --query "[?name=='$sku'].restrictions" -o tsv)
+        if [[ -z "$restrictions" ]]; then
+            picked_sku=$sku
+            break
+        fi
+    done
+
+    if [[ -z "$picked_sku" ]]; then
+        echo "ERROR: No candidate VM SKU is available in region '$region'."
+        echo "  Tried: ${VM_SKU_CANDIDATES[*]}"
+        exit 1
+    fi
+
+    printf -v "$result_var" '%s' "$picked_sku"
+}
+
+pick_vm_sku "$region1" VM_SKU_EAST
+pick_vm_sku "$region2" VM_SKU_WEST
+pick_vm_sku "$region3" VM_SKU_CENTRAL
+
+printf "%-12s %-20s\n" "Region" "Selected VM SKU"
+printf "%-12s %-20s\n" "------" "---------------"
+printf "%-12s %-20s\n" "$region1" "$VM_SKU_EAST"
+printf "%-12s %-20s\n" "$region2" "$VM_SKU_WEST"
+printf "%-12s %-20s\n" "$region3" "$VM_SKU_CENTRAL"
+
+# ============================================================
+# Phase 2: Resource Group + Virtual WAN
+# ============================================================
+echo ""
+echo "### Phase 2: Creating Resource Group and Virtual WAN ###"
+az group create -n $rg -l $region1 --output none
+az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true \
+  --location $region1 --type Standard --output none
+
+# ============================================================
+# Phase 3: Create ExpressRoute circuits early + service-key handoff
+# ============================================================
+echo ""
+echo "### Phase 3: Creating ExpressRoute circuits early ###"
+az network express-route create --bandwidth $erbandwidth -n $ername1 \
+  --peering-location "$perloc1" -g $rg --provider $erprovider \
+  -l $region1 --sku-family $erfamily --sku-tier $ersku -o none &
+er_create_pid1=$!
+az network express-route create --bandwidth $erbandwidth -n $ername2 \
+  --peering-location "$perloc2" -g $rg --provider $erprovider \
+  -l $region2 --sku-family $erfamily --sku-tier $ersku -o none &
+er_create_pid2=$!
+wait $er_create_pid1
+wait $er_create_pid2
+
+echo ""
+echo "######################################################################"
+echo "#  ExpressRoute Service Keys — provide these to Megaport             #"
+echo "######################################################################"
+echo ""
+echo "  Circuit : $ername1  (Provider: $erprovider / Location: $perloc1)"
+echo "  Service Key: $(az network express-route show -g $rg -n $ername1 --query serviceKey -o tsv)"
+echo ""
+echo "  Circuit : $ername2  (Provider: $erprovider / Location: $perloc2)"
+echo "  Service Key: $(az network express-route show -g $rg -n $ername2 --query serviceKey -o tsv)"
+echo ""
+echo "  ➤ Log in to the Megaport portal and place orders using the keys above."
+echo "  ➤ The script will continue Azure deployment work, then poll both circuits"
+echo "    for serviceProviderProvisioningState = Provisioned before ER gateways."
+echo "  ➤ Note: provider provisioning typically takes hours to days."
+echo ""
+read -p "Press ENTER once you have placed the ER orders with Megaport..."
+
+# ============================================================
+# Phase 4: Start 3 vHubs in parallel with ASPath routing preference
+# ============================================================
+echo ""
+echo "### Phase 4: Starting 3 vHubs in parallel (ASPath routing preference) ###"
+az network vhub create -g $rg --name $hub1name --address-prefix $hub1prefix \
+  --vwan $vwanname --location $region1 --sku Standard \
+  --hub-routing-preference ASPath --no-wait --output none
+az network vhub create -g $rg --name $hub2name --address-prefix $hub2prefix \
+  --vwan $vwanname --location $region2 --sku Standard \
+  --hub-routing-preference ASPath --no-wait --output none
+az network vhub create -g $rg --name $hub3name --address-prefix $hub3prefix \
+  --vwan $vwanname --location $region3 --sku Standard \
+  --hub-routing-preference ASPath --no-wait --output none
+
+# ============================================================
+# Phase 5: Spoke VNets + NSGs + Ubuntu VMs while vHubs provision
+# ============================================================
+echo ""
+echo "### Phase 5: Creating spoke networks in parallel while vHubs provision ###"
+echo "Creating NSGs (allowing SSH from caller IP: $mypip)..."
+{
+  az network vnet create --address-prefixes $spoke1prefix -n $spoke1name -g $rg -l $region1 \
+    --subnet-name main --subnet-prefixes 10.1.10.0/27 --output none
+  az network nsg create -g $rg --name default-nsg-$region1 --location $region1 -o none
+  az network nsg rule create -g $rg --nsg-name default-nsg-$region1 -n 'default-allow-ssh' \
+    --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' \
+    --destination-address-prefixes '*' --destination-port-ranges 22 \
+    --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+  az network vnet subnet update -g $rg --vnet-name $spoke1name --name main \
+    --network-security-group default-nsg-$region1 -o none
+} &
+spoke_setup_pid1=$!
+{
+  az network vnet create --address-prefixes $spoke2prefix -n $spoke2name -g $rg -l $region2 \
+    --subnet-name main --subnet-prefixes 10.2.10.0/27 --output none
+  az network nsg create -g $rg --name default-nsg-$region2 --location $region2 -o none
+  az network nsg rule create -g $rg --nsg-name default-nsg-$region2 -n 'default-allow-ssh' \
+    --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' \
+    --destination-address-prefixes '*' --destination-port-ranges 22 \
+    --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+  az network vnet subnet update -g $rg --vnet-name $spoke2name --name main \
+    --network-security-group default-nsg-$region2 -o none
+} &
+spoke_setup_pid2=$!
+{
+  az network vnet create --address-prefixes $spoke3prefix -n $spoke3name -g $rg -l $region3 \
+    --subnet-name main --subnet-prefixes 10.3.10.0/27 --output none
+  az network nsg create -g $rg --name default-nsg-$region3 --location $region3 -o none
+  az network nsg rule create -g $rg --nsg-name default-nsg-$region3 -n 'default-allow-ssh' \
+    --direction Inbound --priority 100 --source-address-prefixes $mypip --source-port-ranges '*' \
+    --destination-address-prefixes '*' --destination-port-ranges 22 \
+    --access Allow --protocol Tcp --description "Allow inbound SSH" --output none
+  az network vnet subnet update -g $rg --vnet-name $spoke3name --name main \
+    --network-security-group default-nsg-$region3 -o none
+} &
+spoke_setup_pid3=$!
+wait $spoke_setup_pid1
+wait $spoke_setup_pid2
+wait $spoke_setup_pid3
+
+echo "Creating Ubuntu 22.04 VMs in each spoke (parallel, --no-wait)..."
+az vm create -n $vm1name -g $rg --image Ubuntu2204 --public-ip-sku Standard \
+  --size $VM_SKU_EAST -l $region1 --subnet main --vnet-name $spoke1name \
+  --admin-username $username --admin-password $password --nsg "" --no-wait --output none
+az vm create -n $vm2name -g $rg --image Ubuntu2204 --public-ip-sku Standard \
+  --size $VM_SKU_WEST -l $region2 --subnet main --vnet-name $spoke2name \
+  --admin-username $username --admin-password $password --nsg "" --no-wait --output none
+az vm create -n $vm3name -g $rg --image Ubuntu2204 --public-ip-sku Standard \
+  --size $VM_SKU_CENTRAL -l $region3 --subnet main --vnet-name $spoke3name \
+  --admin-username $username --admin-password $password --nsg "" --no-wait --output none
+
+# ============================================================
+# Phase 6: Wait for vHubs, then create spoke connections
+# ============================================================
+echo ""
+echo "### Phase 6: Waiting for vHubs before spoke connections ###"
+echo "Waiting for all 3 vHubs to reach provisioningState=Succeeded..."
+prState1=''; prState2=''; prState3=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' || $prState3 != 'Succeeded' ]]; do
+    prState1=$(az network vhub show -g $rg -n $hub1name --query 'provisioningState' -o tsv 2>/dev/null)
+    prState2=$(az network vhub show -g $rg -n $hub2name --query 'provisioningState' -o tsv 2>/dev/null)
+    prState3=$(az network vhub show -g $rg -n $hub3name --query 'provisioningState' -o tsv 2>/dev/null)
+    echo "  $hub1name=$prState1  $hub2name=$prState2  $hub3name=$prState3"
+    sleep 10
+done
+
+echo "Verifying hubRoutingPreference=ASPath on all hubs..."
+for hubname in $hub1name $hub2name $hub3name; do
+    hrp=$(az network vhub show -g $rg -n $hubname --query 'hubRoutingPreference' -o tsv)
+    if [[ "$hrp" != "ASPath" ]]; then
+        echo "  $hubname hubRoutingPreference=$hrp — applying fallback update to ASPath..."
+        az network vhub update -g $rg -n $hubname --hub-routing-preference ASPath --output none
+        echo "  $hubname updated to ASPath"
+    else
+        echo "  $hubname hubRoutingPreference=$hrp ✔"
+    fi
+done
+
+for hubname in $hub1name $hub2name $hub3name; do
+    rtState=''
+    while [[ $rtState != 'Provisioned' ]]; do
+        rtState=$(az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv)
+        echo "  $hubname routingState=$rtState"
+        sleep 10
+    done
+done
+
+echo "Creating spoke-to-hub VNet connections (parallel, --no-wait)..."
+az network vhub connection create -n $spoke1name-conn --remote-vnet $spoke1name \
+  -g $rg --vhub-name $hub1name --no-wait --output none
+az network vhub connection create -n $spoke2name-conn --remote-vnet $spoke2name \
+  -g $rg --vhub-name $hub2name --no-wait --output none
+az network vhub connection create -n $spoke3name-conn --remote-vnet $spoke3name \
+  -g $rg --vhub-name $hub3name --no-wait --output none
+
+echo "Waiting for all spoke connections to Succeed..."
+prState1=''; prState2=''; prState3=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' || $prState3 != 'Succeeded' ]]; do
+    prState1=$(az network vhub connection show -n $spoke1name-conn --vhub-name $hub1name \
+      -g $rg --query 'provisioningState' -o tsv 2>/dev/null)
+    prState2=$(az network vhub connection show -n $spoke2name-conn --vhub-name $hub2name \
+      -g $rg --query 'provisioningState' -o tsv 2>/dev/null)
+    prState3=$(az network vhub connection show -n $spoke3name-conn --vhub-name $hub3name \
+      -g $rg --query 'provisioningState' -o tsv 2>/dev/null)
+    echo "  $spoke1name-conn=$prState1  $spoke2name-conn=$prState2  $spoke3name-conn=$prState3"
+    sleep 30
+done
+
+# ============================================================
+# Phase 7: Poll serviceProviderProvisioningState (configurable timeout)
+# ============================================================
+echo ""
+echo "### Phase 7: Polling serviceProviderProvisioningState before ER gateways (max ${MAX_WAIT_MIN} min) ###"
+er_poll_start=$(date +%s)
+max_er_secs=$((MAX_WAIT_MIN * 60))
+
+while true; do
+    elapsed=$(( $(date +%s) - er_poll_start ))
+    if (( elapsed > max_er_secs )); then
+        echo ""
+        echo "ERROR: Timeout after ${MAX_WAIT_MIN} minutes waiting for ER circuits to be Provisioned."
+        echo "  Both circuits must show serviceProviderProvisioningState=Provisioned before proceeding."
+        echo "  To resume: wait for provider provisioning, then re-run this script from Phase 8 onward"
+        echo "  (set rg/hub/ername variables and run the gateway+connection+firewall+RI steps manually)."
+        exit 1
+    fi
+    state1=$(az network express-route show -g $rg -n $ername1 \
+      --query serviceProviderProvisioningState -o tsv)
+    state2=$(az network express-route show -g $rg -n $ername2 \
+      --query serviceProviderProvisioningState -o tsv)
+    echo "  $ername1: $state1  |  $ername2: $state2  (elapsed: $((elapsed/60))m/$((max_er_secs/60))m)"
+    if [[ "$state1" == "Provisioned" && "$state2" == "Provisioned" ]]; then
+        echo "  Both circuits are Provisioned. Proceeding..."
+        break
+    fi
+    sleep 30
+done
+
+# ============================================================
+# Phase 8: Create ER gateways in East + West hubs (parallel)
+# ============================================================
+echo ""
+echo "### Phase 8: Creating ExpressRoute Gateways in East and West hubs ###"
+az network express-route gateway create -g $rg -n $hub1name-ergw \
+  --location $region1 --min-val 1 --virtual-hub $hub1name -o none &>/dev/null &
+az network express-route gateway create -g $rg -n $hub2name-ergw \
+  --location $region2 --min-val 1 --virtual-hub $hub2name -o none &>/dev/null &
+
+echo "Waiting for ER gateways to Succeed..."
+prState1=''; prState2=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]]; do
+    prState1=$(az network express-route gateway show -g $rg -n $hub1name-ergw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    prState2=$(az network express-route gateway show -g $rg -n $hub2name-ergw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    echo "  $hub1name-ergw=$prState1  $hub2name-ergw=$prState2"
+    sleep 15
+done
+
+# ============================================================
+# Phase 9: Create ER gateway connections (circuit peering → hub gateway)
+# ============================================================
+echo ""
+echo "### Phase 9: Creating ER gateway connections in parallel ###"
+
+echo "  Connecting $hub1name to $ername1..."
+peering1=$(az network express-route show -g $rg -n $ername1 --query 'peerings[0].id' -o tsv)
+routetableid1=$(az network vhub route-table show --name defaultRouteTable \
+  --vhub-name $hub1name -g $rg --query id -o tsv)
+echo "  Connecting $hub2name to $ername2..."
+peering2=$(az network express-route show -g $rg -n $ername2 --query 'peerings[0].id' -o tsv)
+routetableid2=$(az network vhub route-table show --name defaultRouteTable \
+  --vhub-name $hub2name -g $rg --query id -o tsv)
+
+az network express-route gateway connection create \
+  --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw \
+  --peering $peering1 \
+  --associated-route-table $routetableid1 \
+  --propagated-route-tables $routetableid1 \
+  --labels default -o none &
+er_conn_pid1=$!
+az network express-route gateway connection create \
+  --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw \
+  --peering $peering2 \
+  --associated-route-table $routetableid2 \
+  --propagated-route-tables $routetableid2 \
+  --labels default -o none &
+er_conn_pid2=$!
+wait $er_conn_pid1
+wait $er_conn_pid2
+
+prState1=''; prState2=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]]; do
+    prState1=$(az network express-route gateway connection show \
+      --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    prState2=$(az network express-route gateway connection show \
+      --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    echo "  $hub1name-conn-to-$ername1=$prState1  $hub2name-conn-to-$ername2=$prState2"
+    sleep 30
+done
+
+# ============================================================
+# Phase 10: Azure Firewall Basic policies + any-to-any allow rules (all 3 hubs)
+# ============================================================
+echo ""
+echo "### Phase 10: Creating Azure Firewall Basic policies in parallel (all 3 hubs) ###"
+{
+    fwpolicy=$fwpolicynamehub1
+    echo "  Creating firewall policy: $fwpolicy"
+    az network firewall policy create --name $fwpolicy --resource-group $rg \
+      --sku $firewallsku --output none
+    az network firewall policy rule-collection-group create \
+      --name NetworkRuleCollectionGroup --priority 200 \
+      --policy-name $fwpolicy --resource-group $rg --output none
+    az network firewall policy rule-collection-group collection add-filter-collection \
+      --resource-group $rg \
+      --policy-name $fwpolicy \
+      --name GenericCollection \
+      --rcg-name NetworkRuleCollectionGroup \
+      --rule-type NetworkRule \
+      --rule-name AnytoAny \
+      --action Allow \
+      --ip-protocols "Any" \
+      --source-addresses "*" \
+      --destination-addresses "*" \
+      --destination-ports "*" \
+      --collection-priority 100 \
+      --output none
+} &
+fw_policy_pid1=$!
+{
+    fwpolicy=$fwpolicynamehub2
+    echo "  Creating firewall policy: $fwpolicy"
+    az network firewall policy create --name $fwpolicy --resource-group $rg \
+      --sku $firewallsku --output none
+    az network firewall policy rule-collection-group create \
+      --name NetworkRuleCollectionGroup --priority 200 \
+      --policy-name $fwpolicy --resource-group $rg --output none
+    az network firewall policy rule-collection-group collection add-filter-collection \
+      --resource-group $rg \
+      --policy-name $fwpolicy \
+      --name GenericCollection \
+      --rcg-name NetworkRuleCollectionGroup \
+      --rule-type NetworkRule \
+      --rule-name AnytoAny \
+      --action Allow \
+      --ip-protocols "Any" \
+      --source-addresses "*" \
+      --destination-addresses "*" \
+      --destination-ports "*" \
+      --collection-priority 100 \
+      --output none
+} &
+fw_policy_pid2=$!
+{
+    fwpolicy=$fwpolicynamehub3
+    echo "  Creating firewall policy: $fwpolicy"
+    az network firewall policy create --name $fwpolicy --resource-group $rg \
+      --sku $firewallsku --output none
+    az network firewall policy rule-collection-group create \
+      --name NetworkRuleCollectionGroup --priority 200 \
+      --policy-name $fwpolicy --resource-group $rg --output none
+    az network firewall policy rule-collection-group collection add-filter-collection \
+      --resource-group $rg \
+      --policy-name $fwpolicy \
+      --name GenericCollection \
+      --rcg-name NetworkRuleCollectionGroup \
+      --rule-type NetworkRule \
+      --rule-name AnytoAny \
+      --action Allow \
+      --ip-protocols "Any" \
+      --source-addresses "*" \
+      --destination-addresses "*" \
+      --destination-ports "*" \
+      --collection-priority 100 \
+      --output none
+} &
+fw_policy_pid3=$!
+wait $fw_policy_pid1
+wait $fw_policy_pid2
+wait $fw_policy_pid3
+
+# ============================================================
+# Phase 11: Deploy Azure Firewall Basic in all 3 hubs (parallel)
+# ============================================================
+echo ""
+echo "### Phase 11: Deploying Azure Firewall Basic in all 3 hubs (parallel, --no-wait) ###"
+fwpolidhub1=$(az network firewall policy show -g $rg -n $fwpolicynamehub1 --query id -o tsv)
+fwpolidhub2=$(az network firewall policy show -g $rg -n $fwpolicynamehub2 --query id -o tsv)
+fwpolidhub3=$(az network firewall policy show -g $rg -n $fwpolicynamehub3 --query id -o tsv)
+
+az network firewall create -g $rg -n $hub1name-azfw \
+  --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub1name \
+  --public-ip-count 1 --firewall-policy $fwpolidhub1 \
+  --location $region1 --output none &>/dev/null &
+az network firewall create -g $rg -n $hub2name-azfw \
+  --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub2name \
+  --public-ip-count 1 --firewall-policy $fwpolidhub2 \
+  --location $region2 --output none &>/dev/null &
+az network firewall create -g $rg -n $hub3name-azfw \
+  --sku AZFW_Hub --tier $firewallsku --virtual-hub $hub3name \
+  --public-ip-count 1 --firewall-policy $fwpolidhub3 \
+  --location $region3 --output none &>/dev/null &
+
+echo "Waiting for all 3 Azure Firewalls to Succeed (this takes ~30-45 min)..."
+prState1=''; prState2=''; prState3=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' || $prState3 != 'Succeeded' ]]; do
+    prState1=$(az network firewall show -g $rg -n $hub1name-azfw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    prState2=$(az network firewall show -g $rg -n $hub2name-azfw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    prState3=$(az network firewall show -g $rg -n $hub3name-azfw \
+      --query 'provisioningState' -o tsv 2>/dev/null)
+    echo "  $hub1name-azfw=$prState1  $hub2name-azfw=$prState2  $hub3name-azfw=$prState3"
+    sleep 15
+done
+
+# ============================================================
+# Phase 12: Enable Routing Intent — private traffic only — all 3 hubs
+# ============================================================
+echo ""
+echo "### Phase 12: Enabling Routing Intent (private traffic only) on all 3 hubs ###"
+{
+    fwid=$(az network firewall show -g $rg -n $hub1name-azfw --query id -o tsv)
+    echo "  Creating routing intent $hub1name-ri (nextHop → $hub1name-azfw)..."
+    az network vhub routing-intent create -g $rg --vhub-name $hub1name -n $hub1name-ri \
+      --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]' \
+      --output none
+} &
+ri_pid1=$!
+{
+    fwid=$(az network firewall show -g $rg -n $hub2name-azfw --query id -o tsv)
+    echo "  Creating routing intent $hub2name-ri (nextHop → $hub2name-azfw)..."
+    az network vhub routing-intent create -g $rg --vhub-name $hub2name -n $hub2name-ri \
+      --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]' \
+      --output none
+} &
+ri_pid2=$!
+{
+    fwid=$(az network firewall show -g $rg -n $hub3name-azfw --query id -o tsv)
+    echo "  Creating routing intent $hub3name-ri (nextHop → $hub3name-azfw)..."
+    az network vhub routing-intent create -g $rg --vhub-name $hub3name -n $hub3name-ri \
+      --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]' \
+      --output none
+} &
+ri_pid3=$!
+wait $ri_pid1
+wait $ri_pid2
+wait $ri_pid3
+
+echo "Polling Routing Intent provisioning state..."
+prState1=''; prState2=''; prState3=''
+while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' || $prState3 != 'Succeeded' ]]; do
+    prState1=$(az network vhub routing-intent show -g $rg --vhub-name $hub1name \
+      -n $hub1name-ri --query 'provisioningState' -o tsv 2>/dev/null)
+    prState2=$(az network vhub routing-intent show -g $rg --vhub-name $hub2name \
+      -n $hub2name-ri --query 'provisioningState' -o tsv 2>/dev/null)
+    prState3=$(az network vhub routing-intent show -g $rg --vhub-name $hub3name \
+      -n $hub3name-ri --query 'provisioningState' -o tsv 2>/dev/null)
+    echo "  $hub1name-ri=$prState1  $hub2name-ri=$prState2  $hub3name-ri=$prState3"
+    sleep 30
+done
+
+# ============================================================
+# Phase 13: Enable boot diagnostics (serial console access)
+# ============================================================
+echo ""
+echo "### Phase 13: Enabling boot diagnostics for serial console access ###"
+az vm boot-diagnostics enable --ids \
+  $(az vm list -g $rg --query '[].{id:id}' -o tsv) -o none
+
+# ============================================================
+# Phase 14: Deployment Summary
+# ============================================================
+deploy_end=$(date +%s)
+echo ""
+echo "######################################################################"
+echo "#                    DEPLOYMENT COMPLETE                             #"
+echo "######################################################################"
+echo ""
+echo "=== VM Public IPs ==="
+az network public-ip list -g $rg --query "[].{Name:name,IP:ipAddress}" -o table
+
+echo ""
+echo "=== VM Private IPs ==="
+for nicname in $(az network nic list -g $rg --query '[].name' -o tsv); do
+    echo "  $nicname: $(az network nic show -g $rg -n $nicname --query 'ipConfigurations[0].privateIPAddress' -o tsv)"
+done
+
+echo ""
+echo "=== ExpressRoute Circuit Service Keys ==="
+echo "  $ername1 ($perloc1): $(az network express-route show -g $rg -n $ername1 --query serviceKey -o tsv)"
+echo "  $ername2 ($perloc2): $(az network express-route show -g $rg -n $ername2 --query serviceKey -o tsv)"
+
+echo ""
+echo "=== Azure Firewall Private IPs ==="
+for hubname in $hub1name $hub2name $hub3name; do
+    fwip=$(az network firewall show -g $rg -n $hubname-azfw \
+      --query 'hubIPAddresses.privateIPAddress' -o tsv 2>/dev/null)
+    echo "  $hubname-azfw: $fwip"
+done
+
+echo ""
+echo "=== Hub Routing Preference (should be ASPath) ==="
+for hubname in $hub1name $hub2name $hub3name; do
+    hrp=$(az network vhub show -g $rg -n $hubname --query 'hubRoutingPreference' -o tsv)
+    echo "  $hubname: $hrp"
+done
+
+echo ""
+echo "Total deployment duration: $(( (deploy_end - deploy_start) / 60 )) minutes"
+echo ""
+echo "Next steps:"
+echo "  1. Run 3vhub-er-ri-validate.azcli to verify connectivity and routing."
+echo "  2. SSH to VMs and test cross-region traffic (routes via Azure Firewall)."
+echo "  3. Run 3vhub-er-ri-cleanup.azcli to tear down when done."

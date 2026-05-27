@@ -1,0 +1,28 @@
+#!/bin/bash
+
+# =============================================================================
+# Lab: 3-Region Virtual WAN with ExpressRoute, Azure Firewall Basic & Routing Intent
+# Script: 3vhub-er-ri-cleanup.azcli
+# Description: Deletes all resources for the 3vhub-er-ri lab by removing the
+#              resource group. This is irreversible — ER circuits will also be deleted.
+# =============================================================================
+
+# Parameters
+rg=lab-3vhub-er-ri
+
+echo "######################################################################"
+echo "#  WARNING: This will permanently delete resource group: $rg         #"
+echo "#  All resources including ExpressRoute circuits will be removed.     #"
+echo "######################################################################"
+echo ""
+read -p "Are you sure you want to delete '$rg'? Type 'yes' to confirm: " confirm
+
+if [[ "$confirm" == "yes" ]]; then
+    echo ""
+    echo "Deleting resource group $rg (--no-wait, runs in background)..."
+    az group delete -n $rg --yes --no-wait
+    echo "Deletion submitted. Monitor progress in the Azure portal or with:"
+    echo "  az group show -n $rg --query provisioningState -o tsv"
+else
+    echo "Cleanup cancelled."
+fi

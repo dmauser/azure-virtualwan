@@ -30,6 +30,7 @@
 | Lab Folder | Topic | Key Scripts | README | Status |
 |-----------|-------|-------------|--------|--------|
 | [any-to-any](./any-to-any/) | Basic any-to-any connectivity | a2a-deploy.azcli, a2a-validate.azcli | ✅ | Complete |
+| [3vhub-er-ri](./3vhub-er-ri/) | 3-region vWAN, ER on 2 hubs, AzFw Basic + Routing Intent (ASPath) | 3vhub-er-ri-deploy.azcli, 3vhub-er-ri-validate.azcli | ✅ | Complete |
 | [ft-wan](./ft-wan/) | Forced tunneling over ExpressRoute | ft-deploy-vwan.azcli | ✅ | Complete |
 | [gr-vwan](./gr-vwan/) | Global routing / multi-region VWAN | deploy-vwan.azcli, deploy-branches.azcli | — | 📝 Scripts only |
 | [inter-region-azfw](./inter-region-azfw/) | Route traffic through Azure Firewall spoke | irazfw-deploy.azcli, irazfw-validate.azcli | ✅ | Complete |
@@ -70,4 +71,4 @@
 
 ---
 
-*Last updated: 2026-05-04*
+*Last updated: 2026-05-26*

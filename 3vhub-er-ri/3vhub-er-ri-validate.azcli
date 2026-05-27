@@ -1,0 +1,191 @@
+#!/bin/bash
+
+# =============================================================================
+# Lab: 3-Region Virtual WAN with ExpressRoute, Azure Firewall Basic & Routing Intent
+# Script: 3vhub-er-ri-validate.azcli
+# Description: Validates connectivity, routing, ER state, and Routing Intent for the
+#              3vhub-er-ri lab. Run after deployment completes.
+# =============================================================================
+
+# Parameters (match deploy script)
+rg=lab-3vhub-er-ri
+hub1name=vhub-eastus
+hub2name=vhub-westus
+hub3name=vhub-centralus
+ername1=er-vhub-eastus
+ername2=er-vhub-westus
+
+# ============================================================
+# 1) VM connectivity — Public and Private IPs
+# ============================================================
+echo "######################################################################"
+echo "# 1. VM Public and Private IPs                                       #"
+echo "######################################################################"
+echo ""
+echo "=== VM Public IPs ==="
+az network public-ip list -g $rg --query "[].{Name:name,IP:ipAddress}" -o table
+
+echo ""
+echo "=== VM Private IPs ==="
+for nicname in $(az network nic list -g $rg --query '[].name' -o tsv); do
+    echo "  $nicname: $(az network nic show -g $rg -n $nicname \
+      --query 'ipConfigurations[0].privateIPAddress' -o tsv)"
+done
+
+# ============================================================
+# 2) VM effective routes
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 2. VM Effective Routes                                              #"
+echo "######################################################################"
+for nicname in $(az network nic list -g $rg --query '[].name' -o tsv); do
+    echo ""
+    echo "=== $nicname effective routes ==="
+    az network nic show-effective-route-table -g $rg --name $nicname --output table
+done
+
+# ============================================================
+# 3) vHub effective route tables (all 3 hubs, all route tables except noneRouteTable)
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 3. vHub Effective Route Tables                                      #"
+echo "######################################################################"
+for vhubname in $(az network vhub list -g $rg --query "[].name" -o tsv | sort); do
+    for routetable in $(az network vhub route-table list --vhub-name $vhubname \
+      -g $rg --query "[].id" -o tsv); do
+        rtname=$(echo $routetable | rev | cut -d'/' -f1 | rev)
+        if [[ "$rtname" != "noneRouteTable" ]]; then
+            echo ""
+            echo "=== vHub: $vhubname  |  Route Table: $rtname ==="
+            az network vhub get-effective-routes -g $rg -n $vhubname \
+              --resource-type RouteTable \
+              --resource-id $routetable \
+              --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
+              --output table
+        fi
+    done
+done
+
+# ============================================================
+# 4) Azure Firewall effective routes per hub
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 4. Azure Firewall Effective Routes                                  #"
+echo "######################################################################"
+for vhubname in $(az network vhub list -g $rg --query "[].name" -o tsv | sort); do
+    fwname=$(az network firewall list -g $rg \
+      --query "[?contains(name,'$vhubname')].name" -o tsv)
+    fwid=$(az network firewall list -g $rg \
+      --query "[?contains(name,'$vhubname')].id" -o tsv)
+    if [[ -n "$fwid" ]]; then
+        echo ""
+        echo "=== vHub: $vhubname  |  Firewall: $fwname ==="
+        az network vhub get-effective-routes -g $rg -n $vhubname \
+          --resource-type AzureFirewalls \
+          --resource-id $fwid \
+          --query "value[].{addressPrefixes:addressPrefixes[0], asPath:asPath, nextHopType:nextHopType}" \
+          --output table
+    fi
+done
+
+# ============================================================
+# 5) Verify hubRoutingPreference = ASPath on all 3 hubs
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 5. Hub Routing Preference (expected: ASPath on all 3 hubs)         #"
+echo "######################################################################"
+echo ""
+for hubname in $hub1name $hub2name $hub3name; do
+    hrp=$(az network vhub show -g $rg -n $hubname --query 'hubRoutingPreference' -o tsv)
+    if [[ "$hrp" == "ASPath" ]]; then
+        echo "  ✔ $hubname hubRoutingPreference=$hrp"
+    else
+        echo "  ✗ $hubname hubRoutingPreference=$hrp  ← MISMATCH, expected ASPath"
+    fi
+done
+
+# ============================================================
+# 6) ExpressRoute circuit state
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 6. ExpressRoute Circuit State                                       #"
+echo "######################################################################"
+echo ""
+for ername in $ername1 $ername2; do
+    echo "=== Circuit: $ername ==="
+    az network express-route show -g $rg -n $ername \
+      --query "{Name:name, CircuitProvisioningState:circuitProvisioningState, ServiceProviderProvisioningState:serviceProviderProvisioningState, ServiceKey:serviceKey}" \
+      -o table
+done
+
+# ============================================================
+# 7) ER gateway connection state (East + West)
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 7. ExpressRoute Gateway Connection State                            #"
+echo "######################################################################"
+echo ""
+echo "=== East hub ER gateway connections ==="
+az network express-route gateway connection list -g $rg \
+  --gateway-name $hub1name-ergw \
+  --query "[].{Name:name, ProvisioningState:provisioningState}" -o table 2>/dev/null
+
+echo ""
+echo "=== West hub ER gateway connections ==="
+az network express-route gateway connection list -g $rg \
+  --gateway-name $hub2name-ergw \
+  --query "[].{Name:name, ProvisioningState:provisioningState}" -o table 2>/dev/null
+
+# ============================================================
+# 8) Routing Intent provisioning state per hub
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 8. Routing Intent Provisioning State (expected: Succeeded)          #"
+echo "######################################################################"
+echo ""
+for hubname in $hub1name $hub2name $hub3name; do
+    riState=$(az network vhub routing-intent show -g $rg --vhub-name $hubname \
+      -n $hubname-ri --query 'provisioningState' -o tsv 2>/dev/null)
+    riPolicies=$(az network vhub routing-intent show -g $rg --vhub-name $hubname \
+      -n $hubname-ri --query 'routingPolicies[].{name:name,destinations:destinations}' \
+      -o json 2>/dev/null)
+    if [[ "$riState" == "Succeeded" ]]; then
+        echo "  ✔ $hubname-ri provisioningState=$riState"
+    else
+        echo "  ✗ $hubname-ri provisioningState=$riState"
+    fi
+    echo "     Policies: $riPolicies"
+done
+
+# ============================================================
+# 9) SSH connectivity test hints
+# ============================================================
+echo ""
+echo "######################################################################"
+echo "# 9. Connectivity Test Hints                                          #"
+echo "######################################################################"
+echo ""
+echo "SSH to any VM using its public IP (azureuser + your password)."
+echo "Once logged in, test cross-region private IP reachability:"
+echo ""
+echo "  # From vm-spoke-east (10.1.10.x) to other spokes:"
+echo "  ping 10.2.10.4       # vm-spoke-west (West US)"
+echo "  traceroute 10.2.10.4 # traffic should route via vhub-eastus AzFw"
+echo "  ping 10.3.10.4       # vm-spoke-central (Central US)"
+echo ""
+echo "  # From vm-spoke-west (10.2.10.x) to other spokes:"
+echo "  ping 10.1.10.4       # vm-spoke-east (East US)"
+echo "  traceroute 10.3.10.4 # traffic should route via vhub-westus AzFw"
+echo ""
+echo "  # Test tools (install if missing):"
+echo "  sudo apt-get install -y traceroute iputils-ping curl"
+echo ""
+echo "NOTE: Cross-hub traffic is inspected by Azure Firewall (Routing Intent private)."
+echo "      Check firewall network rules in the portal if traffic is unexpectedly blocked."
