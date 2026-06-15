@@ -36,6 +36,32 @@ Repository benefits from centralized lab catalog with natural learning progressi
 ### Key Insight
 Centralized type definitions prevent configuration drift across presets. Bicep module composition enables both simple (single-hub) and complex (any-to-any) topologies from same codebase. Separated core (infra building blocks) from connectivity (routing logic) into distinct module namespaces.
 
+## Session: svh-dynamic-er-ri Lab Delivery (2026-06-15)
+
+### Lab Delivered
+**svh-dynamic-er-ri** — Dynamic replacement for `3vhub-er-ri`. Deploys 1–4 Secured Virtual Hubs with ExpressRoute, Azure Firewall Basic, Routing Intent. Parameterized hub count, per-hub vmSize, demand-driven ER gateways, dual-path gateway creation (Bicep + CLI fallback).
+
+### Work Completed
+- Authored `main.bicep` orchestrator, all Bicep modules (vwan, vhub, firewall, spoke, VM, KV, ER, diagnostics)
+- Fixed Bicep lint warnings (`az bicep build main.bicep` → exit 0)
+- Authored `deploy.sh` / `deploy.ps1` with correct sequencing: hub → ER gateway → spoke connections → firewall → RI
+- Authored `cleanup.sh` / `cleanup.ps1` with reverse-order cleanup
+- Created `sample.singlehub.json` and `sample.multihub.json` parameter files
+- Documented orchestration in `.squad/orchestration-log/2026-06-15T18-06-36Z-naomi.md`
+
+### Key Decisions Made
+1. **ER gateway dual-path**: Bicep creates when `hub.deployErGateway=true`; CLI fallback for interactive circuit mappings
+2. **vmSize per-hub**: Region resilience (eastus capacity ≠ westus/centralus)
+3. **adminPassword inline, not in params**: Params file safe to inspect/commit
+4. **Spoke connections script-driven**: After hub `routingState=Provisioned` (ARM gate reliability)
+5. **Routing Intent script-driven**: After firewalls `Succeeded` (critical path optimization)
+6. **Naming contract enforced at Bicep + script layer**: Hub names derived from labPrefix + index (no jq dependency)
+
+### Integration Points
+- Alex: routing-intent.bicep used by RI CLI in deploy scripts
+- Amos: validate scripts test hub names, ER gateways, spoke connections, RI modes
+- Holden: README and docs reference deploy script interface and parameter examples
+
 ## Learnings
 
 ### Session: 3vhub-er-ri lab build (2026-05-26)
@@ -153,3 +179,35 @@ Centralized type definitions prevent configuration drift across presets. Bicep m
 
 ### Rationale
 Expose Megaport service keys as early as possible and overlap external provider provisioning with independent Azure work while preserving deployed-resource semantics and interactive UX.
+
+## Session: svh-dynamic-er-ri initial build (2026-06-15)
+
+**Requested by:** Daniel Mauser  
+**New lab:** `svh-dynamic-er-ri/` — dynamic N-hub reusable rebuild of `3vhub-er-ri`.
+
+### Files Created
+- `infra/bicep/modules/diagnostics.bicep` — optional Log Analytics workspace (PerGB2018, 30-day retention)
+- `infra/bicep/main.bicep` — RG-scoped orchestrator; loops over `hubs` array; deploys vWAN, vHubs, FW policies, firewalls, spoke VNets, conditional VMs, conditional ER gateways, Key Vault, optional diagnostics workspace
+- `infra/parameters/sample.singlehub.json` — single-hub example params
+- `infra/parameters/sample.multihub.json` — 3-hub example (eastus/westus/centralus, 2 with ER gateways)
+- `scripts/deploy.sh` + `scripts/deploy.ps1` — feature-equivalent interactive/non-interactive wrappers
+- `scripts/cleanup.sh` + `scripts/cleanup.ps1` — cleanup with `--vms-only`, `--er-only`, `--all` modes
+
+### Key Design Decisions
+
+1. **Hub config includes `vmSize`** — per-hub vmSize in the hub array object (populated from `pick_vm_sku` pre-flight) avoids the eastus capacity issue from the live `3vhub-er-ri` deployment where a global vmSize would block all hubs.
+
+2. **Secrets passed inline, not in params file** — `adminPassword` passed as `--parameters adminPassword=...` to `az deployment group create`; params file contains everything else (including `adminUsername` and `sshPublicKey`). This keeps the generated JSON file inspectable without leaking the password.
+
+3. **ER gateway creation dual-path** — ER gateways can be pre-created by Bicep (when `hub.deployErGateway=true`) OR created on-demand by the deploy script when the user maps a circuit to a hub at interactive prompt. Script checks for existence and creates if missing.
+
+4. **No jq dependency** — hub/spoke/fw names are computed in the script from the naming convention instead of being parsed from deployment JSON outputs. Deployment outputs are still emitted for external tooling.
+
+5. **Cleanup modes** — `--vms-only` deletes VMs+NICs+PIPs; `--er-only` deletes connections → gateways → circuits (in order); `--all` deletes the whole RG. All require explicit `yes` confirmation.
+
+6. **KV soft-delete note** — cleanup scripts remind users to purge the Key Vault via `az keyvault purge` since RG deletion leaves KV in 7-day soft-deleted state.
+
+### Bicep notes
+- `contains(hub, 'vmSize') ? hub.vmSize : vmSize` used for per-hub vmSize override with global fallback (valid Bicep built-in for object property check on untyped array elements)
+- Conditional module loops `[for (hub, i) in hubs: if (hub.deployVm) {...}]` used for VMs and ER gateways
+- `hubRoutingPreference` = `ExpressRoute` is hardcoded in the `vhub.bicep` module; deploy script also runs a fallback `az network vhub update` check post-deployment

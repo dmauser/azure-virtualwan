@@ -22,5 +22,33 @@ Orchestrator layer benefits from clear module interfaces (input parameters, outp
 
 ## Learnings
 
+- `Microsoft.Network/virtualHubs/routingIntent` rejects deployment if the hub firewall is not in `Succeeded` state; Bicep modules must enforce `dependsOn` on the firewall resource, while CLI scripts use post-provisioning `az network vhub routing-intent create`.
+- Routing Intent destination strings are ARM-canonical: `'PrivateTraffic'` (RFC-1918 aggregate) and `'Internet'` (0.0.0.0/0). Policy names (`PrivateTraffic`, `InternetTraffic`) are labels only.
+- Azure Firewall Basic tier in secured-hub mode supports `internetOnly`/`both` Routing Intent for connectivity testing but lacks IDPS and TLS inspection; document the Basic-tier caveat in any lab that uses these modes.
+- Routing Intent is mutually exclusive with custom hub route tables; never add static routes to `defaultRouteTable` that overlap RI destinations.
+- `hubRoutingPreference = ExpressRoute` is a lab-wide invariant for svh-dynamic-er-ri; fixed in `vhub.bicep` and validated by assertion scripts.
+
 ## Team Update: 3vhub-er-ri Lab (2026-05-26)
 - Naomi delivered new `3vhub-er-ri/` lab: 3-region vWAN with ER (East+West via Megaport), AzFw Basic all hubs, RI (private). Uses native CLI for RI (no Bicep), ASPath hub preference, single interactive script with ER pause-poll pattern. LABS_INDEX.md updated.
+
+## Session: svh-dynamic-er-ri Lab Delivery (2026-06-15)
+
+### Lab Delivered
+**svh-dynamic-er-ri** — Dynamic replacement for `3vhub-er-ri`. Parameterized 1–4 hubs with ExpressRoute, Azure Firewall Basic, Routing Intent. Uses **ExpressRoute** hubRoutingPreference (not ASPath as in 3vhub-er-ri).
+
+### Work Completed
+- Authored `routing-intent.bicep` defining all three RI modes (privateOnly, internetOnly, both) with canonical ARM JSON shapes
+- Documented routing design in `alex-routing-design.md`: ExpressRoute preference rationale, RI JSON schemas, destination strings, global mode enforcement, Azure Firewall Basic caveat, no custom route tables rule, resource naming convention
+- Validated RI modes against reference lab and ARM API requirements
+
+### Key Decisions Made
+1. **ExpressRoute preference (not ASPath)**: Simpler, more predictable for single-ER-per-hub topologies in dynamic labs
+2. **All RI modes supported**: privateOnly (default), internetOnly, both — with documented Basic SKU Internet caveat
+3. **No custom hub route tables**: RI incompatible with static routes overlapping destinations
+4. **Naming contract**: `<hubName>/<hubName>-ri` for RI child resources
+
+### Learnings Confirmed
+- RI destination strings are ARM-canonical: `PrivateTraffic` (RFC-1918 aggregate), `Internet` (0.0.0.0/0)
+- Basic tier lacks IDPS/TLS inspection; document for internetOnly/both modes
+- Routing Intent requires firewall `Succeeded` state; CLI creation after firewall deployment (Naomi's scripts)
+- Global RI mode (same mode on all hubs) prevents asymmetric routing
