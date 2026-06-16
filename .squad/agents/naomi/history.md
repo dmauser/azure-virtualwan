@@ -298,3 +298,39 @@ Amos fixed two critical query patterns in validate.ps1/validate.sh that directly
 **Action:** If your deploy.ps1/deploy.sh queries vWAN SKU or allow-all rules, update them to use the corrected patterns. Add non-interactive guards to any operator-interaction prompts.
 
 **Skill reference:** See `.squad/skills/azure-validation-queries/SKILL.md` for the canonical az CLI query patterns for vWAN, firewall, and connectivity validation.
+
+---
+
+## Session: connect-er standalone scripts (2026-06-16)
+
+**Requested by:** Daniel Mauser
+**Trigger:** Circuits provisioned by Megaport; user needs to connect them to vHub ER gateways without re-running the full deploy.ps1.
+
+### Work Completed
+
+Created two standalone post-provisioning scripts in `svh-dynamic-er-ri/scripts/`:
+- **connect-er.ps1** (PowerShell 7+, #Requires -Version 7.0)
+- **connect-er.sh** (bash, set -euo pipefail, LF-only)
+
+### ER Circuit → vHub Gateway Connection Pattern
+
+**Exact CLI sequence:**
+1. `az network express-route list -g <rg>` — discover circuits, check `serviceProviderProvisioningState`
+2. `az network vhub list -g <rg>` — discover hubs + locations
+3. `az network express-route gateway show -g <rg> -n <hub>-ergw` — check/create gateway with `--min-val 1 --virtual-hub <hub>`
+4. `az network express-route show -g <rg> -n <circuit> --query 'peerings[0].id' -o tsv` — get AzurePrivatePeering id
+5. `az network vhub route-table show --name defaultRouteTable --vhub-name <hub> -g <rg> --query id -o tsv` — get default route table id
+6. `az network express-route gateway connection create --name <hub>-conn-to-<circuit> -g <rg> --gateway-name <hub>-ergw --peering <peeringId> --associated-route-table <rtid> --propagated-route-tables <rtid> --labels default -o none`
+7. Poll `az network express-route gateway connection show --query provisioningState` to `Succeeded`
+
+**Idempotency approach:** Before creating, call `az network express-route gateway connection list --gateway-name <hub>-ergw` and check for a connection named `<hub>-conn-to-<circuit>`. If found, skip with "AlreadyConnected".
+
+**Connection name convention:** `${targetHub}-conn-to-${circuitName}`
+
+**Non-interactive mode:** Pass `-CircuitHubMap "circuit=hub,circuit=hub"` (PS) or `--circuit-hub-map "circuit=hub,circuit=hub"` (bash). Also honoured via `LAB_CIRCUIT_HUB_MAP` env var. Interactive mode: prompts "Connect <circuit> to which hub number? [1]".
+
+**Poll timeout:** Uses iteration counter (not wall-clock), max configurable via `-MaxWaitMin`/`--max-wait-min` (default 20 min = 40 × 30 s). On timeout: prints warning and continues (does not hard-fail the run).
+
+### Verification
+- `connect-er.ps1` PowerShell Parser → 0 parse errors ✔
+- `connect-er.sh` bash -n → PASS, 0 CRLF ✔
