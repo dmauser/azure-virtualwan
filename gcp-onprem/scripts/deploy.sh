@@ -178,7 +178,6 @@ environments = {
     network_cidr     = "192.168.100.0/24"
     subnet_cidr      = "192.168.100.0/24"
     vm_private_ip    = "192.168.100.10"
-    cloud_router_asn = 65100
   }
 
   env2 = {
@@ -188,7 +187,6 @@ environments = {
     network_cidr     = "192.168.200.0/24"
     subnet_cidr      = "192.168.200.0/24"
     vm_private_ip    = "192.168.200.10"
-    cloud_router_asn = 65200
   }
 }
 EOF

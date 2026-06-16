@@ -11,13 +11,12 @@ variable "default_region" {
 
 variable "environments" {
   type = map(object({
-    region           = string
-    zone             = string
-    network_name     = string
-    network_cidr     = string
-    subnet_cidr      = string
-    vm_private_ip    = string
-    cloud_router_asn = number
+    region        = string
+    zone          = string
+    network_name  = string
+    network_cidr  = string
+    subnet_cidr   = string
+    vm_private_ip = string
   }))
   description = "Map of on-prem simulation environments. Keys are env1 / env2 (or any label)."
 

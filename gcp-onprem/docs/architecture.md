@@ -10,8 +10,12 @@ This lab creates two independent GCP "on-premises" simulation environments, each
 
 | Env  | Network/Subnet    | VM IP          | Region    | Zone       | Cloud Router ASN | Google Peer ASN | Azure ER circuit  |
 |------|-------------------|----------------|-----------|------------|-----------------|----------------|------------------|
-| env1 | 192.168.100.0/24  | 192.168.100.10 | us-west2  | us-west2-a | 65100           | 16550          | vwanlab-er1 (LA)  |
-| env2 | 192.168.200.0/24  | 192.168.200.10 | us-west4  | us-west4-a | 65200           | 16550          | vwanlab-er2 (PHX) |
+| env1 | 192.168.100.0/24  | 192.168.100.10 | us-west2  | us-west2-a | 16550           | 16550          | vwanlab-er1 (LA)  |
+| env2 | 192.168.200.0/24  | 192.168.200.10 | us-west4  | us-west4-a | 16550           | 16550          | vwanlab-er2 (PHX) |
+
+### Cloud Router ASN — must be 16550 for Partner Interconnect
+
+For **Partner Interconnect**, the Cloud Router that backs the attachment **must** use the Google-assigned local ASN **16550**. Custom ASNs (e.g. `65100`/`65200`) are rejected by the API with `"must be assigned a local ASN of '16550'"`. The ASN is therefore fixed in the module and is not configurable.
 
 ### Google peer ASN — 16550
 
@@ -27,14 +31,14 @@ graph TD
   subgraph gcpenv1["GCP env1 — us-west2"]
     vpc1["VPC: onprem-la\n192.168.100.0/24"]
     vm1["VM: onprem-la-vm\n192.168.100.10\nno public IP"]
-    router1["Cloud Router\nASN 65100"]
+    router1["Cloud Router\nASN 16550"]
     att1["Partner Attachment\nAVAILABILITY_DOMAIN_1"]
   end
 
   subgraph gcpenv2["GCP env2 — us-west4"]
     vpc2["VPC: onprem-lv\n192.168.200.0/24"]
     vm2["VM: onprem-lv-vm\n192.168.200.10\nno public IP"]
-    router2["Cloud Router\nASN 65200"]
+    router2["Cloud Router\nASN 16550"]
     att2["Partner Attachment\nAVAILABILITY_DOMAIN_1"]
   end
 
@@ -61,7 +65,7 @@ graph TD
 2. The attachment enters state `PENDING_PARTNER` — waiting for the partner (Megaport) to activate.
 3. **Megaport VXC** is created with the pairing key → physical cross-connect provisioned in the colocation.
 4. Attachment state → `PENDING_CUSTOMER` or `ACTIVE` after Megaport activates.
-5. **BGP session** forms between Cloud Router (your ASN) and Google's router (ASN 16550).
+5. **BGP session** forms between the Cloud Router (local ASN 16550) and Google's router (ASN 16550).
 6. Azure side: the ER connection to the Virtual WAN hub is already in place (from the sibling lab).
 7. Routes exchange end-to-end across GCP ↔ Megaport ↔ Azure.
 

@@ -148,7 +148,7 @@ az network express-route list-route-tables \
   --path Primary \
   --output table
 
-# Expected: 192.168.100.0/24 with AS path containing 65100 16550
+# Expected: 192.168.100.0/24 with AS path containing 16550
 ```
 
 ---

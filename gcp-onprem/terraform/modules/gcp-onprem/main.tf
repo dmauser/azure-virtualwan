@@ -73,6 +73,10 @@ resource "google_compute_instance" "onprem" {
 
 # ---------------------------------------------------------------------------
 # Cloud Router
+# A Cloud Router that backs a PARTNER Interconnect attachment MUST use the
+# Google-assigned local ASN 16550 — custom ASNs (e.g. 65xxx) are rejected with
+# "must be assigned a local ASN of '16550'". This is fixed by GCP for Partner
+# Interconnect, so the ASN is not configurable here.
 # ---------------------------------------------------------------------------
 resource "google_compute_router" "onprem" {
   project = var.project
@@ -81,7 +85,7 @@ resource "google_compute_router" "onprem" {
   network = google_compute_network.onprem.self_link
 
   bgp {
-    asn = var.gcp_onprem.cloud_router_asn
+    asn = 16550
   }
 }
 

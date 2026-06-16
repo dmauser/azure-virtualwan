@@ -116,7 +116,7 @@ az network express-route list-route-tables \
   --path Primary
 ```
 
-You should see `192.168.100.0/24` (env1) routes advertised via AS path `65100 16550`.
+You should see `192.168.100.0/24` (env1) routes advertised via an AS path containing `16550`.
 
 ---
 
@@ -141,8 +141,8 @@ traceroute 10.x.x.x
 
 | Side            | ASN   | Notes                                      |
 |-----------------|-------|-------------------------------------------|
-| GCP env1 router | 65100 | Configured in Cloud Router                 |
-| GCP env2 router | 65200 | Configured in Cloud Router                 |
+| GCP env1 router | 16550 | Cloud Router local ASN — fixed at 16550 for Partner Interconnect |
+| GCP env2 router | 16550 | Cloud Router local ASN — fixed at 16550 for Partner Interconnect |
 | Google (GCP)    | 16550 | Fixed for all Partner Interconnect, GCP side |
 | Azure VWAN hub  | varies| Allocated by Azure for the ER connection   |
 

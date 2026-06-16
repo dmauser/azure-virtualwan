@@ -30,22 +30,20 @@ allowed_source_ranges = [
 # ---------------------------------------------------------------------------
 environments = {
   env1 = {
-    region           = "us-west2"    # Los Angeles
-    zone             = "us-west2-a"
-    network_name     = "onprem-la"
-    network_cidr     = "192.168.100.0/24"
-    subnet_cidr      = "192.168.100.0/24"
-    vm_private_ip    = "192.168.100.10"
-    cloud_router_asn = 65100
+    region        = "us-west2"    # Los Angeles
+    zone          = "us-west2-a"
+    network_name  = "onprem-la"
+    network_cidr  = "192.168.100.0/24"
+    subnet_cidr   = "192.168.100.0/24"
+    vm_private_ip = "192.168.100.10"
   }
 
   env2 = {
-    region           = "us-west4"    # Las Vegas (nearest to Phoenix circuits)
-    zone             = "us-west4-a"
-    network_name     = "onprem-lv"
-    network_cidr     = "192.168.200.0/24"
-    subnet_cidr      = "192.168.200.0/24"
-    vm_private_ip    = "192.168.200.10"
-    cloud_router_asn = 65200
+    region        = "us-west4"    # Las Vegas (nearest to Phoenix circuits)
+    zone          = "us-west4-a"
+    network_name  = "onprem-lv"
+    network_cidr  = "192.168.200.0/24"
+    subnet_cidr   = "192.168.200.0/24"
+    vm_private_ip = "192.168.200.10"
   }
 }

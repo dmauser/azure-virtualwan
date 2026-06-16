@@ -10,8 +10,8 @@ These GCP environments act as simulated on-prem sites that connect (via **Megapo
 
 | Env  | GCP Region     | Subnet            | VM IP          | Cloud Router ASN | Azure ER circuit |
 |------|---------------|-------------------|----------------|-----------------|------------------|
-| env1 | us-west2 (LA) | 192.168.100.0/24  | 192.168.100.10 | 65100           | vwanlab-er1      |
-| env2 | us-west4 (LV) | 192.168.200.0/24  | 192.168.200.10 | 65200           | vwanlab-er2      |
+| env1 | us-west2 (LA) | 192.168.100.0/24  | 192.168.100.10 | 16550           | vwanlab-er1      |
+| env2 | us-west4 (LV) | 192.168.200.0/24  | 192.168.200.10 | 16550           | vwanlab-er2      |
 
 ---
 
@@ -22,14 +22,14 @@ graph LR
   subgraph GCP["GCP (this lab)"]
     subgraph env1["env1 — us-west2 (LA)"]
       VM1["VM\n192.168.100.10"]
-      ROUTER1["Cloud Router\nASN 65100"]
+      ROUTER1["Cloud Router\nASN 16550"]
       ATT1["Partner Attach\n(pairing key)"]
       VM1 --- ROUTER1
       ROUTER1 --- ATT1
     end
     subgraph env2["env2 — us-west4 (LV)"]
       VM2["VM\n192.168.200.10"]
-      ROUTER2["Cloud Router\nASN 65200"]
+      ROUTER2["Cloud Router\nASN 16550"]
       ATT2["Partner Attach\n(pairing key)"]
       VM2 --- ROUTER2
       ROUTER2 --- ATT2
@@ -107,7 +107,7 @@ terraform apply
 |----------|---------|-------------|
 | `project` | *(required)* | GCP project ID |
 | `default_region` | `us-west2` | Provider default region |
-| `environments` | see tfvars.example | Map of env configs (region, zone, CIDR, ASN, …) |
+| `environments` | see tfvars.example | Map of env configs (region, zone, CIDR, …). Cloud Router ASN is fixed at 16550 by the module. |
 | `allowed_source_ranges` | RFC-1918 + IAP | Firewall source CIDRs. **Must include `35.235.240.0/20`** (IAP). |
 
 ---
@@ -116,10 +116,10 @@ terraform apply
 
 | Env  | Network/Subnet    | VM IP          | Region   | Zone       | Cloud Router ASN | Google peer ASN | Megaport pair    |
 |------|-------------------|----------------|----------|------------|-----------------|-----------------|-----------------|
-| env1 | 192.168.100.0/24  | 192.168.100.10 | us-west2 | us-west2-a | 65100           | 16550           | LA / vwanlab-er1 |
-| env2 | 192.168.200.0/24  | 192.168.200.10 | us-west4 | us-west4-a | 65200           | 16550           | Phoenix / vwanlab-er2 |
+| env1 | 192.168.100.0/24  | 192.168.100.10 | us-west2 | us-west2-a | 16550           | 16550           | LA / vwanlab-er1 |
+| env2 | 192.168.200.0/24  | 192.168.200.10 | us-west4 | us-west4-a | 16550           | 16550           | Phoenix / vwanlab-er2 |
 
-> **Note**: Google peer ASN `16550` is fixed for all Partner Interconnect attachments; you cannot change it.
+> **Note**: For Partner Interconnect, the Cloud Router local ASN must be `16550` (Google-assigned) — custom ASNs are rejected. The Google peer ASN is also `16550` and is fixed; you cannot change either.
 
 ---
 

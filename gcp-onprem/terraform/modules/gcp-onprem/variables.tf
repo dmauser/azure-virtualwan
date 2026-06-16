@@ -15,12 +15,11 @@ variable "zone" {
 
 variable "gcp_onprem" {
   type = object({
-    deploy_gcp       = bool
-    network_name     = string
-    network_cidr     = string
-    subnet_cidr      = string
-    vm_private_ip    = string
-    cloud_router_asn = number
+    deploy_gcp    = bool
+    network_name  = string
+    network_cidr  = string
+    subnet_cidr   = string
+    vm_private_ip = string
   })
   description = "Configuration object for this on-prem simulation environment."
 
