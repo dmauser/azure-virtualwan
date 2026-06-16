@@ -278,3 +278,23 @@ Added Phase 5b VM capacity pre-flight to `deploy.ps1` and `deploy.sh`:
 **Implication:** VMs must be created with `attachPublicIp=false` at deploy time (lab default is correct). Attempting to add a public IP post-VM-creation fails with HTTP 403 (Forbidden).  
 **Workaround:** Accept no-public-IP default. Access VMs via Azure Serial Console (built-in) or VM-to-VM SSH within the lab VNet (password auth via Key Vault).  
 **Lesson:** Subscription type and feature registration constraints must be validated early (Phase 0 pre-flights). Lab defaults (no public IP) are correct for restricted subscriptions.
+
+---
+
+## Cross-Agent Note: Amos Script Hardening (2026-06-16)
+
+**From:** Scribe (recording Amos discoveries)  
+**For:** Naomi (owns deploy.ps1 / deploy.sh)  
+**Topic:** Script hardening standards from live validation
+
+Amos fixed two critical query patterns in validate.ps1/validate.sh that directly affect your deploy scripts:
+
+1. **vWAN tier query:** Use `--query typePropertiesType` (not `--query sku`). The az CLI remaps ARM `properties.type` → `typePropertiesType`. Your code likely references this for vWAN Standard/Basic tier checks.
+
+2. **Allow-all firewall rule query:** Use `ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]` (flatten with `[]` before filtering). The pattern `[0][0]` against a projected list-of-lists always returns null.
+
+3. **Phase 10 ER provider pause:** Amos added a non-interactive guard: if `$IsNonInteractive` (PS) or `NON_INTERACTIVE=1` (bash), print guidance and skip blocking prompts. This prevents CI pipelines and `pwsh -NonInteractive` from hanging on `Read-Host` at the ER provider pause.
+
+**Action:** If your deploy.ps1/deploy.sh queries vWAN SKU or allow-all rules, update them to use the corrected patterns. Add non-interactive guards to any operator-interaction prompts.
+
+**Skill reference:** See `.squad/skills/azure-validation-queries/SKILL.md` for the canonical az CLI query patterns for vWAN, firewall, and connectivity validation.

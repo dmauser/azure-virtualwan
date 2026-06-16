@@ -4,105 +4,6 @@
 
 ---
 
-## Decision: Documentation Standards for azure-virtualwan
-
-**Date:** 2026-05-04
-**Author:** Holden (Lead)
-**Status:** Accepted
-**Requested by:** Daniel Mauser
-
-### Context
-
-The repository has grown to 30+ labs but the root README only listed ~9 of them. There were no conventions for script structure or lab documentation, leading to inconsistency across labs.
-
-### Decisions Made
-
-#### 1. Root README expanded
-- Added "Getting Started" section pointing to LABS_INDEX.md (to be created as full catalog)
-- All 34 lab/resource folders now linked in the Articles/Lab section
-- Added "Contributing" section referencing convention docs
-
-#### 2. Script Conventions established (`docs/SCRIPT_CONVENTIONS.md`)
-- File naming: `{prefix}-{action}.azcli` pattern
-- Mandatory parameter section at top with `region` and `rg` first
-- Pre-requisite checks: login status, CLI extensions, version
-- Error handling: `set -e` for bash, progress echo before long commands
-- Comments explain "why" not "what"
-- Every lab must include a cleanup script
-
-#### 3. Lab README Template created (`docs/LAB_README_TEMPLATE.md`)
-- Standardized sections: Objectives, Architecture, Prerequisites, Estimated Time, Deployment Steps, Validation, Cleanup, Troubleshooting
-- Includes cost estimate placeholder and Mermaid diagram option
-- Troubleshooting table format for common issues
-
-### Impact
-
-- New labs should follow these conventions
-- Existing labs are NOT required to retrofit immediately — adopt on next edit
-- LABS_INDEX.md is referenced but not yet created (separate task)
-
-### Trade-offs
-
-- Chose `.azcli` as primary format (matches existing convention) over `.sh` wrapper scripts
-- Template is guidance, not rigid — labs may omit sections that don't apply
-
----
-
-## Decision: Unified IaC Framework — Architectural Analysis
-
-**Date:** 2026-05-04
-**Author:** Holden (Lead)
-**Status:** Proposed
-**Requested by:** Daniel Mauser
-
-### Context
-
-Daniel wants to consolidate all 30+ lab scenarios into a single deployable Bicep framework using Azure Verified Modules (AVM) as the foundation. This analysis covers the full scope, AVM gaps, architecture design, effort estimation, and risks.
-
-### Analysis Delivered
-
-See full report in session output. Summary:
-- 30 lab scenarios cataloged across 5 complexity tiers
-- AVM covers ~60% of base VWAN infrastructure; 7 critical gaps identified
-- Hybrid architecture recommended (AVM core + custom modules for NVA/BGP)
-- Estimated effort: XL (16-20 weeks for 2 engineers)
-- Highest risks: NVA post-deployment config, BGP peering automation, AVM breaking changes
-
-### Decision Pending
-
-Awaiting Daniel's approval on architecture approach before implementation begins.
-
----
-
-## Decision: LABS_INDEX.md Categorization Approach
-
-**Author:** Naomi (Infra Dev)  
-**Date:** 2026-05-04  
-**Status:** Proposed
-
-### Context
-
-Created `LABS_INDEX.md` as a comprehensive index of all 30 lab folders in the repository.
-
-### Decisions Made
-
-1. **Learning Path ordering** — Organized from fundamentals (any-to-any, single VPN) → security layers (secured vHub, routing intent) → advanced NVA/BGP → hybrid connectivity (VPN-over-ER) → multi-VWAN → migration scenarios. This reflects a natural skill progression for someone learning Azure Virtual WAN.
-
-2. **Status classification** — Three tiers based on README presence and completeness:
-   - ✅ Complete: has a README with substantive documentation
-   - ⚠️ Draft: README exists but explicitly says "under construction" or is minimal
-   - 📝 Scripts only: no README file present
-
-3. **Key Scripts column** — Limited to 1-2 most representative scripts (typically deploy + validate) rather than listing all scripts, to keep the table scannable.
-
-4. **Excluded folders** — `.squad`, `.github`, `.copilot`, `.vscode`, `.git`, `misc`, `misc-cheatsheet`, `limits`, and `lab` were excluded as they are not lab scenarios.
-
-### Impact
-
-This file serves as the entry point for anyone discovering the repo. It should be updated when new labs are added or when draft labs get completed.
-
----
-
 ## Decision: New Lab `3vhub-er-ri` Added
 
 **Date:** 2026-05-26
@@ -634,3 +535,54 @@ When bypassed, a `[WARN]` line is printed informing the operator that a capacity
 ### Regions confirmed capacity-blocked (DMAUSER-FDPO, 2026-06-15)
 
 Standard_B2s (and all other tested SKUs): eastus, eastus2, centralus, westus2 — all blocked by capacity restrictions. westus, westus3, southcentralus were not tested but are likely candidates to try.
+
+---
+
+## Decision: svh-dynamic-er-ri Script Hardening Standards
+
+**Date:** 2026-06-16  
+**Author:** Amos (Tester)  
+**Status:** Accepted (applied to svh-dynamic-er-ri; recommend adopting for all future labs)  
+**Requested by:** Daniel Mauser  
+
+### Context
+
+During live deployment validation of the 4-hub svh-dynamic-er-ri lab against `rg-svhdyn-4hub`, four classes of bugs were found and fixed in `validate.ps1`, `validate.sh`, `deploy.ps1`, and `deploy.sh`. These are general patterns that apply to any future lab using similar validation or deploy scripts.
+
+### Decisions Made
+
+#### 1. PS helper parameters must not shadow PS automatic variables
+
+- **Rule**: Never name a PowerShell function parameter `$Args`, `$Input`, `$PSBoundParameters`, or any other [PS automatic variable](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_automatic_variables). Use `$AzArgs` or any other non-reserved name.
+- **Rationale**: In `pwsh -File` (nested) execution `$Args` silently receives nothing, so `az @Args` runs bare `az` and prints group-help into captured output, corrupting all downstream checks.
+
+#### 2. Az pre-warm block required in all capture-heavy scripts
+
+- **Rule**: All validate/deploy scripts that capture `az` output into variables must include an up-front pre-warm block: install/update required CLI extensions, then call `az account show` to flush the one-time "Welcome to Azure CLI" banner before any query output is captured.
+- **Rationale**: The banner is printed exactly once on first-ever invocation; without pre-warm it lands inside the first `$(az ...)` result and corrupts it.
+
+#### 3. Safe integer parsing for az count queries in PowerShell
+
+- **Rule**: Never cast az query output directly with `[int](...)`. Use a `To-Int` helper that calls `[int]::TryParse` after stripping non-digits, with a guard rejecting strings longer than 9 digits.
+- **Rationale**: When `az` returns unexpected JSON blobs instead of a number (e.g., due to banner pollution), the naive cast throws `Int32 OverflowException` and aborts the script.
+
+#### 4. Correct az CLI property names for vWAN and Firewall Policy
+
+- **Rule (vWAN tier)**: Always use `--query typePropertiesType` (not `--query sku` or `--query type`) to retrieve the vWAN tier ("Standard"/"Basic"). The az CLI remaps ARM `properties.type` to `typePropertiesType`.
+- **Rule (allow-all rule)**: Always use `ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]` (flatten with `[]` before filtering). The pattern `[0][0]` against a projected list-of-lists always returns null in az CLI JMESPath.
+
+#### 5. Non-interactive guard for all blocking prompts in deploy scripts
+
+- **Rule**: Any `Read-Host`/`read` prompt in deploy scripts that waits for operator action (e.g., ER provider provisioning) must be guarded by `$IsNonInteractive` (PowerShell) / `NON_INTERACTIVE=1` env var (Bash). When running non-interactively, print the manual-step guidance and skip the blocking call.
+- **Rationale**: CI/automation pipelines and `pwsh -NonInteractive` invocations hang indefinitely at blocking prompts.
+
+### Impact
+
+- These five rules should be added to `docs/SCRIPT_CONVENTIONS.md` (Holden's domain) as PowerShell/Bash validation script standards.
+- Existing labs are not required to retrofit immediately — apply on next edit (consistent with Documentation Standards decision).
+- New lab validation scripts must follow rules 1–5 from day one.
+
+### Trade-offs
+
+- Pre-warm adds ~5–10 seconds per script run. Acceptable cost to guarantee clean output.
+- `To-Int` is PowerShell-only. Bash's `[[ $n -gt 0 ]]` and `${n:-0}` are already safe.
