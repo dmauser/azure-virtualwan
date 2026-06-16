@@ -655,16 +655,30 @@ if ($NumErCircuits -gt 0) {
 
     # Create ER gateway connection
     $peering  = (az network express-route show -g $Rg -n $en --query 'peerings[0].id' -o tsv)
-    $rtid     = (az network vhub route-table show --name defaultRouteTable `
-      --vhub-name $targetHub -g $Rg --query id -o tsv)
     $connName = "${targetHub}-conn-to-${en}"
     Write-Host "  Creating ER gateway connection: $connName..."
-    az network express-route gateway connection create `
-      --name $connName -g $Rg --gateway-name $ergwName `
-      --peering $peering `
-      --associated-route-table $rtid `
-      --propagated-route-tables $rtid `
-      --labels default -o none
+    # When the hub has Routing Intent, the connection MUST be created WITHOUT
+    # route-table/labels (Routing Intent auto-populates them); otherwise Azure
+    # returns ConnectionRoutingConfigConflictsWithRoutingIntent. This lab always
+    # configures Routing Intent, so branch on its presence.
+    $riState = (az network vhub routing-intent show -g $Rg --vhub $targetHub -n "${targetHub}-ri" `
+      --query provisioningState -o tsv 2>$null)
+    if (-not [string]::IsNullOrWhiteSpace($riState)) {
+      Write-Host "  Routing Intent detected on $targetHub — leaving route config empty (auto-populated)."
+      az network express-route gateway connection create `
+        --name $connName -g $Rg --gateway-name $ergwName `
+        --peering $peering `
+        -o none
+    } else {
+      $rtid = (az network vhub route-table show --name defaultRouteTable `
+        --vhub-name $targetHub -g $Rg --query id -o tsv)
+      az network express-route gateway connection create `
+        --name $connName -g $Rg --gateway-name $ergwName `
+        --peering $peering `
+        --associated-route-table $rtid `
+        --propagated-route-tables $rtid `
+        --labels default -o none
+    }
 
     $erConnIter = 0; $erConnMax = 40   # 40 × 30 s = 20 min
     do {

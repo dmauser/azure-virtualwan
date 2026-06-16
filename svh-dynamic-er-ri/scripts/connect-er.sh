@@ -249,24 +249,46 @@ for cn in "${circuit_names[@]}"; do
     continue
   fi
 
-  # ----- Get hub default route table id -----
-  rtid=$(az network vhub route-table show \
-    --name defaultRouteTable \
-    --vhub-name "$target_hub" \
-    -g "$RESOURCE_GROUP" \
-    --query id -o tsv 2>/dev/null)
+  # ----- Detect Routing Intent on the hub -----
+  # When a hub has Routing Intent configured, the ER connection MUST be created
+  # WITHOUT associated/propagated route-table or labels — Routing Intent
+  # auto-populates the routing configuration. Passing them triggers
+  # ConnectionRoutingConfigConflictsWithRoutingIntent. Every hub in this lab uses
+  # Routing Intent, so we branch on its presence to stay correct either way.
+  ri_state=$(az network vhub routing-intent show \
+    -g "$RESOURCE_GROUP" --vhub "$target_hub" -n "${target_hub}-ri" \
+    --query provisioningState -o tsv 2>/dev/null || true)
 
   # ----- Create the ER gateway connection -----
   log "  Creating connection: $conn_name..."
-  if ! az network express-route gateway connection create \
-    --name "$conn_name" \
-    -g "$RESOURCE_GROUP" \
-    --gateway-name "$ergw_name" \
-    --peering "$peering" \
-    --associated-route-table "$rtid" \
-    --propagated-route-tables "$rtid" \
-    --labels default \
-    -o none; then
+  if [[ -n "$ri_state" ]]; then
+    echo "  Routing Intent detected on $target_hub — leaving route config empty (auto-populated)."
+    create_ok=1
+    az network express-route gateway connection create \
+      --name "$conn_name" \
+      -g "$RESOURCE_GROUP" \
+      --gateway-name "$ergw_name" \
+      --peering "$peering" \
+      -o none || create_ok=0
+  else
+    # No Routing Intent — explicitly associate/propagate the default route table.
+    rtid=$(az network vhub route-table show \
+      --name defaultRouteTable \
+      --vhub-name "$target_hub" \
+      -g "$RESOURCE_GROUP" \
+      --query id -o tsv 2>/dev/null)
+    create_ok=1
+    az network express-route gateway connection create \
+      --name "$conn_name" \
+      -g "$RESOURCE_GROUP" \
+      --gateway-name "$ergw_name" \
+      --peering "$peering" \
+      --associated-route-table "$rtid" \
+      --propagated-route-tables "$rtid" \
+      --labels default \
+      -o none || create_ok=0
+  fi
+  if [[ "$create_ok" -ne 1 ]]; then
     echo "  [ERROR] Failed to create connection '$conn_name'."
     sum_circuits+=("$cn"); sum_hubs+=("$target_hub"); sum_gateways+=("$ergw_name")
     sum_connections+=("$conn_name"); sum_results+=("Failed (create error)")

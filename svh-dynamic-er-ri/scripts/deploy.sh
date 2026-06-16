@@ -775,22 +775,39 @@ if [[ "$num_er_circuits" -gt 0 ]]; then
     # Create the ER gateway connection
     peering=$(az network express-route show -g "$rg" -n "$er_name" \
       --query 'peerings[0].id' -o tsv)
-    rtid=$(az network vhub route-table show \
-      --name defaultRouteTable \
-      --vhub-name "$target_hub" \
-      -g "$rg" \
-      --query id -o tsv)
     conn_name="${target_hub}-conn-to-${er_name}"
     echo "  Creating ER gateway connection: $conn_name..."
-    az network express-route gateway connection create \
-      --name "$conn_name" \
-      -g "$rg" \
-      --gateway-name "$ergw_name" \
-      --peering "$peering" \
-      --associated-route-table "$rtid" \
-      --propagated-route-tables "$rtid" \
-      --labels default \
-      -o none
+    # When the hub has Routing Intent, the connection MUST be created WITHOUT
+    # route-table/labels (Routing Intent auto-populates them); otherwise Azure
+    # returns ConnectionRoutingConfigConflictsWithRoutingIntent. This lab always
+    # configures Routing Intent, so branch on its presence.
+    ri_state=$(az network vhub routing-intent show \
+      -g "$rg" --vhub "$target_hub" -n "${target_hub}-ri" \
+      --query provisioningState -o tsv 2>/dev/null || true)
+    if [[ -n "$ri_state" ]]; then
+      echo "  Routing Intent detected on $target_hub — leaving route config empty (auto-populated)."
+      az network express-route gateway connection create \
+        --name "$conn_name" \
+        -g "$rg" \
+        --gateway-name "$ergw_name" \
+        --peering "$peering" \
+        -o none
+    else
+      rtid=$(az network vhub route-table show \
+        --name defaultRouteTable \
+        --vhub-name "$target_hub" \
+        -g "$rg" \
+        --query id -o tsv)
+      az network express-route gateway connection create \
+        --name "$conn_name" \
+        -g "$rg" \
+        --gateway-name "$ergw_name" \
+        --peering "$peering" \
+        --associated-route-table "$rtid" \
+        --propagated-route-tables "$rtid" \
+        --labels default \
+        -o none
+    fi
 
     er_conn_iter=0; er_conn_max=40   # 40 × 30 s = 20 min
     while true; do

@@ -76,7 +76,8 @@ function Parse-CircuitHubMap([string]$mapStr) {
 
 function ConvertFrom-JsonSafe([string]$raw) {
   if ([string]::IsNullOrWhiteSpace($raw) -or $raw.Trim() -eq 'null') { return @() }
-  return ($raw | ConvertFrom-Json)
+  $parsed = $raw | ConvertFrom-Json
+  return @($parsed | Where-Object { $null -ne $_ })
 }
 
 # ---------- Banner -----------------------------------------------------------
@@ -190,7 +191,7 @@ foreach ($circuit in $circuits) {
     --gateway-name $ergwName -g $ResourceGroup -o json 2>$null
   $existingConns = @(ConvertFrom-JsonSafe $existingRaw)
   $alreadyExists = $existingConns | Where-Object {
-    $_.name -eq $connName
+    $_ -and $_.PSObject.Properties['name'] -and $_.name -eq $connName
   }
   if ($alreadyExists) {
     Write-Host "  Connection '$connName' already exists — skipping."
@@ -242,24 +243,45 @@ foreach ($circuit in $circuits) {
     continue
   }
 
-  # ----- Get hub default route table id -----
-  $rtid = (az network vhub route-table show `
-    --name defaultRouteTable `
-    --vhub-name $targetHub `
-    -g $ResourceGroup `
-    --query id -o tsv 2>$null)
+  # ----- Detect Routing Intent on the hub -----
+  # When a hub has Routing Intent configured, the ER connection MUST be created
+  # WITHOUT associated/propagated route-table or labels — Routing Intent
+  # auto-populates the routing configuration. Passing them triggers
+  # ConnectionRoutingConfigConflictsWithRoutingIntent. Every hub in this lab uses
+  # Routing Intent, so we branch on its presence to stay correct either way.
+  $riName  = "${targetHub}-ri"
+  $riState = (az network vhub routing-intent show `
+    -g $ResourceGroup --vhub $targetHub -n $riName `
+    --query provisioningState -o tsv 2>$null)
+  $hasRoutingIntent = -not [string]::IsNullOrWhiteSpace($riState)
 
   # ----- Create the ER gateway connection -----
   Log "  Creating connection: $connName..."
-  az network express-route gateway connection create `
-    --name $connName `
-    -g $ResourceGroup `
-    --gateway-name $ergwName `
-    --peering $peering `
-    --associated-route-table $rtid `
-    --propagated-route-tables $rtid `
-    --labels default `
-    -o none
+  if ($hasRoutingIntent) {
+    Write-Host "  Routing Intent detected on $targetHub — leaving route config empty (auto-populated)."
+    az network express-route gateway connection create `
+      --name $connName `
+      -g $ResourceGroup `
+      --gateway-name $ergwName `
+      --peering $peering `
+      -o none
+  } else {
+    # No Routing Intent — explicitly associate/propagate the default route table.
+    $rtid = (az network vhub route-table show `
+      --name defaultRouteTable `
+      --vhub-name $targetHub `
+      -g $ResourceGroup `
+      --query id -o tsv 2>$null)
+    az network express-route gateway connection create `
+      --name $connName `
+      -g $ResourceGroup `
+      --gateway-name $ergwName `
+      --peering $peering `
+      --associated-route-table $rtid `
+      --propagated-route-tables $rtid `
+      --labels default `
+      -o none
+  }
   $connCreateExit = $LASTEXITCODE
 
   if ($connCreateExit -ne 0) {
