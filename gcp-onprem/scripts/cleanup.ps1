@@ -1,4 +1,34 @@
-# PS Script to stop and star Azure Firewall
+﻿#Requires -Version 7.0
+<#
+.SYNOPSIS
+  Tear down the gcp-onprem lab (terraform destroy).
+
+.DESCRIPTION
+  Prompts for confirmation, then runs terraform destroy.
+  Also reminds you to manually delete Megaport VXCs and warns about
+  ongoing interconnect VLAN attachment costs.
+
+  WARNING — LAB ONLY. Not for production use.
+
+.PARAMETER Project
+  GCP project ID. Prompted interactively if omitted.
+  Alternatively set env var GCP_PROJECT.
+
+.PARAMETER Yes
+  Skip all confirmation prompts (non-interactive mode).
+
+.EXAMPLE
+  .\cleanup.ps1
+  .\cleanup.ps1 -Project my-gcp-project -Yes
+#>
+
+param(
+  [string]$Project = "",
+  [switch]$Yes
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------------------
 # Prerequisite check — verify required tooling is installed; offer to install
@@ -77,32 +107,55 @@ function Invoke-LabPrereqCheck {
         exit 1
     }
 }
-Invoke-LabPrereqCheck -Tools @('Az')
+# Replace the tool list below with the tools THIS script actually needs:
+Invoke-LabPrereqCheck -Tools @('gcloud','terraform')
 
 
-#Variables 
-$RG = "lab-vwan-irazfw"
+$ScriptDir    = $PSScriptRoot
+$TerraformDir = Join-Path $ScriptDir "..\terraform"
 
-#Stop Firewall
+# ---------- Helpers ----------------------------------------------------------
+function Log([string]$m)  { Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) }
+function Warn([string]$m) { Write-Host "  [WARN] $m" -ForegroundColor Yellow }
+function Ok([string]$m)   { Write-Host "  [OK]   $m" -ForegroundColor Green }
+function Fail([string]$m) { Write-Host "  [FAIL] $m" -ForegroundColor Red; exit 1 }
 
-$azfw=Get-AzFirewall -ResourceGroupName $RG
-$azfw | ForEach-Object -Parallel {
-    $_.Deallocate() 
-    Write-Host "Stopping Azure Firewall" $_.name
-    Set-AzFirewall -AzureFirewall $_ | Out-Null
-    Write-Host "Azure Firewall" $_.name "has stopped"
+function Confirm-Continue([string]$Prompt) {
+  if ($Yes) { return }
+  $ans = Read-Host "$Prompt [y/N]"
+  if ($ans -notmatch '^[Yy]') { Write-Host "Aborted."; exit 0 }
 }
 
-#Start Firewall
+# ---------- Megaport reminder -----------------------------------------------
+Write-Host ""
+Write-Host "================================================================" -ForegroundColor Yellow
+Write-Host "  IMPORTANT — READ BEFORE CONTINUING" -ForegroundColor Yellow
+Write-Host "================================================================" -ForegroundColor Yellow
+Write-Host "  1. Interconnect VLAN attachments incur hourly cost even when" -ForegroundColor Yellow
+Write-Host "     the circuit is not passing traffic. Destroy removes them." -ForegroundColor Yellow
+Write-Host "  2. Megaport VXCs are NOT managed by Terraform and will NOT be" -ForegroundColor Yellow
+Write-Host "     deleted by this script." -ForegroundColor Yellow
+Write-Host "     --> Manually delete VXCs in the Megaport portal BEFORE or" -ForegroundColor Yellow
+Write-Host "         AFTER running this cleanup to avoid orphan charges." -ForegroundColor Yellow
+Write-Host "================================================================" -ForegroundColor Yellow
+Write-Host ""
 
-$azfw=Get-AzFirewall -ResourceGroupName $RG
-$azfw | ForEach-Object -Parallel {
-    $publicip = Get-AzPublicIpAddress -ResourceGroupName $RG -Name ($_.name + '-pip')
-    $vnet = Get-AzVirtualNetwork -name ($_.name).trim("-azfw") -ResourceGroupName $RG
-    $_.Allocate($vnet,$publicip) 
-    Write-Host "Starting Azure Firewall" $_.name
-    Set-AzFirewall -AzureFirewall $_ | Out-Null
-    Write-Host "Azure Firewall" $_.name "has started"
+Confirm-Continue "Proceed with 'terraform destroy' for the gcp-onprem lab?"
+
+# ---------- Terraform destroy -----------------------------------------------
+Push-Location $TerraformDir
+try {
+  Log "Running terraform destroy..."
+  if ($Yes) {
+    terraform destroy -auto-approve
+  } else {
+    terraform destroy
+  }
+  Ok "terraform destroy complete"
+  Write-Host ""
+  Write-Host "Cleanup complete." -ForegroundColor Green
+  Write-Host "Remember to delete your Megaport VXCs manually in the Megaport portal." -ForegroundColor Yellow
 }
-
-
+finally {
+  Pop-Location
+}

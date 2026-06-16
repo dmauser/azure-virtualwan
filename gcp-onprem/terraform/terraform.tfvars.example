@@ -1,0 +1,51 @@
+# =============================================================================
+# terraform.tfvars.example
+#
+# Copy this file to terraform.tfvars and fill in your real GCP project ID.
+# All other values below match the lab address plan and can be used as-is.
+#
+# ⚠️  LAB ONLY — do not use these CIDR ranges in production environments.
+# =============================================================================
+
+project        = "your-gcp-project-id"
+default_region = "us-west2"
+
+# ---------------------------------------------------------------------------
+# Firewall allowed source ranges
+# 35.235.240.0/20 is the GCP Identity-Aware Proxy (IAP) range — required for
+# SSH-over-IAP. Do not remove it.
+# ---------------------------------------------------------------------------
+allowed_source_ranges = [
+  "192.168.0.0/16",
+  "10.0.0.0/8",
+  "172.16.0.0/12",
+  "35.235.240.0/20",
+]
+
+# ---------------------------------------------------------------------------
+# Environments
+# ---------------------------------------------------------------------------
+# env1 — Los Angeles (us-west2), pairs with Azure vwanlab-er1 via Megaport
+# env2 — Las Vegas  (us-west4), pairs with Azure vwanlab-er2 via Megaport
+# ---------------------------------------------------------------------------
+environments = {
+  env1 = {
+    region           = "us-west2"    # Los Angeles
+    zone             = "us-west2-a"
+    network_name     = "onprem-la"
+    network_cidr     = "192.168.100.0/24"
+    subnet_cidr      = "192.168.100.0/24"
+    vm_private_ip    = "192.168.100.10"
+    cloud_router_asn = 65100
+  }
+
+  env2 = {
+    region           = "us-west4"    # Las Vegas (nearest to Phoenix circuits)
+    zone             = "us-west4-a"
+    network_name     = "onprem-lv"
+    network_cidr     = "192.168.200.0/24"
+    subnet_cidr      = "192.168.200.0/24"
+    vm_private_ip    = "192.168.200.10"
+    cloud_router_asn = 65200
+  }
+}

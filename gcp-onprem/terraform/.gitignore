@@ -1,0 +1,18 @@
+# Terraform working files — do not commit
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Real variable files may contain a project ID / secrets — keep only the example
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example
+
+# CLI override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
