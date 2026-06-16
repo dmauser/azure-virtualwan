@@ -52,9 +52,19 @@ function Write-Warn([string]$Msg) {
 function Log([string]$m) { Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) }
 
 function Invoke-Az {
-    param([string[]]$Args)
-    $output = az @Args 2>$null
+    param([string[]]$AzArgs)
+    $output = az @AzArgs 2>$null
     return $output
+}
+
+# Safely parse an integer/count from possibly-noisy az output. Strips non-digits
+# and returns 0 when the result is empty or too large for Int32 (e.g. a polluted
+# multi-value string), so callers never throw an overflow/conversion error.
+function To-Int([string]$s) {
+    $digits = ([string]$s -replace '\D', '')
+    $n = 0
+    if ($digits.Length -ge 1 -and $digits.Length -le 9) { [void][int]::TryParse($digits, [ref]$n) }
+    return $n
 }
 
 # ---------------------------------------------------------------------------
@@ -68,6 +78,17 @@ Write-Host "Resource group : $ResourceGroup"
 Write-Host "============================================================="
 
 # ---------------------------------------------------------------------------
+# Pre-flight: ensure the CLI extensions used by this script are present and
+# consume the one-time az first-run banner. The banner is written to STDOUT
+# the first time az runs against a fresh config dir, and would otherwise be
+# captured into the first query result (e.g. the Virtual WAN name) and shown
+# as garbled output.
+# ---------------------------------------------------------------------------
+az extension add --name virtual-wan --upgrade -o none 2>$null
+az extension add --name azure-firewall --upgrade -o none 2>$null
+$null = az account show 2>&1
+
+# ---------------------------------------------------------------------------
 # Section 1 — Virtual WAN
 # ---------------------------------------------------------------------------
 Write-Hdr "1. Virtual WAN"
@@ -79,7 +100,10 @@ if (-not $vwanName) {
 }
 Write-Ok "Virtual WAN found: $vwanName"
 
-$vwanSku = (Invoke-Az @('network', 'vwan', 'show', '-g', $ResourceGroup, '-n', $vwanName, '--query', 'sku', '-o', 'tsv')) -replace '\s',''
+# az CLI exposes the vWAN tier (Standard/Basic) as 'typePropertiesType'
+# (it renames the ARM 'properties.type' field to avoid colliding with the
+# resource 'type'). Querying 'sku' returns empty.
+$vwanSku = (Invoke-Az @('network', 'vwan', 'show', '-g', $ResourceGroup, '-n', $vwanName, '--query', 'typePropertiesType', '-o', 'tsv')) -replace '\s',''
 if ($vwanSku -eq 'Standard') {
     Write-Ok "  SKU = $vwanSku"
 } else {
@@ -180,7 +204,7 @@ foreach ($hub in $hubs) {
     # Verify allow-all rule fields
     $ruleJson = Invoke-Az @('network', 'firewall', 'policy', 'rule-collection-group', 'show',
         '-g', $ResourceGroup, '--policy-name', $polName, '-n', $rcgName,
-        '--query', "ruleCollections[?name=='allow-all-network'].rules[?name=='allow-all'] | [0][0]",
+        '--query', "ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]",
         '-o', 'json')
 
     if (-not $ruleJson -or $ruleJson -eq 'null') {
@@ -230,11 +254,11 @@ foreach ($hub in $hubs) {
         "--query", "length(routingPolicies[?contains(destinations,'Internet')])",
         '-o', 'tsv')) -replace '\s',''
 
-    $modeStr = if ([int]($hasPrivate -replace '\D','0') -gt 0 -and [int]($hasInternet -replace '\D','0') -gt 0) {
+    $modeStr = if ((To-Int $hasPrivate) -gt 0 -and (To-Int $hasInternet) -gt 0) {
         "Private + Internet (both)"
-    } elseif ([int]($hasPrivate -replace '\D','0') -gt 0) {
+    } elseif ((To-Int $hasPrivate) -gt 0) {
         "Private only"
-    } elseif ([int]($hasInternet -replace '\D','0') -gt 0) {
+    } elseif ((To-Int $hasInternet) -gt 0) {
         "Internet only"
     } else {
         "(no Private or Internet destinations detected)"
@@ -327,7 +351,7 @@ foreach ($hub in $hubs) {
         '-o', 'table') | ForEach-Object { Write-Host "  $_" }
     $connCount = (Invoke-Az @('network', 'vhub', 'connection', 'list', '-g', $ResourceGroup,
         '--vhub-name', $hub, '--query', 'length([])', '-o', 'tsv')) -replace '\D',''
-    if ([int]($connCount) -gt 0) { Write-Ok "$hub has $connCount spoke connection(s)" }
+    if ((To-Int $connCount) -gt 0) { Write-Ok "$hub has $connCount spoke connection(s)" }
     else                           { Write-Warn "${hub}: no spoke connections found" }
 
     # Assert enableInternetSecurity (Propagate Default Route) for internetOnly/both RI modes.
@@ -335,7 +359,7 @@ foreach ($hub in $hubs) {
         '--vhub', $hub, '-n', "$hub-ri",
         '--query', "length(routingPolicies[?contains(destinations,'Internet')])",
         '-o', 'tsv')) -replace '\D',''
-    if ([int]($hasInternetRi -replace '\D','0') -gt 0) {
+    if ((To-Int $hasInternetRi) -gt 0) {
         $spokeConnNames = @((Invoke-Az @('network', 'vhub', 'connection', 'list', '-g', $ResourceGroup,
             '--vhub-name', $hub, '--query', '[].name', '-o', 'tsv')) | Where-Object { $_ -ne '' })
         foreach ($spokeConn in $spokeConnNames) {

@@ -591,6 +591,15 @@ if ($NumErCircuits -gt 0) {
   }
   Write-Host ""
   Write-Host "  Log in to the provider portal and place orders using the keys above."
+  if ($IsNonInteractive) {
+    Write-Host ""
+    Write-Host "  [non-interactive] Skipping the provider-provisioning pause and circuit->hub association."
+    Write-Host "  Provider provisioning (e.g. Megaport) takes hours-to-days and cannot complete unattended."
+    Write-Host "  Once each circuit shows serviceProviderProvisioningState=Provisioned, re-run this script"
+    Write-Host "  interactively to associate circuits to hubs, or use:"
+    Write-Host "    az network express-route gateway connection create --gateway-name <hub>-ergw --peering <id> ..."
+  }
+  else {
   Read-Host "  Press ENTER once you have submitted the orders to $ErProvider"
 
   $maxErSecs = $MaxWaitMin * 60
@@ -668,6 +677,7 @@ if ($NumErCircuits -gt 0) {
       if ($connState -ne "Succeeded") { Start-Sleep 30 }
     } while ($connState -ne "Succeeded")
     Write-Host "  ER connection $connName Succeeded ✔"
+  }
   }
 }
 

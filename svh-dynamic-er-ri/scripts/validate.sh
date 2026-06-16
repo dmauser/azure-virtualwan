@@ -38,6 +38,16 @@ echo "Resource group : $rg"
 echo "============================================================="
 
 # ---------------------------------------------------------------------------
+# Pre-flight: ensure the CLI extensions used by this script are present and
+# consume the one-time az first-run banner (printed to STDOUT against a fresh
+# config dir; would otherwise pollute the first captured query result such as
+# the Virtual WAN name).
+# ---------------------------------------------------------------------------
+az extension add --name virtual-wan --upgrade -o none 2>/dev/null || true
+az extension add --name azure-firewall --upgrade -o none 2>/dev/null || true
+az account show >/dev/null 2>&1 || true
+
+# ---------------------------------------------------------------------------
 # Section 1 — Virtual WAN
 # ---------------------------------------------------------------------------
 hdr "1. Virtual WAN"
@@ -49,7 +59,7 @@ if [[ -z "$vwan_name" ]]; then
     exit 1
 fi
 vwan_type=$(az network vwan show -g "$rg" -n "$vwan_name" --query "type_" -o tsv 2>/dev/null)
-vwan_sku=$(az network vwan show -g "$rg" -n "$vwan_name" --query "sku" -o tsv 2>/dev/null)
+vwan_sku=$(az network vwan show -g "$rg" -n "$vwan_name" --query "typePropertiesType" -o tsv 2>/dev/null)
 ok "Virtual WAN found: $vwan_name"
 if [[ "$vwan_sku" == "Standard" ]]; then
     ok "  SKU = Standard"
@@ -171,7 +181,7 @@ for hub in "${hubs[@]}"; do
     # Verify allow-all rule: Action=Allow, src=*, dst=*, proto=Any, ports=*
     rule_json=$(az network firewall policy rule-collection-group show \
         -g "$rg" --policy-name "$pol_name" -n "$rcg_name" \
-        --query "ruleCollections[?name=='allow-all-network'].rules[?name=='allow-all'] | [0][0]" \
+        --query "ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]" \
         -o json 2>/dev/null || true)
 
     if [[ -z "$rule_json" || "$rule_json" == "null" ]]; then

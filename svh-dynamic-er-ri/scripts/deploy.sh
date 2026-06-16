@@ -699,6 +699,13 @@ if [[ "$num_er_circuits" -gt 0 ]]; then
   echo "  ➤ Script continues Azure work, then polls circuits for Provisioned state."
   echo "  ➤ Provider provisioning typically takes hours to days."
   echo ""
+  if [[ "$NON_INTERACTIVE" == "1" ]]; then
+    echo "  [non-interactive] Skipping the provider-provisioning pause and circuit->hub association."
+    echo "  Provider provisioning (e.g. Megaport) takes hours-to-days and cannot complete unattended."
+    echo "  Once each circuit shows serviceProviderProvisioningState=Provisioned, re-run interactively"
+    echo "  to associate circuits to hubs, or use:"
+    echo "    az network express-route gateway connection create --gateway-name <hub>-ergw --peering <id> ..."
+  else
   read -r -p "Press ENTER once you have submitted the orders to ${er_provider}..."
 
   # Poll + connect each circuit after provisioned
@@ -803,6 +810,7 @@ if [[ "$num_er_circuits" -gt 0 ]]; then
     done
     echo "  ER connection $conn_name Succeeded ✔"
   done
+  fi
 fi
 
 # ---------- Phase 11: Wait for firewalls then create Routing Intent ---------
