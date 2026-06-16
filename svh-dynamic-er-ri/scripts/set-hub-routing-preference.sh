@@ -19,12 +19,15 @@
 # Usage  :
 #   ./set-hub-routing-preference.sh -g <rg>                       # dump + prompt
 #   ./set-hub-routing-preference.sh -g <rg> --dump-only           # dump only
-#   ./set-hub-routing-preference.sh -g <rg> -p ASPath -y          # change, no prompt
+#   ./set-hub-routing-preference.sh -g <rg> -p ASPath -y          # all hubs, no prompt
+#   ./set-hub-routing-preference.sh -g <rg> -p ASPath --hubs "vhub1,vhub2,vhub4" -y
 #
 # Options:
 #   -g|--resource-group <rg>   Resource group. Required (prompted if omitted).
 #   --subscription <sub>       Azure subscription ID or name (optional).
 #   -p|--preference <pref>     Target: ExpressRoute | VpnGateway | ASPath (default ASPath).
+#   --hubs <list|all>          Hubs to change: "all" (default) or comma/space list
+#                              of names/suffixes, e.g. "vhub1,vhub2,vhub4".
 #   --dump-only                Print current preference only; make no changes.
 #   -y|--yes                   Skip confirmation. Also: LAB_NON_INTERACTIVE=1.
 # =============================================================================
@@ -93,6 +96,7 @@ lab_require_tools az
 RG=""
 SUBSCRIPTION=""
 PREF="ASPath"
+HUBS_SEL="all"
 DUMP_ONLY=0
 YES=0
 [ "${LAB_NON_INTERACTIVE:-}" = "1" ] && YES=1
@@ -102,6 +106,7 @@ while [ $# -gt 0 ]; do
     -g|--resource-group) RG="$2"; shift 2 ;;
     --subscription)      SUBSCRIPTION="$2"; shift 2 ;;
     -p|--preference)     PREF="$2"; shift 2 ;;
+    --hubs)              HUBS_SEL="$2"; shift 2 ;;
     --dump-only)         DUMP_ONLY=1; shift ;;
     -y|--yes)            YES=1; shift ;;
     -h|--help)           grep -E '^#( |=)' "$0" | sed 's/^#//'; exit 0 ;;
@@ -145,38 +150,67 @@ get_pref() {  # get_pref <hub>
   [ -n "$p" ] && echo "$p" || echo "(unknown)"
 }
 
-show_table() {  # show_table <title> ; reads PREF_MAP
+show_table() {  # show_table <title> ; reads PREF_MAP + TARGET map
   local title="$1"
   echo ""
   echo "$title"
-  printf '  %-30s %s\n' "Virtual Hub" "Route Preference"
-  printf '  %-30s %s\n' "-----------" "----------------"
-  local h
+  printf '  %-30s %-18s %s\n' "Virtual Hub" "Route Preference" "Targeted"
+  printf '  %-30s %-18s %s\n' "-----------" "----------------" "--------"
+  local h tag
   for h in "${HUBS[@]}"; do
-    printf '  %-30s %s\n' "$h" "${PREF_MAP[$h]}"
+    tag="-"; [ -n "${IS_TARGET[$h]:-}" ] && tag="yes"
+    printf '  %-30s %-18s %s\n' "$h" "${PREF_MAP[$h]}" "$tag"
   done
 }
 
+# ---------------------------------------------------------------------------
+# Resolve which hubs to change. --hubs accepts "all" (default) or a
+# comma/space-separated list of names or suffixes (e.g. "vhub1,vhub2,vhub4"
+# matches vwanlab-vhub1 / vwanlab-vhub2 / vwanlab-vhub4).
+# ---------------------------------------------------------------------------
+declare -A IS_TARGET
+TARGETS=()
+if [ -z "$HUBS_SEL" ] || [ "$HUBS_SEL" = "all" ] || [ "$HUBS_SEL" = "*" ]; then
+  for h in "${HUBS[@]}"; do IS_TARGET[$h]=1; TARGETS+=("$h"); done
+else
+  IFS=', ' read -r -a toks <<< "$HUBS_SEL"
+  for tok in "${toks[@]}"; do
+    [ -z "$tok" ] && continue
+    matched=0
+    for h in "${HUBS[@]}"; do
+      if [ "$h" = "$tok" ] || [[ "$h" == *"$tok" ]] || [[ "$h" == *"$tok"* ]]; then
+        if [ -z "${IS_TARGET[$h]:-}" ]; then IS_TARGET[$h]=1; TARGETS+=("$h"); fi
+        matched=1
+      fi
+    done
+    [ "$matched" -eq 0 ] && echo "[set-hub-routing-preference] No hub matches '$tok' — ignoring." >&2
+  done
+  if [ ${#TARGETS[@]} -eq 0 ]; then
+    echo "[set-hub-routing-preference] No hubs matched --hubs '$HUBS_SEL'. Exiting." >&2
+    exit 1
+  fi
+fi
+
 declare -A PREF_MAP
 for h in "${HUBS[@]}"; do PREF_MAP[$h]="$(get_pref "$h")"; done
-show_table "Current Hub Route Preference (${#HUBS[@]} hub(s)):"
+show_table "Current Hub Route Preference (${#HUBS[@]} hub(s), ${#TARGETS[@]} targeted):"
 
 if [ "$DUMP_ONLY" -eq 1 ]; then
   log "dump-only specified — no changes made."
   exit 0
 fi
 
-# Already all at target?
+# Already at target (among targeted hubs)?
 need=0
-for h in "${HUBS[@]}"; do [ "${PREF_MAP[$h]}" != "$PREF" ] && need=1; done
+for h in "${TARGETS[@]}"; do [ "${PREF_MAP[$h]}" != "$PREF" ] && need=1; done
 if [ "$need" -eq 0 ]; then
-  log "All hubs are already set to '$PREF'. Nothing to change."
+  log "All targeted hub(s) are already set to '$PREF'. Nothing to change."
   exit 0
 fi
 
 if [ "$YES" -ne 1 ]; then
   echo ""
-  echo "About to change ALL ${#HUBS[@]} hub(s) to Route Preference = $PREF."
+  echo "About to change ${#TARGETS[@]} targeted hub(s) [${TARGETS[*]}] to Route Preference = $PREF."
   read -r -p "Proceed? [y/N] " ans
   if [[ ! "$ans" =~ ^[Yy]$ ]]; then
     log "Cancelled by user. No changes made."
@@ -185,7 +219,7 @@ if [ "$YES" -ne 1 ]; then
 fi
 
 # Apply
-for h in "${HUBS[@]}"; do
+for h in "${TARGETS[@]}"; do
   if [ "${PREF_MAP[$h]}" = "$PREF" ]; then
     log "$h already '$PREF' — skipping."
     continue
@@ -203,10 +237,10 @@ for h in "${HUBS[@]}"; do PREF_MAP[$h]="$(get_pref "$h")"; done
 show_table "Updated Hub Route Preference:"
 
 failed=()
-for h in "${HUBS[@]}"; do [ "${PREF_MAP[$h]}" != "$PREF" ] && failed+=("$h"); done
+for h in "${TARGETS[@]}"; do [ "${PREF_MAP[$h]}" != "$PREF" ] && failed+=("$h"); done
 echo ""
 if [ ${#failed[@]} -eq 0 ]; then
-  echo "OK: All ${#HUBS[@]} hub(s) now report Route Preference = $PREF."
+  echo "OK: All ${#TARGETS[@]} targeted hub(s) now report Route Preference = $PREF."
   exit 0
 else
   echo "FAILED: the following hub(s) did NOT apply '$PREF':"

@@ -25,8 +25,13 @@
   Azure subscription ID or name. Sets az context when provided.
 
 .PARAMETER Preference
-  Target preference to switch all hubs to: ExpressRoute | VpnGateway | ASPath.
+  Target preference to switch the selected hubs to: ExpressRoute | VpnGateway | ASPath.
   Default: ASPath.
+
+.PARAMETER Hubs
+  Which hubs to change: "all" (default) or a comma/space-separated list of
+  names or suffixes, e.g. "vhub1,vhub2,vhub4" (matches vwanlab-vhub1, etc.).
+  The dump always lists every hub; only the selected hubs are changed.
 
 .PARAMETER DumpOnly
   Only print the current preference for every hub; make no changes.
@@ -42,7 +47,7 @@
   .\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -DumpOnly
 
 .EXAMPLE
-  .\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -Preference ASPath -Yes
+  .\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -Preference ASPath -Hubs "vhub1,vhub2,vhub4" -Yes
 #>
 
 param(
@@ -50,6 +55,7 @@ param(
   [string]$Subscription  = "",
   [ValidateSet("ExpressRoute", "VpnGateway", "ASPath")]
   [string]$Preference    = "ASPath",
+  [string]$Hubs          = "all",
   [switch]$DumpOnly,
   [switch]$Yes
 )
@@ -129,8 +135,12 @@ if (-not [string]::IsNullOrWhiteSpace($Subscription)) {
 # ---------------------------------------------------------------------------
 Log "Discovering Virtual Hubs in resource group '$ResourceGroup'..."
 $hubsRaw = az network vhub list -g $ResourceGroup --query "[].name" -o tsv 2>$null
-$hubs = @($hubsRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-if ($hubs.Count -eq 0) {
+$hubsList = [System.Collections.Generic.List[string]]::new()
+foreach ($line in @($hubsRaw)) {
+    $s = "$line".Trim()
+    if ($s) { $hubsList.Add($s) }
+}
+if ($hubsList.Count -eq 0) {
     Write-Host "[set-hub-routing-preference] No Virtual Hubs found in '$ResourceGroup'." -ForegroundColor Red
     exit 1
 }
@@ -138,42 +148,80 @@ if ($hubs.Count -eq 0) {
 function Get-HubPref([string]$hub) {
     $p = az network vhub show -g $ResourceGroup -n $hub --query hubRoutingPreference -o tsv 2>$null
     if ($null -eq $p) { return "(unknown)" }
-    return ($p -replace '\s', '')
+    return ("$p" -replace '\s', '')
 }
 
-function Show-Table([string]$title, [hashtable]$map) {
+function Show-Table {
+    param(
+        [string]$Title,
+        [System.Collections.Generic.List[string]]$HubList,
+        [hashtable]$Map,
+        [System.Collections.Generic.List[string]]$Targets
+    )
     Write-Host ""
-    Write-Host $title -ForegroundColor Cyan
-    Write-Host ("  {0,-30} {1}" -f "Virtual Hub", "Route Preference")
-    Write-Host ("  {0,-30} {1}" -f "-----------", "----------------")
-    foreach ($h in $hubs) {
-        $val = $map[$h]
+    Write-Host $Title -ForegroundColor Cyan
+    Write-Host ("  {0,-30} {1,-18} {2}" -f "Virtual Hub", "Route Preference", "Targeted")
+    Write-Host ("  {0,-30} {1,-18} {2}" -f "-----------", "----------------", "--------")
+    foreach ($h in $HubList) {
+        $val = $Map[$h]
+        $isTarget = $Targets.Contains($h)
         $color = if ($val -eq $Preference) { "Green" } else { "Gray" }
-        Write-Host ("  {0,-30} {1}" -f $h, $val) -ForegroundColor $color
+        Write-Host ("  {0,-30} {1,-18} {2}" -f $h, $val, $(if ($isTarget) { "yes" } else { "-" })) -ForegroundColor $color
     }
 }
 
+# ---------------------------------------------------------------------------
+# Resolve which hubs to change. -Hubs accepts "all" (default) or a
+# comma/space-separated list of names or suffixes (e.g. "vhub1,vhub2,vhub4"
+# matches vwanlab-vhub1 / vwanlab-vhub2 / vwanlab-vhub4).
+# ---------------------------------------------------------------------------
+$targetList = [System.Collections.Generic.List[string]]::new()
+if ([string]::IsNullOrWhiteSpace($Hubs) -or $Hubs -match '^(all|\*)$') {
+    foreach ($h in $hubsList) { $targetList.Add($h) }
+} else {
+    foreach ($tok in ("$Hubs" -split '[,\s]+')) {
+        $tok = $tok.Trim()
+        if (-not $tok) { continue }
+        $matched = $false
+        foreach ($h in $hubsList) {
+            if ($h -eq $tok -or $h -like "*$tok") {
+                if (-not $targetList.Contains($h)) { $targetList.Add($h) }
+                $matched = $true
+            }
+        }
+        if (-not $matched) { Write-Host "[set-hub-routing-preference] No hub matches '$tok' — ignoring." -ForegroundColor Yellow }
+    }
+    if ($targetList.Count -eq 0) {
+        Write-Host "[set-hub-routing-preference] No hubs matched -Hubs '$Hubs'. Exiting." -ForegroundColor Red
+        exit 1
+    }
+}
+
+$hubCount    = $hubsList.Count
+$targetCount = $targetList.Count
+
 # Current state
 $before = @{}
-foreach ($h in $hubs) { $before[$h] = Get-HubPref $h }
-Show-Table "Current Hub Route Preference ($($hubs.Count) hub(s)):" $before
+foreach ($h in $hubsList) { $before[$h] = Get-HubPref $h }
+Show-Table -Title "Current Hub Route Preference ($hubCount hub(s), $targetCount targeted):" -HubList $hubsList -Map $before -Targets $targetList
 
 if ($DumpOnly) {
     Log "DumpOnly specified — no changes made."
     exit 0
 }
 
-# Already all at target?
-$needChange = @($hubs | Where-Object { $before[$_] -ne $Preference })
-if ($needChange.Count -eq 0) {
-    Log "All hubs are already set to '$Preference'. Nothing to change."
+# Already at target (among targeted hubs)?
+$needChange = 0
+foreach ($h in $targetList) { if ($before[$h] -ne $Preference) { $needChange++ } }
+if ($needChange -eq 0) {
+    Log "All targeted hub(s) are already set to '$Preference'. Nothing to change."
     exit 0
 }
 
 # Confirm
 if (-not $IsNonInteractive) {
     Write-Host ""
-    Write-Host "About to change ALL $($hubs.Count) hub(s) to Route Preference = $Preference." -ForegroundColor Yellow
+    Write-Host ("About to change {0} targeted hub(s) [{1}] to Route Preference = {2}." -f $targetCount, ($targetList -join ", "), $Preference) -ForegroundColor Yellow
     $ans = Read-Host "Proceed? [y/N]"
     if ($ans -notmatch '^[Yy]') {
         Log "Cancelled by user. No changes made."
@@ -182,7 +230,7 @@ if (-not $IsNonInteractive) {
 }
 
 # Apply
-foreach ($h in $hubs) {
+foreach ($h in $targetList) {
     if ($before[$h] -eq $Preference) {
         Log "$h already '$Preference' — skipping."
         continue
@@ -196,16 +244,17 @@ foreach ($h in $hubs) {
 # ---------------------------------------------------------------------------
 Log "Re-checking hub Route Preference after update..."
 $after = @{}
-foreach ($h in $hubs) { $after[$h] = Get-HubPref $h }
-Show-Table "Updated Hub Route Preference:" $after
+foreach ($h in $hubsList) { $after[$h] = Get-HubPref $h }
+Show-Table -Title "Updated Hub Route Preference:" -HubList $hubsList -Map $after -Targets $targetList
 
-$failed = @($hubs | Where-Object { $after[$_] -ne $Preference })
+$failed = [System.Collections.Generic.List[string]]::new()
+foreach ($h in $targetList) { if ($after[$h] -ne $Preference) { $failed.Add($h) } }
 Write-Host ""
 if ($failed.Count -eq 0) {
-    Write-Host "✔ All $($hubs.Count) hub(s) now report Route Preference = $Preference." -ForegroundColor Green
+    Write-Host "All $targetCount targeted hub(s) now report Route Preference = $Preference." -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "✘ The following hub(s) did NOT apply '$Preference':" -ForegroundColor Red
+    Write-Host "The following hub(s) did NOT apply '$Preference':" -ForegroundColor Red
     foreach ($h in $failed) { Write-Host ("    {0} = {1}" -f $h, $after[$h]) -ForegroundColor Red }
     exit 1
 }

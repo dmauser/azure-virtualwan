@@ -241,6 +241,9 @@ re-checks that the change took effect. Default target is `ASPath`.
 
 # Change back to ExpressRoute without prompting
 ./set-hub-routing-preference.sh -g rg-svhdyn-4hub --preference ExpressRoute --yes
+
+# Change only selected hubs (comma/space list of names or suffixes), leave the rest untouched
+./set-hub-routing-preference.sh -g rg-svhdyn-4hub --preference ASPath --hubs "vhub1,vhub2,vhub4" --yes
 ```
 
 ```powershell
@@ -252,7 +255,14 @@ re-checks that the change took effect. Default target is `ASPath`.
 
 # Change back to ExpressRoute without prompting
 .\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -Preference ExpressRoute -Yes
+
+# Change only selected hubs (comma/space list of names or suffixes), leave the rest untouched
+.\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -Preference ASPath -Hubs "vhub1,vhub2,vhub4" -Yes
 ```
+
+> The `-Hubs` / `--hubs` option (default `all`) accepts a comma- or space-separated list of
+> full hub names or suffixes (e.g. `vhub1,vhub2,vhub4`). Only the matched hubs are changed;
+> all others keep their current Route Preference. Omit it to target every hub.
 
 ### Route dump (ER circuits / vHubs / VMs)
 
