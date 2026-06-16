@@ -45,6 +45,15 @@
   Skip all prompts; use -Component / -Target (defaults: all / all).
   Also honoured via env var LAB_NON_INTERACTIVE=1.
 
+.PARAMETER MaxAttempts
+  How many times to query vHub firewall / VM NIC effective routes before giving
+  up. These are async queries that can return an empty set or a transient error
+  for a few minutes after a Hub Route Preference change (ExpressRoute <-> ASPath)
+  while routes reprogram, so the dump retries until routes appear. Default: 4.
+
+.PARAMETER RetryDelaySec
+  Seconds to wait between effective-route retry attempts. Default: 20.
+
 .EXAMPLE
   .\dump-routes.ps1 -ResourceGroup rg-svhdyn-4hub
 
@@ -62,7 +71,12 @@ param(
   [string]$Component     = "",
   [string]$Target        = "",
   [switch]$Save,
-  [switch]$NonInteractive
+  [switch]$NonInteractive,
+  # Effective-route queries (vHub firewall / VM NIC) are async and can return an
+  # empty set or a transient error for a few minutes right after a Hub Route
+  # Preference change while routes reprogram. Retry up to this many times.
+  [int]$MaxAttempts   = 4,
+  [int]$RetryDelaySec = 20
 )
 
 Set-StrictMode -Version Latest
@@ -162,6 +176,58 @@ function ConvertFrom-JsonSafe([string]$raw) {
   if ([string]::IsNullOrWhiteSpace($raw) -or $raw.Trim() -eq 'null') { return @() }
   try { $parsed = $raw | ConvertFrom-Json } catch { return @() }
   return @($parsed | Where-Object { $null -ne $_ })
+}
+
+# Extract the route array from a get-effective-routes / show-effective-route-table
+# response. Both return an object shaped like { "value": [ ... ] }.
+function Get-RouteValueArray($obj) {
+  if ($obj -and @($obj).Count -gt 0 -and $obj[0].PSObject.Properties.Name -contains 'value') {
+    return @($obj[0].value)
+  }
+  return @()
+}
+
+# Run an effective-routes az command (passed as a scriptblock that takes the
+# stderr file path and returns the raw JSON string) and retry while the result
+# is empty or the command errors. This rides out the async route-programming
+# window that follows a Hub Route Preference change (ExpressRoute <-> ASPath),
+# which is exactly when a single-shot query returns no routes. Returns a
+# PSCustomObject with .Routes (array), .Raw (last raw json) and .Error (last
+# stderr text, or $null on success).
+function Invoke-EffectiveRoutes {
+  param(
+    [Parameter(Mandatory)][scriptblock]$AzCall,
+    [string]$Label = "routes"
+  )
+  $routes  = @()
+  $raw     = ""
+  $lastErr = $null
+  for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+    $efErr = [System.IO.Path]::GetTempFileName()
+    try {
+      $raw = & $AzCall $efErr
+    } catch {
+      $raw = ""
+      $lastErr = $_.Exception.Message
+    }
+    if (Test-Path -LiteralPath $efErr) {
+      $errTxt = (Get-Content -LiteralPath $efErr -Raw -ErrorAction SilentlyContinue)
+      Remove-Item -LiteralPath $efErr -Force -ErrorAction SilentlyContinue
+      if (-not [string]::IsNullOrWhiteSpace($errTxt)) { $lastErr = ($errTxt.Trim() -replace '\s+', ' ') }
+    }
+    $routes = @(Get-RouteValueArray (ConvertFrom-JsonSafe $raw))
+    if ($routes.Count -gt 0) {
+      return [PSCustomObject]@{ Routes = $routes; Raw = $raw; Error = $null; Attempts = $attempt }
+    }
+    if ($attempt -lt $MaxAttempts) {
+      $why = if ($lastErr) { "error" } else { "empty result" }
+      Write-Host ("  attempt {0}/{1}: {2} — {3} may still be reprogramming; retrying in {4}s..." `
+                    -f $attempt, $MaxAttempts, $why, $Label, $RetryDelaySec) -ForegroundColor DarkGray
+      if ($lastErr) { Write-Host ("    last error: {0}" -f $lastErr) -ForegroundColor DarkGray }
+      Start-Sleep -Seconds $RetryDelaySec
+    }
+  }
+  return [PSCustomObject]@{ Routes = @(); Raw = $raw; Error = $lastErr; Attempts = $MaxAttempts }
 }
 
 # Leaf (resource name) from an ARM resource id; pass-through for plain strings.
@@ -365,22 +431,23 @@ function Dump-VHub {
   }
 
   Write-Host "  Effective Routes  ->  Resource type: Azure Firewall  ($fwName)"
-  Log "Querying firewall effective routes (this can take ~30-60s)..."
+  Log "Querying firewall effective routes (this can take ~30-60s; auto-retries while empty)..."
 
   # NOTE: the portal sends virtualWanResourceType="AzureFirewalls" (plural).
-  # The singular form returns an empty set. get-effective-routes is async; the
-  # CLI polls automatically.
-  $raw = az network vhub get-effective-routes -g $ResourceGroup --name $hn `
-           --resource-type AzureFirewalls --resource-id $fwId -o json 2>$null
-  $obj = ConvertFrom-JsonSafe $raw
-  Save-Raw "vhub-fw-effective" $hn $raw
+  # The singular form returns an empty set. get-effective-routes is an async
+  # (long-running) operation; right after a Hub Route Preference change it can
+  # return an empty set or a transient error while routes reprogram, so we retry.
+  $res = Invoke-EffectiveRoutes -Label "firewall effective routes" -AzCall ({
+           param($ef)
+           az network vhub get-effective-routes -g $ResourceGroup --name $hn `
+             --resource-type AzureFirewalls --resource-id $fwId -o json 2>$ef
+         }).GetNewClosure()
+  $routes = @($res.Routes)
+  Save-Raw "vhub-fw-effective" $hn $res.Raw
 
-  $routes = @()
-  if ($obj -and @($obj).Count -gt 0 -and $obj[0].PSObject.Properties.Name -contains 'value') {
-    $routes = @($obj[0].value)
-  }
   if ($routes.Count -eq 0) {
-    Write-Host "  (no effective routes returned)" -ForegroundColor DarkGray
+    Write-Host ("  (no effective routes returned after {0} attempt(s))" -f $MaxAttempts) -ForegroundColor Yellow
+    if ($res.Error) { Write-Host ("  Last error: {0}" -f $res.Error) -ForegroundColor DarkGray }
     return
   }
 
@@ -428,17 +495,17 @@ function Dump-VM {
     return
   }
 
-  Log "Querying NIC effective route table (this can take ~30-60s)..."
-  $raw = az network nic show-effective-route-table --ids $nicId -o json 2>$null
-  $obj = ConvertFrom-JsonSafe $raw
-  Save-Raw "vm-effective" $vn $raw
+  Log "Querying NIC effective route table (this can take ~30-60s; auto-retries while empty)..."
+  $res = Invoke-EffectiveRoutes -Label "NIC effective routes" -AzCall ({
+           param($ef)
+           az network nic show-effective-route-table --ids $nicId -o json 2>$ef
+         }).GetNewClosure()
+  $routes = @($res.Routes)
+  Save-Raw "vm-effective" $vn $res.Raw
 
-  $routes = @()
-  if ($obj -and @($obj).Count -gt 0 -and $obj[0].PSObject.Properties.Name -contains 'value') {
-    $routes = @($obj[0].value)
-  }
   if ($routes.Count -eq 0) {
-    Write-Host "  (no effective routes returned)" -ForegroundColor DarkGray
+    Write-Host ("  (no effective routes returned after {0} attempt(s))" -f $MaxAttempts) -ForegroundColor Yellow
+    if ($res.Error) { Write-Host ("  Last error: {0}" -f $res.Error) -ForegroundColor DarkGray }
     return
   }
 

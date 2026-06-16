@@ -31,6 +31,10 @@
 #   --target <name|all>        Specific resource name or "all" (default: all).
 #   --save                     Also write raw JSON for every dump to ./route-dumps/.
 #   --non-interactive          Skip prompts. Also: LAB_NON_INTERACTIVE=1.
+#   --max-attempts <n>         Retries for async vHub/VM effective-route queries
+#                              that return empty right after a Hub Route Preference
+#                              change (ExpressRoute <-> ASPath). Default: 4.
+#   --retry-delay <secs>       Seconds between effective-route retries. Default: 20.
 # =============================================================================
 
 set -euo pipefail
@@ -121,6 +125,44 @@ save_raw() {  # save_raw <kind> <name> <json>
   printf '  (saved raw JSON: %s)\n' "$file"
 }
 
+# Run an effective-routes az command and retry while it returns an empty
+# '.value' set or errors. Rides out the async route-programming window that
+# follows a Hub Route Preference change (ExpressRoute <-> ASPath), which is
+# exactly when a single-shot query returns no routes. Args: <label> <az...>.
+# On success echoes the raw JSON to stdout and returns 0; on exhaustion echoes
+# the last raw JSON (possibly empty) and returns 1.
+EFFROUTES_RAW=""
+query_effective_routes() {
+  local label="$1"; shift
+  local attempt raw errf cnt
+  errf="$(mktemp)"
+  for (( attempt=1; attempt<=MAX_ATTEMPTS; attempt++ )); do
+    : > "$errf"
+    raw="$("$@" 2>"$errf" || true)"
+    [[ -z "$raw" ]] && raw='{}'
+    cnt="$(printf '%s' "$raw" | jq -r '.value // [] | length' 2>/dev/null || echo 0)"
+    if [[ "$cnt" =~ ^[0-9]+$ && "$cnt" -gt 0 ]]; then
+      EFFROUTES_RAW="$raw"
+      rm -f "$errf"
+      return 0
+    fi
+    if [[ "$attempt" -lt "$MAX_ATTEMPTS" ]]; then
+      local why="empty result"
+      [[ -s "$errf" ]] && why="error"
+      printf '  attempt %s/%s: %s — %s may still be reprogramming; retrying in %ss...\n' \
+        "$attempt" "$MAX_ATTEMPTS" "$why" "$label" "$RETRY_DELAY"
+      if [[ -s "$errf" ]]; then
+        printf '    last error: %s\n' "$(tr '\n' ' ' < "$errf" | sed 's/  */ /g')"
+      fi
+      sleep "$RETRY_DELAY"
+    fi
+  done
+  EFFROUTES_RAW="$raw"
+  [[ -s "$errf" ]] && printf '  Last error: %s\n' "$(tr '\n' ' ' < "$errf" | sed 's/  */ /g')"
+  rm -f "$errf"
+  return 1
+}
+
 # ---------------------------------------------------------------------------
 # Defaults / env fallbacks
 # ---------------------------------------------------------------------------
@@ -130,6 +172,11 @@ COMPONENT="${LAB_DUMP_COMPONENT:-}"
 TARGET="${LAB_DUMP_TARGET:-}"
 SAVE=0
 NON_INTERACTIVE="${LAB_NON_INTERACTIVE:-0}"
+# Effective-route queries (vHub firewall / VM NIC) are async and can return an
+# empty set or a transient error for a few minutes after a Hub Route Preference
+# change while routes reprogram. Retry up to MAX_ATTEMPTS with RETRY_DELAY secs.
+MAX_ATTEMPTS="${LAB_DUMP_MAX_ATTEMPTS:-4}"
+RETRY_DELAY="${LAB_DUMP_RETRY_DELAY:-20}"
 
 # ---------------------------------------------------------------------------
 # Parse arguments
@@ -142,7 +189,9 @@ while [[ $# -gt 0 ]]; do
     --target)             TARGET="$2";         shift 2 ;;
     --save)               SAVE=1;              shift ;;
     --non-interactive)    NON_INTERACTIVE=1;   shift ;;
-    -h|--help)            sed -n '2,40p' "$0"; exit 0 ;;
+    --max-attempts)       MAX_ATTEMPTS="$2";   shift 2 ;;
+    --retry-delay)        RETRY_DELAY="$2";    shift 2 ;;
+    -h|--help)            sed -n '2,38p' "$0"; exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -312,19 +361,22 @@ dump_vhub() {
   fi
 
   echo "  Effective Routes  ->  Resource type: Azure Firewall  ($fwName)"
-  log "Querying firewall effective routes (this can take ~30-60s)..."
+  log "Querying firewall effective routes (this can take ~30-60s; auto-retries while empty)..."
 
   # NOTE: the portal sends virtualWanResourceType="AzureFirewalls" (plural).
-  # The singular form returns an empty set. get-effective-routes is async; the
-  # CLI polls automatically.
+  # The singular form returns an empty set. get-effective-routes is an async
+  # (long-running) operation; right after a Hub Route Preference change it can
+  # return an empty set or a transient error while routes reprogram, so we retry.
   local raw cnt
-  raw="$(az network vhub get-effective-routes -g "$RESOURCE_GROUP" --name "$hn" \
-          --resource-type AzureFirewalls --resource-id "$fwId" -o json 2>/dev/null || echo '{}')"
+  query_effective_routes "firewall effective routes" \
+    az network vhub get-effective-routes -g "$RESOURCE_GROUP" --name "$hn" \
+      --resource-type AzureFirewalls --resource-id "$fwId" -o json || true
+  raw="$EFFROUTES_RAW"
   save_raw "vhub-fw-effective" "$hn" "$raw"
 
   cnt="$(echo "$raw" | jq -r '.value // [] | length')"
   if [[ "$cnt" == "0" || -z "$cnt" ]]; then
-    echo "  (no effective routes returned)"
+    echo "  (no effective routes returned after $MAX_ATTEMPTS attempt(s))"
     return 0
   fi
 
@@ -369,14 +421,16 @@ dump_vm() {
     return 0
   fi
 
-  log "Querying NIC effective route table (this can take ~30-60s)..."
+  log "Querying NIC effective route table (this can take ~30-60s; auto-retries while empty)..."
   local raw cnt
-  raw="$(az network nic show-effective-route-table --ids "$nicId" -o json 2>/dev/null || echo '{}')"
+  query_effective_routes "NIC effective routes" \
+    az network nic show-effective-route-table --ids "$nicId" -o json || true
+  raw="$EFFROUTES_RAW"
   save_raw "vm-effective" "$vn" "$raw"
 
   cnt="$(echo "$raw" | jq -r '.value // [] | length')"
   if [[ "$cnt" == "0" || -z "$cnt" ]]; then
-    echo "  (no effective routes returned)"
+    echo "  (no effective routes returned after $MAX_ATTEMPTS attempt(s))"
     return 0
   fi
 

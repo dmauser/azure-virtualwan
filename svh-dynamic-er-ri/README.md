@@ -280,6 +280,20 @@ view, plus the hub's current Route Preference), and VM NIC effective routes.
 .\dump-routes.ps1 -ResourceGroup rg-svhdyn-4hub
 ```
 
+```bash
+# Non-interactive examples (pick a component / target up front)
+./dump-routes.sh -g rg-svhdyn-4hub --component vhub --target vwanlab-vhub1 --non-interactive
+.\dump-routes.ps1 -ResourceGroup rg-svhdyn-4hub -Component vm -Target vwanlab-vm1 -NonInteractive
+```
+
+> **Route Preference (ExpressRoute / ASPath) is fully supported.** The vHub dump
+> shows each hub's current Hub Route Preference and the Azure Firewall effective
+> routes in either mode. Because `get-effective-routes` is an async operation that
+> can briefly return an empty set right after a preference change (while routes
+> reprogram), the vHub and VM queries **auto-retry** until routes appear. Tune with
+> `-MaxAttempts` / `-RetryDelaySec` (PowerShell) or `--max-attempts` / `--retry-delay`
+> (Bash); defaults are 4 attempts, 20s apart.
+
 ## Cleanup
 
 ```bash
