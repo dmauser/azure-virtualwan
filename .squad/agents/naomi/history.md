@@ -1,4 +1,4 @@
-# Naomi — History
+# Naomi — History (Summarized)
 
 ## Project Context
 - **Project:** azure-virtualwan — Azure Virtual WAN lab scenarios and deployment scripts
@@ -7,64 +7,68 @@
 - **User:** Daniel Mauser
 - **Created:** 2026-05-04
 
-## Session: repo-improvements (2026-05-04T21:44:17Z)
+## Career Arc Summary
 
-### Work Completed
-- Root cleanup: deleted `hello.txt`, moved `svhri-inter-deploy.sh`
-- Created `LABS_INDEX.md` cataloging 30 labs with learning path ordering
-- Implemented status classification for labs (Complete/Draft/Scripts only)
-- Designed decision log entry for LABS_INDEX categorization
+### Phase 1: Repository Foundations (2026-05-04)
+- Cataloged 30+ labs with LABS_INDEX.md and learning path ordering (fundamentals → advanced → hybrid/migration)
+- Architected unified-lab framework with centralized Bicep type definitions and modular composition
+- **Key Insight:** Centralized types prevent drift; module composition enables simple-to-complex topology scaling from same codebase
 
-### Decision Proposed
-- **LABS_INDEX.md Categorization Approach** — organized learning path from fundamentals through hybrid connectivity to migration scenarios
+### Phase 2: SVH-Dynamic-ER-RI Lab Delivery (2026-06-15)
+- Authored production Bicep orchestrator + all supporting modules (vwan, vhub, firewall, spoke, VM, KV, ER diagnostics)
+- Designed deploy/cleanup scripts with correct phase sequencing (hub provisioning → ER gateway → spoke connections → firewall → Routing Intent)
+- Implemented dual-path ER gateway creation (Bicep + CLI fallback) and demand-driven gateway model
+- **Key Decisions:** Per-hub vmSize for capacity resilience, admin password inline (params safe to commit), spoke connections/RI script-driven (ARM timing gates)
+- **Integration:** Cross-team naming contracts with Amos (validate), Alex (routing-intent), Holden (docs)
 
-### Key Insight
-Repository benefits from centralized lab catalog with natural learning progression. Scalable model for growing lab library.
+### Phase 3: Bug Fix + Hardening (2026-06-15)
+- **BUG 1 (CRITICAL):** `az network vhub routing-intent` uses `--vhub` (not `--vhub-name`). Fixed infinite polling in all 4 scripts.
+- **BUG 2:** Unbounded poll loops → added iteration counters + timeout guards (7 poll loops, 5–20 min each)
+- **BUG 3:** `az vm list-skus` unreliable for capacity checks → implemented synchronous probe (Phase 5b) with SKU retry loop + throw-away RG
+- **Feature:** Timestamped output across all scripts (`[HH:mm:ss]` prefixes on every phase/poll tick)
+- **Learning:** Always verify CLI parameter names with `--help` before new calls; routing-intent and vhub-connection are distinct subcommand trees
 
-## Session: unified-lab-phase1 (2026-05-04T17:02:00Z)
+### Phase 4: Live Deployment Round 2 (2026-06-16)
+- 75-minute end-to-end deployment of 4-hub secured vWAN (westus, westus2, westus3, eastus2) with ER, AzFw Basic, Routing Intent both-mode
+- Pre-flight VM capacity probe passed all 4 regions (Standard_B2s), preventing post-provisioning failures
+- **Learning 1:** Windows detached processes don't inherit CLI context → use async-attached for long deploys
+- **Learning 2:** Subscription 78216abe lacks bring-your-own-public-IP capability; lab defaults (no public IP) correct
+- **Learning 3:** Single-char VNet/subnet names fail capacity probe (`NetcfgInvalidVirtualNetworkSite`); probe uses 7+ char names
 
-### Work Completed
-- Architected `unified-lab/` folder structure with modular conventions
-- Created `bicepconfig.json` with metadata and version constraints for Bicep modules
-- Designed centralized type definitions in `types/scenario-types.bicep` for parameter consistency
-- Implemented 3 core modules:
-  - `vwan-hub.bicep` — vWAN hub provisioning with configurable SKU, routing preferences
-  - `spoke-vnet.bicep` — Spoke VNet deployment with address space and peering prep
-  - `branch-sim.bicep` — Branch office simulation via VM + site-to-site VPN setup
-- Established module composition patterns for extension by orchestrator layer
-
-### Key Insight
-Centralized type definitions prevent configuration drift across presets. Bicep module composition enables both simple (single-hub) and complex (any-to-any) topologies from same codebase. Separated core (infra building blocks) from connectivity (routing logic) into distinct module namespaces.
-
-## Session: svh-dynamic-er-ri Lab Delivery (2026-06-15)
-
-### Lab Delivered
-**svh-dynamic-er-ri** — Dynamic replacement for `3vhub-er-ri`. Deploys 1–4 Secured Virtual Hubs with ExpressRoute, Azure Firewall Basic, Routing Intent. Parameterized hub count, per-hub vmSize, demand-driven ER gateways, dual-path gateway creation (Bicep + CLI fallback).
-
-### Work Completed
-- Authored `main.bicep` orchestrator, all Bicep modules (vwan, vhub, firewall, spoke, VM, KV, ER, diagnostics)
-- Fixed Bicep lint warnings (`az bicep build main.bicep` → exit 0)
-- Authored `deploy.sh` / `deploy.ps1` with correct sequencing: hub → ER gateway → spoke connections → firewall → RI
-- Authored `cleanup.sh` / `cleanup.ps1` with reverse-order cleanup
-- Created `sample.singlehub.json` and `sample.multihub.json` parameter files
-- Documented orchestration in `.squad/orchestration-log/2026-06-15T18-06-36Z-naomi.md`
-
-### Key Decisions Made
-1. **ER gateway dual-path**: Bicep creates when `hub.deployErGateway=true`; CLI fallback for interactive circuit mappings
-2. **vmSize per-hub**: Region resilience (eastus capacity ≠ westus/centralus)
-3. **adminPassword inline, not in params**: Params file safe to inspect/commit
-4. **Spoke connections script-driven**: After hub `routingState=Provisioned` (ARM gate reliability)
-5. **Routing Intent script-driven**: After firewalls `Succeeded` (critical path optimization)
-6. **Naming contract enforced at Bicep + script layer**: Hub names derived from labPrefix + index (no jq dependency)
-
-### Integration Points
-- Alex: routing-intent.bicep used by RI CLI in deploy scripts
-- Amos: validate scripts test hub names, ER gateways, spoke connections, RI modes
-- Holden: README and docs reference deploy script interface and parameter examples
+## Learnings
+- grep `routing-intent.*--vhub-name` → 0 in all 4 scripts ✔
+- PowerShell Parser `deploy.ps1` → 0 errors ✔
+- PowerShell Parser `validate.ps1` → 0 errors ✔
+- `bash -n deploy.sh` → PASSED ✔
+- `bash -n validate.sh` → PASSED ✔
+- `deploy.sh` LF-only (0 CRLF) ✔
+- `validate.sh` LF-only (0 CRLF) ✔
 
 ## Learnings
 
-### Session: 3vhub-er-ri lab build (2026-05-26)
+### 2026-06-15 — Password-Only VM Auth (removed SSH key requirement)
+
+- **Context**: VMs in the svh-dynamic-er-ri lab were deploying with both SSH key and password authentication. The SSH key was required at deploy time, causing friction. VMs have no public IP, so SSH key auth from the internet was never used in practice — password + Serial Console is the only real access path.
+
+- **Decision**: Removed all SSH key prompts and ephemeral keygen logic from `deploy.sh` and `deploy.ps1`. `sshPublicKey` Bicep param now defaults to `''` (empty string). The `ubuntu-vm.bicep` module uses a ternary on `empty(sshPublicKey)` to conditionally include the `ssh.publicKeys` block — only if a key is actually provided. `disablePasswordAuthentication: false` is always set, ensuring Serial Console and password SSH always work.
+
+- **Bicep pattern** for optional SSH key in `linuxConfiguration`:
+  ```bicep
+  linuxConfiguration: empty(sshPublicKey) ? {
+    disablePasswordAuthentication: false
+  } : {
+    disablePasswordAuthentication: false
+    ssh: { publicKeys: [ { path: '/home/${adminUsername}/.ssh/authorized_keys', keyData: sshPublicKey } ] }
+  }
+  ```
+
+- **Files changed**: `ubuntu-vm.bicep`, `main.bicep`, `deploy.sh`, `deploy.ps1`, `README.md`, `docs/troubleshooting.md`, `docs/architecture.md`, `docs/cost-control.md`.
+
+- **Verification**: `az bicep build --file main.bicep` → 0 errors (1 pre-existing upgrade warning). `deploy.ps1` Parser → 0 errors. `bash -n deploy.sh` → PASSED. deploy.sh has 0 CRLF sequences (LF-only).
+
+- **Key Vault storage** of `vm-admin-username` and `vm-admin-password` secrets was already implemented and is kept unchanged. The deployment summary in both scripts now prominently shows how to retrieve credentials with `az keyvault secret show`.
+
+
 
 **New lab added:** `3vhub-er-ri/` — 3-region vWAN, ER on 2 hubs, AzFw Basic, Routing Intent (private only).
 
@@ -211,3 +215,66 @@ Expose Megaport service keys as early as possible and overlap external provider 
 - `contains(hub, 'vmSize') ? hub.vmSize : vmSize` used for per-hub vmSize override with global fallback (valid Bicep built-in for object property check on untyped array elements)
 - Conditional module loops `[for (hub, i) in hubs: if (hub.deployVm) {...}]` used for VMs and ER gateways
 - `hubRoutingPreference` = `ExpressRoute` is hardcoded in the `vhub.bicep` module; deploy script also runs a fallback `az network vhub update` check post-deployment
+
+## Session: svh-dynamic-er-ri capacity pre-flight (2026-06-15)
+
+**Requested by:** Daniel Mauser  
+**Trigger:** svh-dynamic-er-ri live deployment succeeded on vWAN/vHub/Firewall (~30 min) then failed on VM with `SkuNotAvailable` / allocation capacity errors in eastus, eastus2, centralus, and westus2. The `az vm list-skus` restrictions check returned empty (appeared to allow the SKU) but allocation was blocked.  
+
+### Work Completed
+
+Added Phase 5b VM capacity pre-flight to `deploy.ps1` and `deploy.sh`:
+
+- **`Test-VmCapacity`** (PowerShell) / **`preflight_vm_capacity`** (bash): creates a throw-away resource group (`capcheck-<labPrefix>-<region>-<rand>`), a minimal VNet/subnet (`10.250.0.0/24`), and runs a **synchronous** `az vm create` (no `--no-wait`) with the chosen SKU. Capacity errors surface immediately. If the initial SKU fails, the function iterates through `$VmSkuCandidates` / `VM_SKU_CANDIDATES` in the same region. A working SKU is propagated back; if ALL candidates fail, the function aborts the run with a clear timestamped error before any vWAN/vHub resources are deployed.
+- **Probe RG always deleted**: bash uses explicit cleanup before every return; PS1 uses `try/finally`.
+- **Escape hatch**: `-SkipCapacityCheck` / `--skip-capacity-check` flag and `LAB_SKIP_CAPACITY_CHECK=1` env var bypass the probe with a warning.
+- **Phase placement**: after Phase 5 (params file written, all regions and SKUs known) and before Phase 6 (main Bicep deployment). Only runs when `deploy_vms=true` / `$DeployVms`.
+
+### Key CLI Learning
+
+`az vm list-skus ... restrictions` returns EMPTY even for capacity-blocked SKUs in some subscription types (confirmed DMAUSER-FDPO eastus, eastus2, centralus, westus2 — all returned no restrictions but allocation failed). The ONLY reliable capacity check is a real synchronous `az vm create`.
+
+### Abort message text (on total failure)
+
+```
+  ╔══════════════════════════════════════════════════════════════════╗
+  ║  ✗  VM CAPACITY PRE-FLIGHT FAILED — deployment aborted          ║
+  ╚══════════════════════════════════════════════════════════════════╝
+  Region     : <region>
+  Tried SKUs : <list>
+  Azure error: <first matching error line>
+
+  ➤ Suggested alternate regions to try:
+      eastus  eastus2  westus  westus2  westus3  centralus  southcentralus
+
+  ➤ Re-run deploy.ps1/deploy.sh and choose a different region for the affected hub.
+  ➤ No vWAN/vHub resources have been deployed — safe to re-run.
+```
+
+### Escape hatch names
+- PS1 flag: `-SkipCapacityCheck`  
+- SH flag: `--skip-capacity-check`  
+- Env var (both): `LAB_SKIP_CAPACITY_CHECK=1`
+
+### Verification Results
+- `deploy.ps1` PowerShell Parser → 0 parse errors ✔
+- `validate.ps1` PowerShell Parser → 0 parse errors ✔
+- `deploy.sh` bash -n → PASS, 0 CRLF ✔
+- `validate.sh` bash -n → PASS, 0 CRLF ✔
+
+## Learnings
+
+### Learning 1: Detached Deployment Processes (Windows) Do NOT Inherit CLI Context
+
+**Context:** Round 2 live deployment (2026-06-16).  
+**Problem:** Launching `deploy.ps1` with PowerShell background mode (`detach:true`) on Windows did not inherit az CLI login context or environment variables. The process ran but produced no resource group or deployment logs.  
+**Resolution:** Use `mode="async"` with `Tee-Object` for long-running deploys. Async (attached) mode preserves session environment variables and CLI context correctly.  
+**Implication:** All long-deploy orchestration should use async-attached, not detached background processes.
+
+### Learning 2: Subscription 78216abe Does NOT Support Bring-Your-Own-Public-IP
+
+**Context:** Round 2 live deployment (2026-06-16).  
+**Restriction:** Subscription 78216abe-8139-4b45-8715-6bab2010101e is **not registered** for `Microsoft.Network/AllowBringYourOwnPublicIpAddress`.  
+**Implication:** VMs must be created with `attachPublicIp=false` at deploy time (lab default is correct). Attempting to add a public IP post-VM-creation fails with HTTP 403 (Forbidden).  
+**Workaround:** Accept no-public-IP default. Access VMs via Azure Serial Console (built-in) or VM-to-VM SSH within the lab VNet (password auth via Key Vault).  
+**Lesson:** Subscription type and feature registration constraints must be validated early (Phase 0 pre-flights). Lab defaults (no public IP) are correct for restricted subscriptions.

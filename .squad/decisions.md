@@ -393,3 +393,244 @@ This ordering exposes service keys as soon as possible so Megaport provisioning 
 - **Amos (validate):** Hub names follow `${labPrefix}-vhub${i}` 1-based; firewall names follow `${hubName}-azfw`; RI names follow `${hubName}-ri`.
 - **Holden (routing/RI):** Routing intent mode is global (same on every hub); nextHop is always the local hub's firewall.
 - **Alex (test):** KV secrets are `vm-admin-username` / `vm-admin-password`; password retrieval via `az keyvault secret show`.
+
+---
+
+## Decision: Fix missing `--internet-security true` on spoke VNet connections (internetOnly/both RI modes)
+
+**Date**: 2026-06-15  
+**Author**: Alex (Network Engineer)  
+**Lab**: `svh-dynamic-er-ri`  
+**Severity**: HIGH — silent functional failure
+
+### Problem
+
+`az network vhub connection create` defaults `internetSecurity = false` (Propagate Default Route: disabled).  
+In Azure Virtual WAN, Routing Intent can only inject a `0.0.0.0/0` default route into a spoke VNet if the connection has `enableInternetSecurity = true`.  
+Both `internetOnly` and `both` RI modes were silently broken for the CLI deploy path: internet traffic from Ubuntu VMs bypassed the hub Azure Firewall regardless of the selected RI mode.
+
+The Bicep path (`infra/bicep/modules/spoke-vnet.bicep`) already sets `enableInternetSecurity: true` unconditionally; only the CLI script path was affected.
+
+### Decision
+
+Set `--internet-security true` **conditionally** on `az network vhub connection create` — only when `ri_mode` is `internetOnly` or `both`. For `privateOnly` mode, omit the flag (leave default `false`); private-only deployments do not need a default route injected into spokes and should not receive one.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `svh-dynamic-er-ri/scripts/deploy.sh` | Added `isec` variable before Phase 9 loop; conditionally adds `--internet-security true` to `az network vhub connection create` based on `$ri_mode`. |
+| `svh-dynamic-er-ri/scripts/deploy.ps1` | Added `$isecArgs` array before Phase 9 loop; splatted into `az network vhub connection create` with `@isecArgs`. |
+| `svh-dynamic-er-ri/scripts/validate.sh` | Added assertion in Section 11: for each hub with Internet RI policy, checks `enableInternetSecurity == true` on every spoke connection. |
+| `svh-dynamic-er-ri/scripts/validate.ps1` | Same assertion in Section 11 (PowerShell). |
+| `svh-dynamic-er-ri/docs/architecture.md` | Added notes on (a) conditional `enableInternetSecurity` flag, (b) double-inspection in multi-hub private RI, (c) Azure Firewall Basic ~250 Mbps throughput caveat. |
+
+### Validation Approach
+
+The assertion uses `az network vhub connection show ... --query enableInternetSecurity` (control-plane check). This is preferred over asserting `0.0.0.0/0` in effective routes because:
+- Control-plane flag is available immediately after connection provisioning
+- Effective route table population can be delayed post-RI activation (timing-dependent in CI)
+- The flag is the root cause; the route is the downstream effect
+
+### Verification
+
+- `bash -n deploy.sh` and `bash -n validate.sh` both pass (WSL, LF-only)
+- PowerShell parser reports 0 errors for `deploy.ps1` and `validate.ps1`
+- No CRLF line endings introduced in `.sh` files
+
+---
+
+## Decision: Password-Only VM Authentication
+
+**Date**: 2026-06-15  
+**Author**: Naomi (Infrastructure Engineer)  
+**Requested by**: Daniel Mauser (@dmauser)  
+**Status**: Implemented  
+
+### Context
+
+The svh-dynamic-er-ri lab was requiring an SSH public key at deploy time (either supplied by the user or auto-generated as an ephemeral key). This created unnecessary friction because:
+
+1. Lab VMs have **no public IP** by default — SSH from the internet was never a practical access path.
+2. The only real access paths are **Azure Serial Console** and **VM-to-VM SSH within the lab** — both work with password.
+3. The password was already auto-generated and stored in Key Vault at deploy time; SSH key was redundant.
+4. Ephemeral key generation via `ssh-keygen` required the tool to be present and left private key files on disk.
+
+### Decision
+
+Remove SSH key authentication as a **requirement**. VMs authenticate with **username + auto-generated password** only. The password is stored in Key Vault (implementation was already in place).
+
+SSH public key support is retained as an **optional, unused-by-default** parameter (`sshPublicKey = ''`) so that advanced users can still supply a key if desired, without breaking any existing automation that passes an empty string.
+
+### Changes Made
+
+| File | Change |
+|------|--------|
+| `infra/bicep/modules/ubuntu-vm.bicep` | `sshPublicKey` param default `''`; conditional `linuxConfiguration` omits `ssh.publicKeys` when empty; header comment updated |
+| `infra/bicep/main.bicep` | `sshPublicKey` param default `''` |
+| `scripts/deploy.sh` | Removed SSH key prompt + ephemeral keygen; `ssh_pub_key=""` always; updated deployment summary |
+| `scripts/deploy.ps1` | Removed SSH key prompt + ephemeral keygen; `$SshPubKey = ""` always; updated deployment summary |
+| `README.md` | Removed SSH key prerequisite, `--ssh-public-key` from all examples, updated auth description |
+| `docs/troubleshooting.md` | Updated "No Public IP" section — removed NSG rule update workaround, added KV retrieval for username + password |
+| `docs/architecture.md` | Updated auth description in VM section and Key Vault section |
+| `docs/cost-control.md` | Removed `--ssh-public-key` from deploy examples |
+
+### Authentication Flow (Post-Change)
+
+1. Deploy script generates a random password (`admin_password`).
+2. Bicep stores `vm-admin-username` and `vm-admin-password` as Key Vault secrets.
+3. VMs are provisioned with `adminPassword` and `disablePasswordAuthentication: false`.
+4. To access a VM:
+   ```bash
+   # Get credentials from Key Vault
+   az keyvault secret show --vault-name <kvName> --name vm-admin-username --query value -o tsv
+   az keyvault secret show --vault-name <kvName> --name vm-admin-password --query value -o tsv
+   # Login via Azure Serial Console or VM-to-VM SSH with the password
+   ```
+
+### Verification
+
+- `az bicep build --file main.bicep` → exit 0, no errors (1 pre-existing version upgrade warning)
+- `[System.Management.Automation.Language.Parser]::ParseFile(deploy.ps1)` → 0 errors
+- `bash -n deploy.sh` → PASSED
+- deploy.sh CRLF check → 0 CRLF sequences (LF-only preserved)
+
+---
+
+## Decision: routing-intent --vhub fix, poll timeouts, SKU retry, timestamps
+
+**Date:** 2026-06-15  
+**Author:** Naomi (Infrastructure Engineer)  
+**Triggered by:** Live deployment failure of svh-dynamic-er-ri against az CLI 2.83.0 + virtual-wan 1.0.1
+
+### Context
+
+A live deployment of the `svh-dynamic-er-ri` lab exposed three script bugs that caused an infinite hang, incorrect field polling, and a hard failure on VM SKU capacity. These were fixed across all four scripts: `deploy.ps1`, `deploy.sh`, `validate.ps1`, `validate.sh`.
+
+### Decision 1 — `az network vhub routing-intent` uses `--vhub`, NOT `--vhub-name`
+
+**Problem:** Every `routing-intent create/show` call passed `--vhub-name $hub`. The CLI rejects this flag silently (returns a help error), causing infinite polling loops in Phase 12.
+
+**Evidence:** `az network vhub routing-intent create --help` lists `--vhub [Required]` — not `--vhub-name`. The `--vhub-name` parameter belongs to `az network vhub connection create` (a different subcommand family).
+
+**Fix:** Changed all `routing-intent` subcommand invocations to `--vhub` in all 4 files. `vhub connection create` calls are **unchanged** — they correctly use `--vhub-name`.
+
+**Rule going forward:** When writing any CLI call against `az network vhub routing-intent`, always use `--vhub`. When writing against `az network vhub connection`, use `--vhub-name`. These are different subcommand trees with different parameter names.
+
+### Decision 2 — All poll loops must have a bounded max-iteration timeout
+
+**Problem:** Every `do..while` / `while true` poll in both deploy scripts was unbounded. When the `routing-intent show` command errored (due to Bug 1), it returned an empty string which was never `"Succeeded"`, creating an infinite loop (200+ iterations observed).
+
+**Fix:** Added an iteration counter and max-iteration guard to every poll loop in `deploy.ps1` and `deploy.sh`:
+
+| Poll loop | File | Max iters × sleep | Effective timeout |
+|---|---|---|---|
+| Hub provisioningState | both | 40 × 15 s | 10 min |
+| Hub routingState | both | 36 × 10 s | 6 min |
+| Spoke connections | both | 40 × 30 s | 20 min |
+| ER gateway | both | 40 × 15 s | 10 min |
+| ER gateway connection | both | 40 × 30 s | 20 min |
+| Azure Firewall | both | 80 × 15 s | 20 min |
+| Routing Intent | both | 20 × 15 s | 5 min |
+
+On timeout expiry the script logs `WARNING: ... timed out after N iterations` and breaks (does not exit). This allows the operator to inspect and continue rather than killing the process.
+
+**Rule going forward:** No deploy script may contain an unbounded poll loop. Every `while true` / infinite `do..while` must have a documented max-iteration guard with a WARNING on expiry.
+
+### Decision 3 — VM SKU selection must be resilient to Capacity Restrictions
+
+**Problem:** `Pick-VmSku` / `pick_vm_sku` only checked `az vm list-skus .restrictions`. This returned empty for `Standard_B2s` in eastus, but the actual deployment failed with `SkuNotAvailable / Capacity Restrictions`. The pre-flight check gave false confidence.
+
+**Fix:** 
+1. Expanded `$VmSkuCandidates` from 3 to 5 entries: `Standard_B2s`, `Standard_B2ms`, `Standard_D2s_v3`, `Standard_D2as_v5`, `Standard_D2s_v5`.
+2. Wrapped the `az deployment group create` call in a retry loop in both `deploy.ps1` and `deploy.sh`. If the deployment fails with `SkuNotAvailable` or `Capacity` in the error output, the loop advances `$SkuRetryIdx` / `$sku_retry_idx`, regenerates the params file with the next candidate SKU for all hubs, and retries. If all candidates are exhausted the script exits with a clear error listing all tried SKUs.
+3. The pre-flight `Pick-VmSku` / `pick_vm_sku` still runs (for fast-fail on obviously restricted SKUs) but is now a best-effort hint, not a hard guarantee.
+
+**Rule going forward:** Deployment-time SKU failures are expected in subscription types with capacity restrictions. Always wrap bicep deployments that include VMs in a SKU retry loop when the subscription may have eastus capacity limits.
+
+### Decision 4 — All progress output is timestamped
+
+**Problem:** Long-running phases (Azure Firewall ~30 min) and stuck poll loops produced output with no timing information, making it impossible to tell how long a step had been running.
+
+**Fix:** Added a `Log` / `log` helper in all 4 scripts that prefixes every message with `[HH:mm:ss]`. All phase headers and poll-tick lines now go through this helper.
+
+- PS1: `function Log([string]$m){ Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) }`
+- SH: `log(){ printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }`
+
+### Verification
+
+- `az network vhub routing-intent create --help` → `--vhub [Required]` confirmed ✔
+- `grep routing-intent.*--vhub-name` across all 4 scripts → 0 results (comments only) ✔
+- `deploy.ps1` / `validate.ps1`: PowerShell Parser → 0 errors ✔
+- `deploy.sh` / `validate.sh`: `bash -n` → PASSED; 0 CRLF sequences ✔
+
+---
+
+## Decision: VM capacity pre-flight probe (Phase 5b)
+
+**Date:** 2026-06-15  
+**Author:** Naomi (Infrastructure Engineer)  
+**Triggered by:** svh-dynamic-er-ri live deployment failure — VM SkuNotAvailable/capacity in eastus, eastus2, centralus, westus2 discovered AFTER 30-min vWAN/vHub/Firewall provisioning completed.
+
+### Problem
+
+`az vm list-skus --query "[?name=='Standard_B2s'].restrictions"` returned an **empty** result in eastus and other regions for the DMAUSER-FDPO subscription, implying no restrictions. But the actual `az deployment group create` failed with `SkuNotAvailable / Capacity Restrictions` when it tried to allocate the VM. The entire 30+ minute firewall provisioning completed before the failure was discovered.
+
+This is a known issue: `az vm list-skus` reports quota/policy restrictions but NOT live allocation capacity. Capacity blocks are invisible to it.
+
+### Decision
+
+**Replace the unreliable `az vm list-skus` pre-flight with a real synchronous allocation probe (`az vm create`) in a throw-away resource group, run BEFORE the main Bicep deployment.**
+
+#### Why synchronous (no `--no-wait`)
+Capacity errors only surface when Azure attempts the allocation. `--no-wait` returns immediately and the error surfaces asynchronously in the background job — by the time you poll it, the main deployment has already started. The probe MUST be synchronous to block on the error.
+
+#### Why a throw-away RG
+The probe VM (and its VNet, NIC, disk) must be isolated from the lab deployment. Using a dedicated `capcheck-<labPrefix>-<region>-<rand>` RG means the cleanup is a single `az group delete` that catches all artifacts including partial ones from failed VM creates.
+
+#### Cleanup guarantee
+- **Bash**: explicit `az group delete ... --no-wait || true` called before every `return` path.
+- **PowerShell**: `try/finally` block ensures `az group delete ... --no-wait` is always called even when the function throws.
+
+### Implementation
+
+#### Functions
+| File | Function name | Location |
+|---|---|---|
+| `deploy.ps1` | `Test-VmCapacity` | Helpers section (after `Build-RiPolicies`) |
+| `deploy.sh` | `preflight_vm_capacity` | Helpers section (after `poll_until`) |
+
+#### Phase placement
+Phase 5b — inserted between Phase 5 (params file written, all hub regions and SKUs known) and Phase 6 (main `az deployment group create`). Only executes when VMs will be deployed (`deploy_vms=true` / `$DeployVms`).
+
+#### Probe VNet CIDR
+`10.250.0.0/24` with subnet `10.250.0.0/27` — chosen to not conflict with any lab hub address spaces (`10.N0.0.0/23`).
+
+#### SKU fallback within probe
+The probe iterates through `VM_SKU_CANDIDATES` / `$VmSkuCandidates` (same ordered list used by the deployment retry). Initial SKU is tried first. If a DIFFERENT SKU succeeds, it is propagated back to the hub configuration so the deployment uses it directly.
+
+#### On total failure (all SKUs capacity-blocked)
+- Timestamped error box printed with region, tried SKUs, raw Azure error line, and suggested alternate regions (`eastus eastus2 westus westus2 westus3 centralus southcentralus`).
+- Script **exits non-zero immediately** (bash: `return 1` → caller `exit 1`; PS1: `throw`).
+- **No vWAN/vHub resources have been deployed at this point** — safe to re-run with a different region.
+
+### Escape Hatch
+
+Bypass the probe when capacity is already known:
+| Method | PS1 | Bash |
+|---|---|---|
+| CLI flag | `-SkipCapacityCheck` | `--skip-capacity-check` |
+| Env var | `$env:LAB_SKIP_CAPACITY_CHECK=1` | `LAB_SKIP_CAPACITY_CHECK=1` |
+
+When bypassed, a `[WARN]` line is printed informing the operator that a capacity error may still surface post-deployment.
+
+### Verification
+
+- `deploy.ps1` PS Parser → 0 errors ✔  
+- `validate.ps1` PS Parser → 0 errors ✔  
+- `deploy.sh` `bash -n` → PASS, 0 CRLF ✔  
+- `validate.sh` `bash -n` → PASS, 0 CRLF ✔  
+
+### Regions confirmed capacity-blocked (DMAUSER-FDPO, 2026-06-15)
+
+Standard_B2s (and all other tested SKUs): eastus, eastus2, centralus, westus2 — all blocked by capacity restrictions. westus, westus3, southcentralus were not tested but are likely candidates to try.
