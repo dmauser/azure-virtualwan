@@ -1,0 +1,6 @@
+# Runtime-generated parameter files (contain deployer-specific values: object IDs, source IPs)
+infra/parameters/generated-*.json
+
+# Local logs / scratch
+*.log
+*.tmp

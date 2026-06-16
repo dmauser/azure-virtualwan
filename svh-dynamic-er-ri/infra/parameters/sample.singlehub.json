@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "labPrefix": {
+      "value": "vwanlab"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "hubs": {
+      "value": [
+        {
+          "region": "eastus",
+          "hubAddressPrefix": "10.10.0.0/23",
+          "spokeAddressPrefix": "10.11.0.0/24",
+          "subnetPrefix": "10.11.0.0/27",
+          "deployErGateway": false,
+          "deployVm": true,
+          "vmSize": "Standard_B2s"
+        }
+      ]
+    },
+    "tags": {
+      "value": {
+        "owner": "PLACEHOLDER_OWNER",
+        "labName": "vwanlab"
+      }
+    },
+    "adminUsername": {
+      "value": "PLACEHOLDER_DO_NOT_DEPLOY_AS_IS"
+    },
+    "adminPassword": {
+      "value": "PLACEHOLDER_DO_NOT_DEPLOY_AS_IS"
+    },
+    "sshPublicKey": {
+      "value": "PLACEHOLDER_DO_NOT_DEPLOY_AS_IS"
+    },
+    "vmSize": {
+      "value": "Standard_B2s"
+    },
+    "keyVaultName": {
+      "value": "PLACEHOLDER_DO_NOT_DEPLOY_AS_IS"
+    },
+    "deployerObjectId": {
+      "value": ""
+    },
+    "enableDiagnostics": {
+      "value": false
+    },
+    "allowedSshSourceIp": {
+      "value": ""
+    },
+    "attachPublicIp": {
+      "value": false
+    }
+  }
+}

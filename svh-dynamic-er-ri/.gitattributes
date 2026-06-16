@@ -1,0 +1,4 @@
+# Shell scripts and cloud-init must use LF line endings to run on Linux
+*.sh text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
