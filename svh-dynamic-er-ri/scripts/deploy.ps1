@@ -18,15 +18,24 @@
 .PARAMETER NonInteractive
   Skip all prompts; rely on $env:LAB_* variables for all values.
 
+.PARAMETER SkipCapacityCheck
+  Skip the real VM allocation pre-flight probe (Phase 5b).
+  Also honoured via env var LAB_SKIP_CAPACITY_CHECK=1.
+  Use when you already know the target region has capacity and want a faster run.
+
 .EXAMPLE
   .\deploy.ps1
   .\deploy.ps1 -AnswersFile .\answers.ps1
+  .\deploy.ps1 -SkipCapacityCheck
   $env:LAB_NON_INTERACTIVE = "1"; .\deploy.ps1
+  $env:LAB_SKIP_CAPACITY_CHECK = "1"; .\deploy.ps1
 #>
 
 param(
-  [string]$AnswersFile   = "",
-  [switch]$NonInteractive
+  [string]$AnswersFile       = "",
+  [switch]$NonInteractive,
+  # Bypass the real VM allocation pre-flight probe. Also: $env:LAB_SKIP_CAPACITY_CHECK=1.
+  [switch]$SkipCapacityCheck
 )
 
 Set-StrictMode -Version Latest
@@ -38,6 +47,8 @@ $ParamsDir  = Join-Path $ScriptDir "..\infra\parameters"
 $VmSkuCandidates = @("Standard_B2s", "Standard_B2ms", "Standard_D2s_v3", "Standard_D2as_v5", "Standard_D2s_v5")
 [int]$MaxWaitMin = if ($env:MAX_WAIT_MIN) { [int]$env:MAX_WAIT_MIN } else { 180 }
 $IsNonInteractive = $NonInteractive -or ($env:LAB_NON_INTERACTIVE -eq "1")
+# Honour env-var override for capacity-check bypass (in addition to -SkipCapacityCheck switch).
+$SkipCapacityCheck = $SkipCapacityCheck -or ($env:LAB_SKIP_CAPACITY_CHECK -eq "1")
 
 # Dot-source answers file if provided
 if ($AnswersFile -ne "") {
@@ -87,6 +98,122 @@ function Build-RiPolicies {
     "privateOnly"  { return '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"' + $FwId + '"}]' }
     "internetOnly" { return '[{"name":"InternetTraffic","destinations":["Internet"],"nextHop":"' + $FwId + '"}]' }
     "both"         { return '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"' + $FwId + '"},{"name":"InternetTraffic","destinations":["Internet"],"nextHop":"' + $FwId + '"}]' }
+  }
+}
+
+function Test-VmCapacity {
+  <#
+  .SYNOPSIS
+    Verifies actual VM allocation capacity in a region by performing a real
+    synchronous az vm create in a throw-away resource group.
+    az vm list-skus restrictions are unreliable (false-empty confirmed eastus 2026-06-15).
+  .PARAMETER Region        Target hub region to probe.
+  .PARAMETER InitialSku    Preferred SKU (tried first).
+  .PARAMETER SkuList       Ordered candidate list to fall back through.
+  .OUTPUTS
+    [string] First SKU that allocates successfully.
+    Throws if all candidates are capacity-blocked (caught by ErrorActionPreference=Stop).
+  .NOTES
+    A try/finally block guarantees the probe RG is always deleted.
+  #>
+  param(
+    [string]  $Region,
+    [string]  $InitialSku,
+    [string[]]$SkuList
+  )
+
+  $rand    = -join ((1..3) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })
+  $capRg   = "capcheck-${LabPrefix}-${Region}-${rand}"
+  # Throw-away password: only used for the probe VM; never stored or echoed.
+  $capPass = "CapChk" + (-join ((1..6) | ForEach-Object { '{0:x2}' -f (Get-Random -Max 256) })) + "Aa1!"
+
+  try {
+    Log "  [cap-check] Creating temp probe RG: $capRg in $Region"
+    $null = az group create -n $capRg -l $Region --output none 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      Log "  [cap-check] WARNING: could not create probe RG in $Region — skipping check."
+      return $InitialSku
+    }
+
+    Log "  [cap-check] Creating probe VNet + subnet ..."
+    $null = az network vnet create `
+      -g $capRg -n "capchk-vnet" `
+      --address-prefix "10.250.0.0/24" `
+      --subnet-name "capchk-subnet" --subnet-prefix "10.250.0.0/27" `
+      --location $Region --output none 2>&1
+    if ($LASTEXITCODE -ne 0) {
+      Log "  [cap-check] WARNING: VNet creation failed in $Region — skipping check."
+      return $InitialSku
+    }
+
+    # Build probe list: InitialSku first, then remaining candidates in order.
+    $probeSkus = @($InitialSku) + ($SkuList | Where-Object { $_ -ne $InitialSku })
+    $workingSku  = $null
+    $lastErrOut  = ""
+
+    foreach ($probeSku in $probeSkus) {
+      Log "  [cap-check] Probing SKU $probeSku in $Region (synchronous vm create) ..."
+      # '""' passes a literal empty string to az on Windows, meaning no public IP.
+      $errOut = az vm create `
+        -g $capRg -n "capchk-probe" -l $Region `
+        --image Ubuntu2204 --size $probeSku `
+        --admin-username capchk --admin-password $capPass `
+        --public-ip-address '""' `
+        --vnet-name "capchk-vnet" --subnet "capchk-subnet" `
+        --nic-delete-option Delete --os-disk-delete-option Delete `
+        --only-show-errors --output none 2>&1
+
+      if ($LASTEXITCODE -eq 0) {
+        $workingSku = $probeSku
+        if ($probeSku -ne $InitialSku) {
+          Log "  [cap-check] NOTE: Original SKU '$InitialSku' unavailable in $Region."
+          Log "  [cap-check]       '$probeSku' allocated successfully — using it instead."
+          Log "  [cap-check]       Tip: set LAB_VMSIZE=$probeSku to pre-select on next run."
+        } else {
+          Log "  [cap-check] ✔ $probeSku is allocatable in $Region"
+        }
+        break
+      } elseif (($errOut | Out-String) -match 'SkuNotAvailable|AllocationFailed|capacity|not available|OverconstrainedAllocationRequest|ZonalAllocationFailed|Allocation failed') {
+        Log "  [cap-check] ✗ $probeSku is capacity-blocked in $Region"
+        $lastErrOut = ($errOut | Out-String)
+        # Remove any partial probe VM artifact before retrying with next SKU.
+        $null = az vm delete -g $capRg -n "capchk-probe" --yes --no-wait --output none 2>&1
+      } else {
+        # Non-capacity error — warn and assume SKU might work.
+        $snippet = ($errOut | Out-String).Split("`n")[0]
+        Log "  [cap-check] WARNING: unexpected error for ${probeSku}: $snippet"
+        Log "  [cap-check] Assuming $probeSku is usable; real deployment will confirm."
+        $workingSku = $probeSku
+        break
+      }
+    }
+
+    if ($null -eq $workingSku) {
+      $errLine = ($lastErrOut -split "`n" |
+        Where-Object { $_ -match 'SkuNotAvailable|AllocationFailed|capacity|Allocation' } |
+        Select-Object -First 1)
+      Log ""
+      Log "  ╔══════════════════════════════════════════════════════════════════╗"
+      Log "  ║  ✗  VM CAPACITY PRE-FLIGHT FAILED — deployment aborted          ║"
+      Log "  ╚══════════════════════════════════════════════════════════════════╝"
+      Log "  Region     : $Region"
+      Log "  Tried SKUs : $($probeSkus -join ', ')"
+      Log "  Azure error: $errLine"
+      Log ""
+      Log "  ➤ Suggested alternate regions to try:"
+      Log "      eastus  eastus2  westus  westus2  westus3  centralus  southcentralus"
+      Log ""
+      Log "  ➤ Re-run deploy.ps1 and choose a different region for the affected hub."
+      Log "  ➤ No vWAN/vHub resources have been deployed — safe to re-run."
+      throw "VM capacity pre-flight failed in region '$Region'. Tried: $($probeSkus -join ', ')."
+    }
+
+    return $workingSku
+  }
+  finally {
+    # Always clean up the probe RG — even if the function throws.
+    Log "  [cap-check] Deleting probe RG $capRg (--no-wait) ..."
+    $null = az group delete -n $capRg --yes --no-wait --output none 2>&1
   }
 }
 
@@ -264,6 +391,36 @@ $paramsDoc = [ordered]@{
 }
 $paramsDoc | ConvertTo-Json -Depth 10 | Set-Content -Path $ParamsFile -Encoding UTF8
 Write-Host "  Parameters file: $ParamsFile"
+
+# ---------- Phase 5b: VM capacity pre-flight (real allocation probe) ---------
+# Runs BEFORE the main vWAN/vHub deployment to detect SkuNotAvailable/Capacity
+# errors early — before the ~30-min Firewall provisioning starts. Probes are
+# synchronous az vm create in throw-away RGs; they are always cleaned up.
+# Bypass with -SkipCapacityCheck or $env:LAB_SKIP_CAPACITY_CHECK=1.
+if ($DeployVms -and (-not $SkipCapacityCheck)) {
+  Write-Host ""
+  Log "### Phase 5b: VM capacity pre-flight (real allocation probe) ###"
+  $CapCheckedRegions = @{}
+  for ($i = 0; $i -lt $NumHubs; $i++) {
+    $region = $HubRegions[$i]
+    if ($CapCheckedRegions.ContainsKey($region)) {
+      # Already probed this region — reuse confirmed SKU.
+      $HubVmSkus[$i] = $CapCheckedRegions[$region]
+      continue
+    }
+    # Test-VmCapacity throws on total failure, which propagates here and stops the run.
+    $confirmedSku = Test-VmCapacity -Region $region -InitialSku $HubVmSkus[$i] -SkuList $VmSkuCandidates
+    $CapCheckedRegions[$region] = $confirmedSku
+    # Propagate the confirmed SKU to every hub in the same region.
+    for ($j = 0; $j -lt $NumHubs; $j++) {
+      if ($HubRegions[$j] -eq $region) { $HubVmSkus[$j] = $confirmedSku }
+    }
+  }
+  Log "  Phase 5b: VM capacity pre-flight PASSED for all hub regions ✔"
+} elseif ($SkipCapacityCheck) {
+  Log "  [WARN] VM capacity pre-flight SKIPPED (-SkipCapacityCheck / LAB_SKIP_CAPACITY_CHECK=1)."
+  Log "  [WARN] A SkuNotAvailable error may still occur after vWAN/vHub provisioning."
+}
 
 # ---------- Phase 6: Deploy main.bicep (with VM SKU auto-retry) -------------
 Write-Host ""

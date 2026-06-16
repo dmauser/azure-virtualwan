@@ -25,6 +25,7 @@
 #   LAB_ER1_PERLOC .. LAB_ER4_PERLOC
 #   LAB_ER1_REGION .. LAB_ER4_REGION
 #   MAX_WAIT_MIN                         (default 180)
+#   LAB_SKIP_CAPACITY_CHECK=1            (skip real allocation pre-flight probe)
 #
 # ⚠️  LAB-ONLY: firewall policies include an allow-all rule.
 # ⚠️  All hubs use hubRoutingPreference = ExpressRoute.
@@ -38,6 +39,9 @@ PARAMS_DIR="${SCRIPT_DIR}/../infra/parameters"
 VM_SKU_CANDIDATES=(Standard_B2s Standard_B2ms Standard_D2s_v3 Standard_D2as_v5 Standard_D2s_v5)
 MAX_WAIT_MIN="${MAX_WAIT_MIN:-180}"
 NON_INTERACTIVE="${LAB_NON_INTERACTIVE:-0}"
+# Set LAB_SKIP_CAPACITY_CHECK=1 or pass --skip-capacity-check to bypass the
+# real allocation probe (useful when you already know the region has capacity).
+SKIP_CAPACITY_CHECK="${LAB_SKIP_CAPACITY_CHECK:-0}"
 
 # ---------- Parse arguments -------------------------------------------------
 ANSWERS_FILE=""
@@ -45,6 +49,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --answers-file) ANSWERS_FILE="$2"; shift 2 ;;
     --non-interactive) NON_INTERACTIVE=1; shift ;;
+    --skip-capacity-check) SKIP_CAPACITY_CHECK=1; shift ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -130,7 +135,124 @@ poll_until() {
   done
 }
 
-# ---------- Phase 1: Interactive configuration ------------------------------
+# ---------- Helper: preflight_vm_capacity -----------------------------------
+# Verifies that a VM can actually be allocated in REGION by performing a real
+# synchronous az vm create in a throw-away resource group.  az vm list-skus
+# restrictions are unreliable (confirmed eastus 2026-06-15 live deployment).
+#
+# Usage: preflight_vm_capacity REGION INITIAL_SKU RESULT_VAR
+#   RESULT_VAR is set (via printf -v) to the first SKU that successfully
+#   allocates.  Returns 0 on success, 1 when all candidates are
+#   capacity-blocked (caller should exit 1 in that case).
+# The probe RG is ALWAYS deleted before the function returns.
+preflight_vm_capacity() {
+  local region="$1" initial_sku="$2" result_var="$3"
+  local rand_suffix cap_rg cap_pass err_out exit_code sku_ok probe_sku
+  local capacity_blocked=true
+
+  rand_suffix="$(openssl rand -hex 3)"
+  cap_rg="capcheck-${labPrefix}-${region}-${rand_suffix}"
+  # Throw-away password used only for the probe VM; never stored or echoed.
+  cap_pass="CapChk$(openssl rand -hex 6)Aa1!"
+
+  log "  [cap-check] Creating temp probe RG: $cap_rg in $region"
+  if ! az group create -n "$cap_rg" -l "$region" --output none 2>/dev/null; then
+    log "  [cap-check] WARNING: could not create probe RG in $region — skipping check."
+    printf -v "$result_var" '%s' "$initial_sku"
+    return 0
+  fi
+
+  log "  [cap-check] Creating probe VNet + subnet ..."
+  if ! az network vnet create \
+      -g "$cap_rg" -n "capchk-vnet" \
+      --address-prefix "10.250.0.0/24" \
+      --subnet-name "capchk-subnet" --subnet-prefix "10.250.0.0/27" \
+      --location "$region" --output none 2>/dev/null; then
+    log "  [cap-check] WARNING: VNet creation failed in $region — skipping check."
+    az group delete -n "$cap_rg" --yes --no-wait --output none 2>/dev/null || true
+    printf -v "$result_var" '%s' "$initial_sku"
+    return 0
+  fi
+
+  # Build probe list: initial_sku first, then remaining candidates in order.
+  local -a probe_skus=("$initial_sku")
+  for probe_sku in "${VM_SKU_CANDIDATES[@]}"; do
+    [[ "$probe_sku" == "$initial_sku" ]] && continue
+    probe_skus+=("$probe_sku")
+  done
+
+  sku_ok=""
+  for probe_sku in "${probe_skus[@]}"; do
+    log "  [cap-check] Probing SKU $probe_sku in $region (synchronous vm create) ..."
+    err_out="" ; exit_code=0
+    # Capture combined stdout+stderr; || is safe under set -euo pipefail.
+    err_out=$(az vm create \
+      -g "$cap_rg" -n "capchk-probe" -l "$region" \
+      --image Ubuntu2204 \
+      --size "$probe_sku" \
+      --admin-username capchk \
+      --admin-password "$cap_pass" \
+      --public-ip-address "" \
+      --vnet-name "capchk-vnet" \
+      --subnet "capchk-subnet" \
+      --nic-delete-option Delete \
+      --os-disk-delete-option Delete \
+      --only-show-errors \
+      --output none 2>&1) || exit_code=$?
+
+    if [[ $exit_code -eq 0 ]]; then
+      sku_ok="$probe_sku"
+      capacity_blocked=false
+      if [[ "$probe_sku" != "$initial_sku" ]]; then
+        log "  [cap-check] NOTE: Original SKU '$initial_sku' unavailable in $region."
+        log "  [cap-check]       '$probe_sku' allocated successfully — using it instead."
+        log "  [cap-check]       Tip: set LAB_VMSIZE=$probe_sku to pre-select on next run."
+      else
+        log "  [cap-check] ✔ $probe_sku is allocatable in $region"
+      fi
+      break
+    elif echo "$err_out" | grep -qiE \
+        'SkuNotAvailable|AllocationFailed|capacity|not available|OverconstrainedAllocationRequest|ZonalAllocationFailed|Allocation failed'; then
+      log "  [cap-check] ✗ $probe_sku is capacity-blocked in $region"
+      # Clean up any partial probe VM artifact before retrying with next SKU.
+      az vm delete -g "$cap_rg" -n "capchk-probe" --yes --no-wait \
+        --output none 2>/dev/null || true
+    else
+      # Unexpected non-capacity error — warn and assume SKU might work.
+      log "  [cap-check] WARNING: unexpected error probing $probe_sku in $region:"
+      log "  [cap-check]   $(echo "$err_out" | head -1)"
+      log "  [cap-check] Assuming $probe_sku is usable; real deployment will confirm."
+      sku_ok="$probe_sku"
+      capacity_blocked=false
+      break
+    fi
+  done
+
+  # Always delete the probe RG (--no-wait; failure is non-fatal).
+  log "  [cap-check] Deleting probe RG $cap_rg (--no-wait) ..."
+  az group delete -n "$cap_rg" --yes --no-wait --output none 2>/dev/null || true
+
+  if [[ "$capacity_blocked" == "true" ]]; then
+    log ""
+    log "  ╔══════════════════════════════════════════════════════════════════╗"
+    log "  ║  ✗  VM CAPACITY PRE-FLIGHT FAILED — deployment aborted          ║"
+    log "  ╚══════════════════════════════════════════════════════════════════╝"
+    log "  Region     : $region"
+    log "  Tried SKUs : ${probe_skus[*]}"
+    log "  Azure error: $(echo "$err_out" | \
+        grep -iE 'SkuNotAvailable|AllocationFailed|capacity|Allocation' | head -1)"
+    log ""
+    log "  ➤ Suggested alternate regions to try:"
+    log "      eastus  eastus2  westus  westus2  westus3  centralus  southcentralus"
+    log ""
+    log "  ➤ Re-run deploy.sh and choose a different region for the affected hub."
+    log "  ➤ No vWAN/vHub resources have been deployed — safe to re-run."
+    return 1
+  fi
+
+  printf -v "$result_var" '%s' "$sku_ok"
+  return 0
+}
 echo ""
 log "### Phase 1: Configuration ###"
 [[ "$NON_INTERACTIVE" == "0" ]] && echo "  (Set LAB_NON_INTERACTIVE=1 to skip prompts)"
@@ -315,6 +437,44 @@ cat > "$PARAMS_FILE" << PARAMSEOF
 }
 PARAMSEOF
 echo "  Parameters file: $PARAMS_FILE"
+
+# ---------- Phase 5b: VM capacity pre-flight (real allocation probe) ---------
+# Runs BEFORE the main vWAN/vHub deployment to detect SkuNotAvailable/Capacity
+# errors early — before the ~30-min Firewall provisioning starts. Probes are
+# synchronous az vm create in throw-away RGs; they are always cleaned up.
+# Bypass with --skip-capacity-check or LAB_SKIP_CAPACITY_CHECK=1.
+if [[ "$deploy_vms" == "true" && "$SKIP_CAPACITY_CHECK" != "1" ]]; then
+  echo ""
+  log "### Phase 5b: VM capacity pre-flight (real allocation probe) ###"
+  declare -A cap_region_sku   # region → confirmed working SKU
+  for i in $(seq 1 "$num_hubs"); do
+    idx=$((i - 1))
+    region="${hub_regions[$idx]}"
+    # Skip regions we already probed this run.
+    if [[ -n "${cap_region_sku[$region]:-}" ]]; then
+      hub_vm_skus[$idx]="${cap_region_sku[$region]}"
+      continue
+    fi
+    initial_sku="${hub_vm_skus[$idx]}"
+    confirmed_sku=""
+    # Return 1 = capacity-blocked; exit immediately before any vWAN resources.
+    if ! preflight_vm_capacity "$region" "$initial_sku" "confirmed_sku"; then
+      exit 1
+    fi
+    cap_region_sku["$region"]="$confirmed_sku"
+    # Propagate confirmed SKU to all hubs in the same region.
+    for j in $(seq 1 "$num_hubs"); do
+      jidx=$((j - 1))
+      if [[ "${hub_regions[$jidx]}" == "$region" ]]; then
+        hub_vm_skus[$jidx]="$confirmed_sku"
+      fi
+    done
+  done
+  log "  Phase 5b: VM capacity pre-flight PASSED for all hub regions ✔"
+elif [[ "$SKIP_CAPACITY_CHECK" == "1" ]]; then
+  log "  [WARN] VM capacity pre-flight SKIPPED (--skip-capacity-check / LAB_SKIP_CAPACITY_CHECK=1)."
+  log "  [WARN] A SkuNotAvailable error may still occur after vWAN/vHub provisioning."
+fi
 
 # ---------- Phase 6: Deploy main.bicep (with VM SKU auto-retry) -------------
 echo ""
