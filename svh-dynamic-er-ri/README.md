@@ -193,6 +193,83 @@ The validate scripts check:
 
 See [`docs/validation.md`](docs/validation.md) for detailed test procedures.
 
+## Operational Scripts
+
+Helper scripts for day-to-day testing. All are interactive (they prompt for
+anything they need) and run from the `scripts/` folder. Copy and paste:
+
+### Connectivity test (timestamped ping)
+
+Prompts for a target IP/host and pings it on a loop, printing one timestamped
+line per probe. Press `Ctrl+C` to stop and print a sent/received/loss + rtt
+summary. Useful for watching connectivity converge while ER circuits, Routing
+Intent or firewall rules come up.
+
+```bash
+# Bash — prompts for the target IP
+./test-connectivity.sh
+
+# Specify the target inline, ping every 2s, also log to a file
+./test-connectivity.sh -t 10.10.1.4 -i 2 -l ./la-test.log
+```
+
+```powershell
+# PowerShell — prompts for the target IP
+.\test-connectivity.ps1
+
+# Specify the target inline, ping every 2s, also log to a file
+.\test-connectivity.ps1 -Target 10.10.1.4 -IntervalSeconds 2 -LogFile .\la-test.log
+```
+
+### Dump / change Hub Route Preference
+
+Dumps the current `hubRoutingPreference` for **every** Virtual Hub in the
+resource group, then optionally changes them all to a target preference and
+re-checks that the change took effect. Default target is `ASPath`.
+
+> ⚠️ This lab defaults to **Route Preference = ExpressRoute** (hard-coded in
+> `vhub.bicep`, asserted by the validation scripts). Switching to `ASPath` is a
+> runtime-only override for BGP AS-path testing — it does **not** change the
+> Bicep, and re-running `deploy`/`validate` will report or restore ExpressRoute.
+
+```bash
+# Bash — dump only (no changes)
+./set-hub-routing-preference.sh -g rg-svhdyn-4hub --dump-only
+
+# Change ALL hubs to ASPath (prompts to confirm, then re-checks)
+./set-hub-routing-preference.sh -g rg-svhdyn-4hub --preference ASPath
+
+# Change back to ExpressRoute without prompting
+./set-hub-routing-preference.sh -g rg-svhdyn-4hub --preference ExpressRoute --yes
+```
+
+```powershell
+# PowerShell — dump only (no changes)
+.\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -DumpOnly
+
+# Change ALL hubs to ASPath (prompts to confirm, then re-checks)
+.\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -Preference ASPath
+
+# Change back to ExpressRoute without prompting
+.\set-hub-routing-preference.ps1 -ResourceGroup rg-svhdyn-4hub -Preference ExpressRoute -Yes
+```
+
+### Route dump (ER circuits / vHubs / VMs)
+
+Interactive, read-only route-dump tool: ExpressRoute circuit routes, Virtual Hub
+Azure Firewall effective routes (the portal "Effective Routes / Azure Firewall"
+view, plus the hub's current Route Preference), and VM NIC effective routes.
+
+```bash
+# Bash — interactive menu
+./dump-routes.sh -g rg-svhdyn-4hub
+```
+
+```powershell
+# PowerShell — interactive menu
+.\dump-routes.ps1 -ResourceGroup rg-svhdyn-4hub
+```
+
 ## Cleanup
 
 ```bash
