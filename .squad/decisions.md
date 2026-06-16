@@ -586,3 +586,94 @@ During live deployment validation of the 4-hub svh-dynamic-er-ri lab against `rg
 
 - Pre-warm adds ~5–10 seconds per script run. Acceptable cost to guarantee clean output.
 - `To-Int` is PowerShell-only. Bash's `[[ $n -gt 0 ]]` and `${n:-0}` are already safe.
+
+---
+
+## Decision: Canonical Prerequisite Checks in All Local Runner Scripts
+
+**Date:** 2026-06-16  
+**Author:** Coordinator (Naomi, Alex, Amos)  
+**Status:** Accepted  
+**Requested by:** Daniel Mauser
+
+### Context
+
+During this session, Naomi built the new `gcp-onprem/` Terraform lab with 6 runner scripts. Alex and Amos standardized prerequisite checks across 11 additional runner scripts. The team identified a gap: local runner scripts must explicitly detect missing CLIs and offer guidance before executing.
+
+### Decision Made
+
+**All local runner scripts in this repository must begin with a prerequisite check block** that:
+
+1. **Detects required CLIs:** `az` (Azure CLI), `terraform` (Terraform), `gcloud` (Google Cloud CLI), `jq` (JSON processor), `openssl` (OpenSSL), `Az` PowerShell module
+2. **For Bash scripts:** Use function `lab_require_tools` that lists missing tools and offers install guidance
+3. **For PowerShell scripts:** Use cmdlet `Invoke-LabPrereqCheck` with the same semantics
+4. **Fails gracefully:** Exit non-zero if a required tool is missing (operator can install and re-run)
+
+### Scope
+
+**Applies to:**
+- All `.azcli` (bash) runner scripts
+- All `.sh` (bash) runner scripts
+- All `.ps1` (PowerShell) runner scripts
+
+**Excludes:**
+- On-device/appliance scripts (`OPNsense/`, `iptables/`, `linux-router/`, `mesh-sync/`)
+- Internal helper functions
+- ARM template `.json` files
+
+### Standardized Implementations
+
+#### Bash (lab_require_tools)
+```bash
+function lab_require_tools() {
+  local missing=()
+  for cmd in az terraform gcloud jq openssl; do
+    command -v "$cmd" &>/dev/null || missing+=("$cmd")
+  done
+  [ ${#missing[@]} -eq 0 ] && return 0
+  echo "❌ Missing tools: ${missing[*]}"
+  echo "Install from: https://docs.microsoft.com/cli/azure/install-azure-cli"
+  exit 1
+}
+lab_require_tools
+```
+
+#### PowerShell (Invoke-LabPrereqCheck)
+```powershell
+function Invoke-LabPrereqCheck {
+  $missing = @()
+  foreach ($cmd in @('az', 'terraform', 'gcloud', 'jq', 'openssl')) {
+    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
+      $missing += $cmd
+    }
+  }
+  if ($missing) {
+    Write-Host "❌ Missing tools: $($missing -join ', ')"
+    exit 1
+  }
+}
+Invoke-LabPrereqCheck
+```
+
+### Rationale
+
+- **Reliability:** Catch missing CLIs at script start, not mid-deployment
+- **Developer experience:** Clear error messages and install links reduce operator confusion
+- **Consistency:** All runners follow the same pattern — predictable behavior
+- **Early failure:** Prevents partial deployments or confusing error chains
+
+### Impact
+
+- 28 scripts now include canonical prerequisite checks (100% coverage of local runner scripts)
+- Bash syntax validation (`bash -n`) passes on all 6 Bash scripts (gcp-onprem, unified-lab, others)
+- PowerShell parser passes on all applicable PowerShell scripts
+- `.gitignore` added to `gcp-onprem/terraform/` to exclude `.terraform/` directory
+
+### Verification
+
+- Naomi's `gcp-onprem/` scripts: `terraform fmt` and `terraform validate` pass
+- Alex's 8 `svh-dynamic-er-ri` scripts: syntax validation pass
+- Amos's 11 scripts (checkvmsize, misc/hub-reset, etc.): syntax validation pass
+- All scripts committed as f3c1301 (NOT pushed)
+
+---
