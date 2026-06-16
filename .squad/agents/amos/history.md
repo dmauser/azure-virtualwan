@@ -14,12 +14,21 @@
 - **Dynamic hub discovery**: Always use `az network vhub list -g $rg --query "[].name" -o tsv | sort` instead of hard-coding hub names. Wrap in a shell array (`hubs=()`) or PowerShell array (`$hubs = @(...)`).
 - **Naming contract**: `${labPrefix}-vhub${i}` → `${hub}-azfw`, `${hub}-fwpolicy`, `${hub}-ri`, `${hub}-ergw`. Validation scripts derive all resource names from the hub name; no separate index variable needed.
 - **hubRoutingPreference**: The vhub.bicep hard-codes `ExpressRoute`. The validation script asserts the live ARM value equals `ExpressRoute` (not `ASPath` or `VpnGateway`).
-- **Firewall policy RCG assertion**: Use `az network firewall policy rule-collection-group show ... --query "ruleCollections[?name=='allow-all-network'].rules[?name=='allow-all'] | [0][0]"` to extract a single rule object; then check `ipProtocols[0]==Any`, `sourceAddresses[0]==*`, `destinationAddresses[0]==*`, `destinationPorts[0]==*`.
+- **Firewall policy RCG assertion (CORRECTED 2026-06-16)**: The CORRECT query is `ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]` (flattened). The old pattern `[0][0]` always returns null because `.rules[?...]` produces a nested array and chained `[0][0]` does not unwrap it correctly in az CLI JMESPath.
 - **ER gateway optional per hub**: Some hubs may be deployed without an ER gateway (private-only or no circuit). Always guard with `|| true` (bash) / `-replace '\s',''` pattern (PS) and emit `[WARN]` rather than `[FAIL]` for absence.
 - **Routing Intent mode detection**: Query `length(routingPolicies[?contains(destinations,'PrivateTraffic')])` and `length(routingPolicies[?contains(destinations,'Internet')])` separately; combine to label Private/Internet/Both.
 - **Windows cp1252 safety**: Used ASCII `[PASS]`/`[FAIL]`/`[WARN]` markers throughout; avoided Unicode arrows/checkmarks in loop output to prevent encoding errors on Windows terminals.
 - **PowerShell az wrapper**: Wrap `az` calls in a helper `Invoke-Az` function (redirects stderr to $null); postprocess output with `-replace '\s',''` to strip trailing newlines before string comparisons.
 - **Deliverables**: `svh-dynamic-er-ri/scripts/validate.sh` and `svh-dynamic-er-ri/scripts/validate.ps1` (feature-equivalent, 15 sections, dynamic loops).
+
+### 2026-06-16 — svh-dynamic-er-ri script hardening (4 bug classes fixed)
+
+- **$Args reserved-variable bug (PowerShell)**: NEVER name a function parameter `$Args` in PowerShell. `$Args` is a PS automatic variable; in `pwsh -File` (nested) execution it silently drops and `az @Args` runs bare `az`, printing group-help into captured output (banner pollution). Always use a distinct name like `$AzArgs`.
+- **az first-run banner pollution**: Always add a pre-warm block at the top of validate/deploy scripts — install/update extensions and run a cheap `az account show` before any query whose output is captured. This flushes the "Welcome to Azure CLI" one-time banner before it can contaminate `$(...)`/`$()` results.
+- **Int32 overflow on az count queries (PowerShell)**: `[int]($str -replace '\D','0')` throws OverflowException when `$str` contains a long JSON blob (the regex strips all non-digits, leaving a >10-digit number). Fix: use `[int]::TryParse` with a 9-digit guard — encapsulate as a `To-Int` helper. Bash avoids this because `[[ $n -gt 0 ]]` and `${n:-0}` never cast strings directly.
+- **vWAN SKU/tier property**: `az network vwan show --query sku` is ALWAYS empty. The az CLI surfaces ARM `properties.type` (which holds "Standard"/"Basic") as `typePropertiesType` to avoid colliding with the resource `type` field. Use `--query typePropertiesType`.
+- **allow-all rule JMESPath flatten**: `ruleCollections[?name=='allow-all-network'].rules[?name=='allow-all'] | [0][0]` returns null. The inner `[?...]` on a projected array produces a list-of-lists; `[0][0]` does not unwrap it. Correct form: `ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]` — flatten with `[]` first, then filter, then take first element.
+- **Non-interactive guard for blocking prompts**: Any `Read-Host`/`read` prompt in deploy scripts must be wrapped in an `$IsNonInteractive` / `NON_INTERACTIVE=1` guard. In CI/automation contexts, print manual-step guidance and skip the block; never hang waiting for input that will never come.
 
 ## Session: svh-dynamic-er-ri Lab Delivery (2026-06-15)
 
