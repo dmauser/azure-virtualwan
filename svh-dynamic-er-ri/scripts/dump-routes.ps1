@@ -437,10 +437,14 @@ function Dump-VHub {
   # The singular form returns an empty set. get-effective-routes is an async
   # (long-running) operation; right after a Hub Route Preference change it can
   # return an empty set or a transient error while routes reprogram, so we retry.
+  # Capture variables in local scope before scriptblock to ensure they're available
+  $rg = $ResourceGroup
+  $hubName = $hn
+  $firewallId = $fwId
   $res = Invoke-EffectiveRoutes -Label "firewall effective routes" -AzCall ({
            param($ef)
-           az network vhub get-effective-routes -g $ResourceGroup --name $hn `
-             --resource-type AzureFirewalls --resource-id $fwId -o json 2>$ef
+           az network vhub get-effective-routes -g $rg --name $hubName `
+             --resource-type AzureFirewalls --resource-id $firewallId -o json 2>$ef
          }).GetNewClosure()
   $routes = @($res.Routes)
   Save-Raw "vhub-fw-effective" $hn $res.Raw
