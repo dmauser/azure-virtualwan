@@ -115,9 +115,82 @@ Alex passes these params TO Bicep:
 
 Key constant: ILB frontend IP **10.0.0.68** (in snet-ilb 10.0.0.64/26 of DMZ VNet 10.0.0.0/24).
 
+#### D1 Fix (2026-07-24) — Reuse deployment outputs instead of re-deriving resource IDs
+`DEFAULT_RT_ID` was constructed via a redundant `az account show` subscription lookup; replaced with `DEFAULT_RT_ID="${HUB_ID}/hubRouteTables/defaultRouteTable"`, reusing the already-fetched `hubId` Bicep output and eliminating the dead `SUBSCRIPTION` variable.
+
 #### Windows Line Endings
 All `.sh` files written by the create tool on Windows have CRLF (`\r\n`) line endings by default.  Convert to LF before committing or running:
 ```powershell
 $c = [System.IO.File]::ReadAllText($path)
 [System.IO.File]::WriteAllText($path, $c.Replace("`r`n","`n"), [System.Text.UTF8Encoding]::new($false))
 ```
+
+---
+
+## Session: nva-spoke-internet Live Deploy — DMAUSER-FDPO (2026-07-24T22:28:48Z)
+
+### Deployment Summary
+**Subscription:** DMAUSER-FDPO (`78216abe-8139-4b45-8715-6bab2010101e`)  
+**Region:** eastus2  
+**VM size chosen by preflight:** Standard_B2s (list-skus confirmed no restrictions; quota 0/100; `-SkipPreflight` used after debugging false-fail)  
+**Duration:** Phases 1-13 ~26 min total (Bicep 6 min, routingState poll ~12 min, connections ~5 min, route-table add ~90s)  
+**Exit code:** 0 — all phases succeeded
+
+### Fixes Applied to deploy.ps1 (4 changes)
+
+#### 1. Non-interactive password via `$env:ADMIN_PASSWORD`
+Added env-var fallback before the password loop:
+```powershell
+if (-not [string]::IsNullOrWhiteSpace($env:ADMIN_PASSWORD) -and $env:ADMIN_PASSWORD.Length -ge 12) {
+    $AdminPasswordPlain = $env:ADMIN_PASSWORD
+    Log "  Admin password : (taken from `$env:ADMIN_PASSWORD)"
+}
+```
+Changed `while ($true) {` → `while ([string]::IsNullOrWhiteSpace($AdminPasswordPlain)) {`.
+
+#### 2. DeployOnPrem prompt fix (`$PSBoundParameters`)
+`if (-not $DeployOnPrem)` fires even when `-DeployOnPrem:$false` is explicitly passed (switch is `$false` in both the omitted and explicit cases). Fix: `if (-not $PSBoundParameters.ContainsKey('DeployOnPrem'))` — only prompts when genuinely omitted.
+
+#### 3. D1 fix (PS1 parity with deploy.sh fix)
+Replaced `az account show --query id` + manual string for `$DefaultRtId` with:
+```powershell
+$HubId = Get-Out "hubId"
+$DefaultRtId = "${HubId}/hubRouteTables/defaultRouteTable"
+```
+
+#### 4. Windows empty-string arg bug in preflight (`--public-ip-address ""`)
+Root cause: on Windows PowerShell, passing `""` to an external command (az CLI) drops the empty string silently. `az vm create --public-ip-address` receives no value → `ERROR: argument --public-ip-address: expected one argument` → exit code 2 → ALL SKUs appear "capacity-blocked".  
+Fix: pre-create a NIC (no public IP) with `az network nic create`, then pass `--nics capchk-nic` to `az vm create` (no `--public-ip-address` argument at all).
+
+### Live Validation Results (all PASS)
+
+| Check | Result |
+|-------|--------|
+| Resources present | ✅ All 24 resources in rg-nva-spoke-internet: hub, vWAN, 3 VNets, 2 NVAs, 2 workload VMs, Public LB, ILB, Public PIP, NSGs, UDRs, NICs |
+| Hub routingState | ✅ `Provisioned` |
+| defaultRouteTable 0/0 → conn-dmz | ✅ Route `to-internet`: CIDR 0.0.0.0/0 → conn-dmz ResourceID |
+| conn-dmz static 0/0 → 10.0.0.68 | ✅ Static route `default-via-ilb`: 0.0.0.0/0 → 10.0.0.68 |
+| ILB frontend IP | ✅ 10.0.0.68 |
+| Public LB PIP | ✅ 20.65.77.169 |
+| Both NVAs in ILB backend pool | ✅ nic-nva-dmz-0 + nic-nva-dmz-1 both in `nva-backend` pool |
+| Effective routes on Spoke1 NIC | ✅ 0.0.0.0/0 → VirtualNetworkGateway (10.100.0.68 = vWAN hub) |
+| **Egress test (curl ifconfig.io from vm-spoke1)** | ✅ **Returned 20.65.77.169 — matches Public LB PIP** |
+| East-west (Spoke1 → Spoke2 10.2.0.4) | ✅ 3/3 pings, 0% loss, TTL=63 |
+| Boot diagnostics (vm-spoke1) | ✅ enabled=true, managed storage (no storageUri) |
+
+### Transient Error (non-fatal)
+Phase 9 `conn-spoke1` creation returned `InternalServerError` on first attempt. The script polled and conn-spoke1 reached `Succeeded` within ~3 min — vWAN hub occasionally returns 500 during back-to-back connection creates. Pattern: safe to continue polling; script handled gracefully.
+
+---
+
+## Team Update: 2026-07-24
+
+**Lab Status:** nva-spoke-internet Bicep rebuild **COMPLETE & VALIDATED**
+
+The team successfully rebuilt the nva-spoke-internet lab infrastructure as code. All agents contributed:
+- naomi: 13 Bicep files
+- alex: 6 deployment scripts
+- holden: README + topology diagram
+- amos: QA validation (8/8 PASS + 1 LOW defect fixed)
+
+Lab is ready for end-to-end testing.

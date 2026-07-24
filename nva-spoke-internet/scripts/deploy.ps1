@@ -118,6 +118,13 @@ function Preflight-VmCapacity([string]$Region, [string]$InitialSku) {
         --subnet-name "capchk-subnet" --subnet-prefix "10.250.0.0/27" `
         --location $Region --output none 2>$null
 
+    # Pre-create a NIC without a public IP (avoids the Windows empty-string bug
+    # where --public-ip-address "" is silently dropped by PowerShell → az fails).
+    Log "  [cap-check] Creating probe NIC (no public IP) ..."
+    az network nic create -g $capRg -n "capchk-nic" -l $Region `
+        --vnet-name "capchk-vnet" --subnet "capchk-subnet" `
+        --output none 2>$null
+
     $candidates = @($InitialSku)
     @("Standard_B2s","Standard_B2ms","Standard_B1ms") | ForEach-Object {
         if ($_ -ne $InitialSku) { $candidates += $_ }
@@ -129,12 +136,13 @@ function Preflight-VmCapacity([string]$Region, [string]$InitialSku) {
         $errLines = ""
         $code = 0
         try {
+            # Use pre-created NIC (no public IP) instead of --public-ip-address ""
+            # which is silently dropped on Windows PowerShell → CLI argument error.
             az vm create -g $capRg -n "capchk-probe" -l $Region `
                 --image Ubuntu2204 --size $probeSku `
                 --admin-username capchk --admin-password $capPass `
-                --public-ip-address "" `
-                --vnet-name "capchk-vnet" --subnet "capchk-subnet" `
-                --nic-delete-option Delete --os-disk-delete-option Delete `
+                --nics "capchk-nic" `
+                --os-disk-delete-option Delete `
                 --only-show-errors --output none 2>&1 | Out-Null
             $code = $LASTEXITCODE
         } catch {
@@ -208,7 +216,12 @@ if ([string]::IsNullOrWhiteSpace($AdminUsername)) {
 
 # Secure password prompt with confirmation loop
 $AdminPasswordPlain = ""
-while ($true) {
+# Non-interactive fallback: honor $env:ADMIN_PASSWORD when set (>=12 chars).
+if (-not [string]::IsNullOrWhiteSpace($env:ADMIN_PASSWORD) -and $env:ADMIN_PASSWORD.Length -ge 12) {
+    $AdminPasswordPlain = $env:ADMIN_PASSWORD
+    Log "  Admin password : (taken from `$env:ADMIN_PASSWORD)"
+}
+while ([string]::IsNullOrWhiteSpace($AdminPasswordPlain)) {
     $ss1 = Read-Host "  Admin password (min 12 chars, complexity required)" -AsSecureString
     $ss2 = Read-Host "  Confirm password" -AsSecureString
     $p1  = ConvertTo-PlainText $ss1
@@ -223,7 +236,7 @@ while ($true) {
     }
 }
 
-if (-not $DeployOnPrem) {
+if (-not $PSBoundParameters.ContainsKey('DeployOnPrem')) {
     $inp = Read-Host "  Deploy on-prem simulation? (y/N) [N]"
     if ($inp.Trim().ToLower() -eq "y") { $DeployOnPrem = $true }
 }
@@ -303,6 +316,7 @@ function Get-Out([string]$name) {
 }
 
 $HubName          = Get-Out "hubName"
+$HubId            = Get-Out "hubId"
 $VwanName         = Get-Out "vwanName"
 $DmzVnetId        = Get-Out "dmzVnetId"
 $Spoke1VnetId     = Get-Out "spoke1VnetId"
@@ -315,9 +329,8 @@ $OnpremNvaPrivIp  = Get-Out "onpremNvaPrivateIp"
 $OnpremNvaName    = Get-Out "onpremNvaName"
 $OnpremVmName     = Get-Out "onpremVmName"
 
-# Construct defaultRouteTable resource ID
-$subscription = (az account show --query id -o tsv).Trim()
-$DefaultRtId  = "/subscriptions/${subscription}/resourceGroups/${Rg}/providers/Microsoft.Network/virtualHubs/${HubName}/hubRouteTables/defaultRouteTable"
+# Construct defaultRouteTable resource ID from hubId output (D1 fix: avoids extra az account show call)
+$DefaultRtId  = "${HubId}/hubRouteTables/defaultRouteTable"
 
 Log "  Hub             : $HubName"
 Log "  VWAN            : $VwanName"
