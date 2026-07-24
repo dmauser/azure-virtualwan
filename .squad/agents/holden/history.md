@@ -96,5 +96,56 @@ Parameter files (.bicepparam) reduce preset-to-preset duplication while maintain
 - Key Vault soft-delete (7-day retention) can block redeployments with the same vault name; document the `az keyvault purge` mitigation prominently.
 - All five docs (README, architecture.md, validation.md, troubleshooting.md, cost-control.md) for `svh-dynamic-er-ri` authored in session 2026-06-15.
 
+## Session: nva-spoke-internet Bicep Lab Documentation (2026-07-24)
+
+### Work Completed
+- Rewrote `nva-spoke-internet/README.md` — full Bicep-era lab documentation replacing the old azcli script dump.
+- Created `media/nva-spoke-internet.excalidraw` at repo root — valid Excalidraw v2 JSON (45 elements: 16 rectangles/ellipses, 16 text labels, 11 arrows, 2 annotation notes).
+
+### Lab Architecture Documented
+- **vWAN hub** `10.100.0.0/23` — Standard tier, single scale unit.
+- **DMZ VNet** `10.0.0.0/24`: `snet-nva` `10.0.0.0/26` (2× Ubuntu IPTables NVAs) + `snet-ilb` `10.0.0.64/26` (ILB frontend `10.0.0.68`).
+- **Spoke1** `10.1.0.0/24`, **Spoke2** `10.2.0.0/24` — workload VMs, default route from hub.
+- **On-prem simulation** (optional) `192.168.100.0/24`: strongSwan/FRR NVA (BGP ASN 65001) + workload VM, connected via BGP-over-IPsec to vHub VPN Gateway (BGP ASN 65515).
+- **Traffic path**: Spoke VM → hub defaultRouteTable (0/0 → DMZ connection) → ILB (HA-port, VIP 10.0.0.68) → NVA-0 or NVA-1 (iptables MASQUERADE) → Public LB (SNAT out) → Internet.
+- NVA subnet carries UDR `0/0 → Internet` to prevent NVAs from being caught by their own propagated default.
+
+### Doc Structure Decisions
+- Followed `svh-dynamic-er-ri/README.md` style: `##` sections, callout boxes with emojis, address plan tables, ASCII traffic-flow diagram.
+- Section order: Overview → Architecture → Address Plan → How Default Route Works → Optional On-Prem → Prerequisites → Deploy (Bash + PS) → Validation → Cleanup → Files.
+- Image reference `../media/nva-spoke-internet.png` (root-level media/; export from excalidraw) + source link to `.excalidraw`.
+- Hub routing sequencing warning called out explicitly — connections/routes are script-driven post-`routingState=Provisioned`.
+
+### Diagram Layout Decisions
+- Traffic flows **upward** in Y-axis: Internet (top) → PLB → NVA-0/1 → ILB → Hub (center) → Spoke1/Spoke2 (sides) → On-prem (bottom, dashed).
+- Color coding: blue=hub, amber/yellow=DMZ, green=spokes, purple=internet, red-dashed=on-prem optional, blue-dashed=VPN GW optional.
+- Root-level `media/` folder (not inside lab subfolder) — README uses `../media/` reference; matches task instructions.
+- 45 elements total: roughness=0 throughout for clean look; no element binding (startBinding/endBinding: null) for simplicity.
+
+## Learnings
+
+- `nva-spoke-internet` uses **active/active** NVA pair — not active/passive — behind an ILB with HA-port rule. Both NVAs handle traffic simultaneously; no failover quorum needed.
+- The ILB `0/0 → 10.0.0.68` static route lives on the **DMZ VNet connection** (not on the hub route table). The hub defaultRouteTable points to the DMZ connection resource ID. Two-hop static route design.
+- UDR `0/0 → Internet` on `snet-nva` is critical and easily forgotten — without it, NVAs would try to egress via the ILB they themselves back, creating a routing loop.
+- Hub VNet connections and route-table programming must be script-driven **after** `routingState = Provisioned`. Consistent pattern across all complex labs.
+- Excalidraw v2 arrows with `points` arrays and no element binding are the most portable format — avoids broken arrow rendering when IDs drift.
+- Root-level `media/` folder at repo root (not inside lab subfolder) is the right pattern for diagrams that may be referenced from multiple README files.
+
 ## Team Update: 3vhub-er-ri Lab (2026-05-26)
 - Naomi delivered new `3vhub-er-ri/` lab: 3-region vWAN with ER (East+West via Megaport), AzFw Basic all hubs, RI (private). Uses native CLI for RI (no Bicep), ASPath hub preference, single interactive script with ER pause-poll pattern. LABS_INDEX.md updated.
+
+---
+
+## Team Update: 2026-07-24
+
+**Lab Status:** nva-spoke-internet Bicep rebuild **COMPLETE & VALIDATED**
+
+The team successfully rebuilt the nva-spoke-internet lab infrastructure as code. All agents contributed:
+- naomi: 13 Bicep files
+- alex: 6 deployment scripts
+- holden: README + topology diagram
+- amos: QA validation (8/8 PASS + 1 LOW defect fixed)
+
+Lab is ready for end-to-end testing.
+
+**2026-07-24 — DEPLOYMENT STATUS:** lab is LIVE in DMAUSER-FDPO (eastus2, B2s), 7/7 validation PASS — Alex
