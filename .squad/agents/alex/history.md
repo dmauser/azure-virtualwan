@@ -55,3 +55,69 @@ Orchestrator layer benefits from clear module interfaces (input parameters, outp
 - Basic tier lacks IDPS/TLS inspection; document for internetOnly/both modes
 - Routing Intent requires firewall `Succeeded` state; CLI creation after firewall deployment (Naomi's scripts)
 - Global RI mode (same mode on all hubs) prevents asymmetric routing
+
+## Session: nva-spoke-internet Lab Scripts (2026-07-24)
+
+### Lab Overview
+**nva-spoke-internet** — Virtual WAN hub + Spoke1/Spoke2/DMZ VNets, two active/active NVAs behind a Public LB (egress SNAT) and an HA-ports ILB (east-west steering), optional on-prem S2S BGP-over-IPsec.  No Routing Intent — custom static routes instead.
+
+### Files Authored
+- `nva-spoke-internet/scripts/functions.sh` — shared helpers (log, pick_vm_sku, preflight_vm_capacity, poll_until)
+- `nva-spoke-internet/scripts/deploy.sh` — 13-phase main orchestration (prereqs → prompts → SKU → Bicep → routing wiring → optional VPN)
+- `nva-spoke-internet/scripts/deploy.ps1` — PowerShell parity of deploy.sh (Daniel is on Windows)
+- `nva-spoke-internet/scripts/configure-onprem.sh` — on-prem NVA strongSwan+FRR bring-up via az vm run-command invoke
+- `nva-spoke-internet/scripts/cleanup.sh` — az group delete wrapper
+- `nva-spoke-internet/scripts/cleanup.ps1` — PowerShell cleanup
+
+### Learnings
+
+#### vWAN Custom NVA 0/0 Routing Wiring (no Routing Intent)
+Two CLI operations are required to route internet-bound spoke traffic through NVAs via the ILB:
+
+1. **DMZ connection static route** — set at `az network vhub connection create` time with `--route-name`, `--address-prefixes "0.0.0.0/0"`, `--next-hop <ILB-IP>`.  This programs the hub to forward 0/0 traffic that arrives from other spokes and is resolved to the DMZ connection → toward the ILB (10.0.0.68), which load-balances across the NVA HA-ports backend pool.
+
+2. **Hub defaultRouteTable static route** — added after getting the conn-dmz resource ID:
+   ```bash
+   az network vhub route-table route add \
+     -g $RG --vhub-name $HUB --name defaultRouteTable \
+     --route-name to-internet \
+     --destination-type CIDR --destinations "0.0.0.0/0" \
+     --next-hop-type ResourceID --next-hop $CONN_DMZ_ID
+   ```
+   This causes Spoke1/Spoke2 (associated to defaultRouteTable) to learn 0.0.0.0/0 → conn-dmz → ILB → NVA → SNAT via Public LB PIP.
+
+**`enableInternetSecurity` is NOT needed here** — that flag is only required for Routing Intent modes (internetOnly/both).  Do not set `--internet-security true` on connections when using custom static routes.
+
+**Custom routes CAN be added to defaultRouteTable** when NOT using Routing Intent.  The "no custom route tables" rule from svh-dynamic-er-ri only applies to RI labs (RI and static routes overlap — RI wins and ignores static).
+
+#### VNet Connection Sequencing
+VNet connections MUST be created post-deploy in scripts (not in Bicep) to avoid timing/ordering issues with hub routingState.  Always poll `routingState == Provisioned` before creating any connections.
+
+#### On-prem BGP-over-IPsec Bring-up
+- **strongSwan**: IKEv2, one `conn` block per hub GW instance (active/active = 2 PIPs), route-based (leftsubnet/rightsubnet = 0.0.0.0/0 so BGP TCP is not selector-restricted), `auto=start`, `dpdaction=restart`.
+- **FRR**: `router bgp 65001`, two neighbors at hub BGP peer IPs (one per GW instance), `ebgp-multihop 5` (required — BGP peer is not directly connected; traverses IPsec tunnel), `network 192.168.100.0/24`.
+- **Local-shell variable expansion**: all IP/ASN vars are expanded by the local shell BEFORE the `az vm run-command invoke` call; use quoted heredoc markers on the REMOTE side (`<< 'IPSECEOF'`) to prevent the remote shell from re-expanding `$` in config file content.
+- **Two-step PSK pattern**: `az network vpn-gateway connection create` (creates the connection) + `az network vpn-gateway connection vpn-site-link-conn sharedkey update --index 0 --value $PSK` (sets PSK on link 0 separately).  Current az CLI cannot set PSK inline at create time for link-based connections.
+
+#### Hub VPN Gateway IP/BGP Query Paths
+```bash
+HUB_GW_PIP0=$(az network vpn-gateway show -g $RG -n $VPN_GW --query "ipConfigurations[0].publicIpAddress" -o tsv)
+HUB_BGP_PEER0=$(az network vpn-gateway show -g $RG -n $VPN_GW --query "bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]" -o tsv)
+```
+Active/active GW always has indices [0] and [1] for both arrays.
+
+#### Bicep Output Name Contract (with Naomi)
+Alex consumes these outputs from `nva-spoke-internet/bicep/main.bicep`:
+`location, vwanName, hubName, hubId, dmzVnetId, spoke1VnetId, spoke2VnetId, ilbFrontendIp, publicLbPublicIp, nvaNames, vpnGatewayName, onpremVnetId, onpremNvaPublicIp, onpremNvaPrivateIp, onpremNvaName, onpremVmName`
+
+Alex passes these params TO Bicep:
+`location, adminUsername, adminPassword, vmSize, deployOnPrem, onpremBgpAsn`
+
+Key constant: ILB frontend IP **10.0.0.68** (in snet-ilb 10.0.0.64/26 of DMZ VNet 10.0.0.0/24).
+
+#### Windows Line Endings
+All `.sh` files written by the create tool on Windows have CRLF (`\r\n`) line endings by default.  Convert to LF before committing or running:
+```powershell
+$c = [System.IO.File]::ReadAllText($path)
+[System.IO.File]::WriteAllText($path, $c.Replace("`r`n","`n"), [System.Text.UTF8Encoding]::new($false))
+```
