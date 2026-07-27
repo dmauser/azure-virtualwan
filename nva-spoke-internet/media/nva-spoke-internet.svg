@@ -1,270 +1,208 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg"
-     width="1400" height="800" viewBox="0 0 1400 800"
-     font-family="Segoe UI, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="720"
+     viewBox="0 0 1400 720" font-family="Segoe UI, Arial, sans-serif">
   <title>NVA DMZ Spoke Internet Egress via Azure Virtual WAN</title>
   <defs>
-    <marker id="ah-data" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1e293b"/>
+    <marker id="m-data" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0,10 3.5,0 7" fill="#1e293b"/>
     </marker>
-    <marker id="ah-ctrl" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7c3aed"/>
+    <marker id="m-ctrl" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0,10 3.5,0 7" fill="#7c3aed"/>
     </marker>
-    <marker id="ah-ipsec" viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b45309"/>
+    <marker id="m-ipsec" markerWidth="10" markerHeight="7"
+            refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <polygon points="0 0,10 3.5,0 7" fill="#b45309"/>
     </marker>
-    <marker id="ah-ipsec-s" viewBox="0 0 10 10" refX="1" refY="5"
-            markerWidth="7" markerHeight="7" orient="auto">
-      <path d="M 10 0 L 0 5 L 10 10 z" fill="#b45309"/>
+    <marker id="m-ipsec-r" markerWidth="10" markerHeight="7"
+            refX="1" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth">
+      <polygon points="0 0,10 3.5,0 7" fill="#b45309"/>
     </marker>
   </defs>
-
-  <!-- Background -->
-  <rect width="1400" height="800" fill="#f8fafc"/>
-
-  <!-- Diagram title -->
-  <text x="700" y="24" text-anchor="middle" font-size="16" font-weight="bold" fill="#0f172a">NVA in DMZ Spoke &#x2014; Internet Egress via Azure Virtual WAN</text>
-  <text x="700" y="43" text-anchor="middle" font-size="11" fill="#475569">vwan-nva-si &#xB7; hub-nva-si (10.100.0.0/23) &#xB7; eastus2 &#xB7; rg-nva-spoke-internet</text>
-
-  <!-- ════════════════════════════════════════════════
-       ZONE: On-Premises (Optional)  x=15..270  y=310..550
-       ════════════════════════════════════════════════ -->
-  <rect x="15" y="310" width="255" height="240" rx="10"
-        fill="#f8fafc" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8,4"/>
-  <text x="143" y="332" text-anchor="middle" font-size="12" font-weight="bold" fill="#64748b">On-Premises (Optional)</text>
-  <text x="143" y="348" text-anchor="middle" font-size="10" fill="#94a3b8">192.168.100.0/24 &#xB7; ASN 65001</text>
-
-  <rect x="32" y="360" width="218" height="46" rx="6"
-        fill="#fff" stroke="#94a3b8" stroke-width="1.5"/>
-  <text x="141" y="379" text-anchor="middle" font-size="11" font-weight="bold" fill="#475569">vm-onprem</text>
-  <text x="141" y="395" text-anchor="middle" font-size="10" fill="#64748b">192.168.100.33 &#xB7; Workload VM</text>
-
-  <rect x="32" y="418" width="218" height="60" rx="6"
-        fill="#fff" stroke="#94a3b8" stroke-width="1.5"/>
-  <text x="141" y="438" text-anchor="middle" font-size="11" font-weight="bold" fill="#475569">nva-onprem</text>
-  <text x="141" y="454" text-anchor="middle" font-size="10" fill="#64748b">strongSwan (IPsec) + FRR (BGP)</text>
-  <text x="141" y="469" text-anchor="middle" font-size="10" fill="#64748b">192.168.100.2 &#xB7; ASN 65001</text>
-  <text x="143" y="493" text-anchor="middle" font-size="9" fill="#94a3b8">UDR on workload subnet &#x2192; nva-onprem</text>
-  <text x="143" y="507" text-anchor="middle" font-size="9" fill="#94a3b8">(reaches Spoke1/Spoke2 via tunnel)</text>
-
-  <!-- ════════════════════════════════════════════════
-       ZONE: Virtual WAN Hub  x=415..710  y=215..540
-       ════════════════════════════════════════════════ -->
-  <rect x="415" y="215" width="295" height="325" rx="14"
-        fill="#eff6ff" stroke="#2563eb" stroke-width="2.5"/>
-  <text x="563" y="238" text-anchor="middle" font-size="13" font-weight="bold" fill="#1d4ed8">Virtual WAN Hub</text>
-  <text x="563" y="255" text-anchor="middle" font-size="10" fill="#3b82f6">hub-nva-si &#xB7; 10.100.0.0/23 &#xB7; ASN 65515</text>
-
-  <rect x="432" y="268" width="155" height="72" rx="7"
-        fill="#dbeafe" stroke="#3b82f6" stroke-width="1.5"/>
-  <text x="510" y="289" text-anchor="middle" font-size="11" font-weight="bold" fill="#1d4ed8">VPN Gateway</text>
-  <text x="510" y="305" text-anchor="middle" font-size="10" fill="#1d4ed8">S2S &#xB7; BGP &#xB7; scale unit 1</text>
-  <text x="510" y="320" text-anchor="middle" font-size="9" fill="#6b7280">(optional &#x2014; with on-prem block)</text>
-  <text x="510" y="333" text-anchor="middle" font-size="9" fill="#6b7280">~$0.19/hr when deployed</text>
-
-  <rect x="432" y="370" width="155" height="85" rx="7"
-        fill="#bfdbfe" stroke="#1d4ed8" stroke-width="2"/>
-  <text x="510" y="391" text-anchor="middle" font-size="11" font-weight="bold" fill="#1d4ed8">Hub BGP Router</text>
-  <text x="510" y="408" text-anchor="middle" font-size="10" fill="#1d4ed8">10.100.0.68 &#xB7; defaultRouteTable</text>
-  <text x="510" y="423" text-anchor="middle" font-size="9" fill="#374151">0.0.0.0/0 via conn-dmz &#x2192; 10.0.0.68</text>
-  <text x="510" y="437" text-anchor="middle" font-size="9" fill="#374151">propagated to Spoke1 + Spoke2</text>
-  <text x="510" y="450" text-anchor="middle" font-size="9" fill="#374151">conn-spoke1 &#xB7; conn-spoke2</text>
-
-  <!-- ════════════════════════════════════════════════
-       ZONE: DMZ VNet  x=740..1155  y=145..560
-       ════════════════════════════════════════════════ -->
-  <rect x="740" y="145" width="415" height="415" rx="14"
-        fill="#fffbeb" stroke="#d97706" stroke-width="2.5"/>
-  <text x="948" y="168" text-anchor="middle" font-size="13" font-weight="bold" fill="#92400e">DMZ VNet &#x2014; vnet-dmz &#x2014; 10.0.0.0/24</text>
-
-  <!-- snet-ilb -->
-  <rect x="755" y="183" width="195" height="182" rx="8"
-        fill="rgba(255,251,235,0.5)" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="5,3"/>
-  <text x="853" y="199" text-anchor="middle" font-size="9" fill="#92400e">snet-ilb &#xB7; 10.0.0.64/26</text>
-  <!-- ILB -->
-  <rect x="762" y="208" width="180" height="120" rx="7"
-        fill="#fff" stroke="#d97706" stroke-width="1.5"/>
-  <text x="852" y="228" text-anchor="middle" font-size="11" font-weight="bold" fill="#92400e">lb-ilb</text>
-  <text x="852" y="245" text-anchor="middle" font-size="10" fill="#d97706">Internal Load Balancer</text>
-  <text x="852" y="261" text-anchor="middle" font-size="10" fill="#d97706">HA-Ports &#xB7; ha-ports-rule</text>
-  <text x="852" y="278" text-anchor="middle" font-size="12" font-weight="bold" fill="#b45309">Frontend: 10.0.0.68</text>
-  <text x="852" y="294" text-anchor="middle" font-size="9" fill="#6b7280">active/active backend pool</text>
-  <text x="852" y="308" text-anchor="middle" font-size="9" fill="#6b7280">nic-nva-dmz-0 &#xB7; nic-nva-dmz-1</text>
-  <text x="852" y="322" text-anchor="middle" font-size="9" fill="#15803d">DipAvailability = 100</text>
-
-  <!-- snet-nva -->
-  <rect x="960" y="183" width="182" height="182" rx="8"
-        fill="rgba(255,251,235,0.5)" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="5,3"/>
-  <text x="1051" y="199" text-anchor="middle" font-size="9" fill="#92400e">snet-nva &#xB7; 10.0.0.0/26 &#xB7; nsg-dmz</text>
-  <!-- NVA-0 -->
-  <rect x="967" y="208" width="82" height="112" rx="6"
-        fill="#fff" stroke="#d97706" stroke-width="1.5"/>
-  <text x="1008" y="228" text-anchor="middle" font-size="10" font-weight="bold" fill="#92400e">nva-dmz-0</text>
-  <text x="1008" y="244" text-anchor="middle" font-size="9" fill="#64748b">Ubuntu 22.04</text>
-  <text x="1008" y="259" text-anchor="middle" font-size="9" fill="#d97706">iptables MASQUERADE</text>
-  <text x="1008" y="272" text-anchor="middle" font-size="9" fill="#6b7280">ip_forward = 1</text>
-  <text x="1008" y="285" text-anchor="middle" font-size="9" fill="#6b7280">nic-nva-dmz-0</text>
-  <text x="1008" y="298" text-anchor="middle" font-size="9" fill="#6b7280">10.0.0.4</text>
-  <text x="1008" y="312" text-anchor="middle" font-size="9" fill="#15803d">~3900 pkts/274KB</text>
-  <!-- NVA-1 -->
-  <rect x="1060" y="208" width="82" height="112" rx="6"
-        fill="#fff" stroke="#d97706" stroke-width="1.5"/>
-  <text x="1101" y="228" text-anchor="middle" font-size="10" font-weight="bold" fill="#92400e">nva-dmz-1</text>
-  <text x="1101" y="244" text-anchor="middle" font-size="9" fill="#64748b">Ubuntu 22.04</text>
-  <text x="1101" y="259" text-anchor="middle" font-size="9" fill="#d97706">iptables MASQUERADE</text>
-  <text x="1101" y="272" text-anchor="middle" font-size="9" fill="#6b7280">ip_forward = 1</text>
-  <text x="1101" y="285" text-anchor="middle" font-size="9" fill="#6b7280">nic-nva-dmz-1</text>
-  <text x="1101" y="298" text-anchor="middle" font-size="9" fill="#6b7280">10.0.0.5</text>
-  <text x="1101" y="312" text-anchor="middle" font-size="9" fill="#15803d">~3900 pkts/274KB</text>
-
-  <!-- UDR on snet-nva -->
-  <text x="1051" y="376" text-anchor="middle" font-size="9" fill="#6b7280">UDR: 0/0 &#x2192; Internet (bypass ILB)</text>
-  <text x="1051" y="388" text-anchor="middle" font-size="9" fill="#6b7280">on snet-nva for NVA own egress</text>
-
-  <!-- Public LB lb-public -->
-  <rect x="762" y="410" width="260" height="100" rx="8"
-        fill="#fde68a" stroke="#d97706" stroke-width="2"/>
-  <text x="892" y="432" text-anchor="middle" font-size="12" font-weight="bold" fill="#78350f">lb-public</text>
-  <text x="892" y="450" text-anchor="middle" font-size="10" fill="#78350f">Standard Public Load Balancer (SNAT)</text>
-  <text x="892" y="467" text-anchor="middle" font-size="10" fill="#78350f">outbound rule: snat-outbound &#xB7; frontend: frontend</text>
-  <text x="892" y="485" text-anchor="middle" font-size="12" font-weight="bold" fill="#b45309">pip-lb-public: 20.65.77.169</text>
-  <text x="892" y="501" text-anchor="middle" font-size="9" fill="#78350f">VipAvailability = 100 &#xB7; AllocatedSnatPorts = 4096</text>
-
-  <!-- ════════════════════════════════════════════════
-       ZONE: Spoke1 VNet  x=415..620  y=575..760
-       ════════════════════════════════════════════════ -->
-  <rect x="415" y="575" width="205" height="185" rx="12"
-        fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
-  <text x="518" y="597" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">Spoke1 VNet</text>
-  <text x="518" y="613" text-anchor="middle" font-size="10" fill="#16a34a">vnet-spoke1 &#xB7; 10.1.0.0/24</text>
-  <rect x="432" y="625" width="168" height="76" rx="6"
-        fill="#fff" stroke="#16a34a" stroke-width="1.5"/>
-  <text x="516" y="645" text-anchor="middle" font-size="11" font-weight="bold" fill="#15803d">vm-spoke1</text>
-  <text x="516" y="662" text-anchor="middle" font-size="11" fill="#16a34a">10.1.0.4</text>
-  <text x="516" y="677" text-anchor="middle" font-size="9" fill="#64748b">snet-workload 10.1.0.0/26</text>
-  <text x="516" y="691" text-anchor="middle" font-size="9" fill="#64748b">nic-vm-spoke1</text>
-  <text x="518" y="750" text-anchor="middle" font-size="9" fill="#15803d">0/0 &#x2192; 10.100.0.68 (VirtualHub)</text>
-
-  <!-- ════════════════════════════════════════════════
-       ZONE: Spoke2 VNet  x=635..840  y=575..760
-       ════════════════════════════════════════════════ -->
-  <rect x="635" y="575" width="205" height="185" rx="12"
-        fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5"/>
-  <text x="738" y="597" text-anchor="middle" font-size="12" font-weight="bold" fill="#15803d">Spoke2 VNet</text>
-  <text x="738" y="613" text-anchor="middle" font-size="10" fill="#16a34a">vnet-spoke2 &#xB7; 10.2.0.0/24</text>
-  <rect x="652" y="625" width="168" height="76" rx="6"
-        fill="#fff" stroke="#16a34a" stroke-width="1.5"/>
-  <text x="736" y="645" text-anchor="middle" font-size="11" font-weight="bold" fill="#15803d">vm-spoke2</text>
-  <text x="736" y="662" text-anchor="middle" font-size="11" fill="#16a34a">10.2.0.4</text>
-  <text x="736" y="677" text-anchor="middle" font-size="9" fill="#64748b">snet-workload 10.2.0.0/26</text>
-  <text x="736" y="691" text-anchor="middle" font-size="9" fill="#64748b">nic-vm-spoke2</text>
-  <text x="738" y="750" text-anchor="middle" font-size="9" fill="#15803d">0/0 &#x2192; 10.100.0.68 (VirtualHub)</text>
-
-  <!-- ════════════════════════════════════════════════
-       Internet cloud shape  centred ~x=1290 y=295
-       ════════════════════════════════════════════════ -->
-  <path d="M 1207 358 L 1207 325
-           Q 1206 292 1228 278
-           Q 1240 254 1264 252
-           Q 1280 240 1300 240
-           Q 1324 240 1340 252
-           Q 1364 258 1370 279
-           Q 1387 302 1373 326
-           L 1373 358 Z"
-        fill="#dbeafe" stroke="#2563eb" stroke-width="2"/>
-  <text x="1290" y="278" text-anchor="middle" font-size="14" font-weight="bold" fill="#1d4ed8">Internet</text>
-  <text x="1290" y="297" text-anchor="middle" font-size="10" fill="#1d4ed8">ifconfig.io returns</text>
-  <text x="1290" y="313" text-anchor="middle" font-size="12" font-weight="bold" fill="#1d4ed8">20.65.77.169</text>
-  <text x="1290" y="331" text-anchor="middle" font-size="9" fill="#3b82f6">(pip-lb-public &#x2014; SNAT)</text>
-  <text x="1290" y="349" text-anchor="middle" font-size="9" fill="#64748b">DMAUSER-FDPO live value</text>
-
-  <!-- ════════════════════════════════════════════════
-       CONNECTIONS
-       ════════════════════════════════════════════════ -->
-
-  <!-- IPsec S2S tunnel: nva-onprem right(250,448) <-> VPN GW left(432,304) -->
-  <path d="M 250 448 H 340 V 304 H 432"
-        fill="none" stroke="#b45309" stroke-width="2.5"
-        stroke-dasharray="10,4"
-        marker-start="url(#ah-ipsec-s)" marker-end="url(#ah-ipsec)"/>
-  <text x="293" y="440" text-anchor="middle" font-size="9" font-weight="bold" fill="#b45309">IPsec S2S + BGP</text>
-  <text x="293" y="453" text-anchor="middle" font-size="9" fill="#b45309">65515 &#x2194; 65001</text>
-
-  <!-- Spoke1 -> Hub (conn-spoke1) data path -->
-  <path d="M 518 575 V 556 H 494 V 540"
-        fill="none" stroke="#1e293b" stroke-width="2" marker-end="url(#ah-data)"/>
-  <text x="472" y="556" text-anchor="end" font-size="9" fill="#1d4ed8" font-style="italic">conn-spoke1</text>
-
-  <!-- Spoke2 -> Hub (conn-spoke2) data path -->
-  <path d="M 738 575 V 556 H 635 V 540"
-        fill="none" stroke="#1e293b" stroke-width="2" marker-end="url(#ah-data)"/>
-  <text x="640" y="556" text-anchor="start" font-size="9" fill="#1d4ed8" font-style="italic">conn-spoke2</text>
-
-  <!-- Control-plane: 0/0 propagated Hub -> Spoke1 (dashed purple) -->
-  <path d="M 476 455 V 540 H 525 V 575"
-        fill="none" stroke="#7c3aed" stroke-width="1.5"
-        stroke-dasharray="7,4" marker-end="url(#ah-ctrl)"/>
-  <!-- Control-plane: 0/0 propagated Hub -> Spoke2 (dashed purple) -->
-  <path d="M 544 455 V 540 H 720 V 575"
-        fill="none" stroke="#7c3aed" stroke-width="1.5"
-        stroke-dasharray="7,4" marker-end="url(#ah-ctrl)"/>
-  <text x="401" y="530" text-anchor="end" font-size="9" fill="#7c3aed">0.0.0.0/0</text>
-  <text x="401" y="542" text-anchor="end" font-size="9" fill="#7c3aed">propagated</text>
-
-  <!-- Hub -> ILB data path: Hub Router right(587,412) -> ILB left(762,268) -->
-  <path d="M 587 412 H 710 V 268 H 762"
-        fill="none" stroke="#1e293b" stroke-width="2.5" marker-end="url(#ah-data)"/>
-  <text x="715" y="255" text-anchor="start" font-size="9" fill="#1d4ed8" font-style="italic">conn-dmz</text>
-  <text x="715" y="268" text-anchor="start" font-size="9" fill="#374151">0.0.0.0/0 &#x2192; 10.0.0.68</text>
-  <text x="715" y="281" text-anchor="start" font-size="9" fill="#374151">(static route)</text>
-
-  <!-- ILB -> NVA-0 (HA-ports) -->
-  <path d="M 942 250 H 967"
-        fill="none" stroke="#1e293b" stroke-width="2" marker-end="url(#ah-data)"/>
-  <!-- ILB -> NVA-1 (route above NVA-0) -->
-  <path d="M 942 265 H 952 V 202 H 1060 V 218"
-        fill="none" stroke="#1e293b" stroke-width="2" marker-end="url(#ah-data)"/>
-  <text x="997" y="197" text-anchor="middle" font-size="8" fill="#6b7280">HA-ports active/active</text>
-
-  <!-- NVA-0 -> Public LB -->
-  <path d="M 1008 320 V 365 H 865 V 410"
-        fill="none" stroke="#1e293b" stroke-width="2" marker-end="url(#ah-data)"/>
-  <!-- NVA-1 -> Public LB -->
-  <path d="M 1101 320 V 377 H 888 V 410"
-        fill="none" stroke="#1e293b" stroke-width="1.5" marker-end="url(#ah-data)"/>
-  <text x="958" y="360" text-anchor="middle" font-size="8" fill="#6b7280">after MASQUERADE</text>
-
-  <!-- Public LB -> Internet: PLB right(1022,460) -> DMZ right(1155,460) -> up -> Internet left -->
-  <path d="M 1022 460 H 1155 V 310 H 1207"
-        fill="none" stroke="#1e293b" stroke-width="2.5" marker-end="url(#ah-data)"/>
-  <text x="1188" y="456" text-anchor="end" font-size="10" font-weight="bold" fill="#78350f">SNAT</text>
-  <text x="1188" y="470" text-anchor="end" font-size="10" font-weight="bold" fill="#78350f">20.65.77.169</text>
-
-  <!-- ════════════════════════════════════════════════
-       LEGEND
-       ════════════════════════════════════════════════ -->
-  <rect x="855" y="575" width="300" height="164" rx="8"
-        fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
-  <text x="1005" y="596" text-anchor="middle" font-size="11" font-weight="bold" fill="#1e293b">Legend</text>
-  <line x1="873" y1="614" x2="935" y2="614" stroke="#1e293b" stroke-width="2.5" marker-end="url(#ah-data)"/>
-  <text x="944" y="618" font-size="10" fill="#1e293b">Internet egress data path</text>
-  <line x1="873" y1="636" x2="935" y2="636" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="7,4" marker-end="url(#ah-ctrl)"/>
-  <text x="944" y="640" font-size="10" fill="#7c3aed">Route advertisement (0/0 propagation)</text>
-  <line x1="873" y1="658" x2="935" y2="658" stroke="#b45309" stroke-width="2.5" stroke-dasharray="10,4"
-        marker-start="url(#ah-ipsec-s)" marker-end="url(#ah-ipsec)"/>
-  <text x="944" y="662" font-size="10" fill="#b45309">IPsec S2S tunnel (bidirectional)</text>
-  <line x1="873" y1="680" x2="935" y2="680" stroke="#94a3b8" stroke-width="2" stroke-dasharray="8,4"/>
-  <text x="944" y="684" font-size="10" fill="#64748b">Optional component boundary</text>
-  <line x1="873" y1="702" x2="935" y2="702" stroke="#ca8a04" stroke-width="1.5" stroke-dasharray="5,3"/>
-  <text x="944" y="706" font-size="10" fill="#64748b">Subnet boundary (VNet)</text>
-  <line x1="873" y1="724" x2="935" y2="724" stroke="#1e293b" stroke-width="1.5" marker-end="url(#ah-data)"/>
-  <text x="944" y="728" font-size="10" fill="#64748b">NVA-1 alternate HA path</text>
-
-  <!-- Egress flow annotation bar -->
-  <rect x="10" y="774" width="1380" height="22" rx="4" fill="#f1f5f9"/>
-  <text x="700" y="789" text-anchor="middle" font-size="10" fill="#475569">Egress: Spoke VM &#x2460; &#x2192; Hub defaultRouteTable (0/0) &#x2461; &#x2192; conn-dmz &#x2192; ILB 10.0.0.68 &#x2462; &#x2192; NVA iptables MASQUERADE &#x2463; &#x2192; lb-public SNAT &#x2464; &#x2192; pip-lb-public 20.65.77.169 &#x2192; Internet</text>
-
+  <rect width="1400" height="720" fill="#f8fafc"/>
+  <text x="700" y="36" text-anchor="middle" font-size="17"
+        font-weight="bold" fill="#0f172a">NVA in DMZ Spoke &#x2014; Internet Egress via Azure Virtual WAN</text>
+  <text x="700" y="56" text-anchor="middle" font-size="11" fill="#64748b">
+    vwan-nva-si &#xB7; hub-nva-si (10.100.0.0/23) &#xB7; eastus2 &#xB7; rg-nva-spoke-internet</text>
+  <rect x="20" y="285" width="200" height="225" rx="12"
+        fill="#f8fafc" stroke="#94a3b8" stroke-width="2.5" stroke-dasharray="8 4"/>
+  <text x="31" y="304" font-size="12" font-weight="bold" fill="#94a3b8">On-Premises</text>
+  <text x="31" y="320" font-size="10" fill="#94a3b8">(Optional) 192.168.100.0/24</text>
+  <rect x="255" y="110" width="300" height="370" rx="12"
+        fill="#eff6ff" stroke="#2563eb" stroke-width="2.5" />
+  <text x="266" y="129" font-size="12" font-weight="bold" fill="#2563eb">Virtual WAN Hub</text>
+  <text x="266" y="145" font-size="10" fill="#2563eb">hub-nva-si &#xB7; 10.100.0.0/23</text>
+  <rect x="615" y="90" width="548" height="440" rx="12"
+        fill="#fffbeb" stroke="#d97706" stroke-width="2.5" />
+  <text x="626" y="109" font-size="12" font-weight="bold" fill="#d97706">DMZ VNet &#x2014; vnet-dmz &#x2014; 10.0.0.0/24</text>
+  <rect x="255" y="560" width="155" height="140" rx="12"
+        fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5" />
+  <text x="266" y="579" font-size="12" font-weight="bold" fill="#16a34a">Spoke1 VNet</text>
+  <text x="266" y="595" font-size="10" fill="#16a34a">vnet-spoke1 &#xB7; 10.1.0.0/24</text>
+  <rect x="442" y="560" width="155" height="140" rx="12"
+        fill="#f0fdf4" stroke="#16a34a" stroke-width="2.5" />
+  <text x="453" y="579" font-size="12" font-weight="bold" fill="#16a34a">Spoke2 VNet</text>
+  <text x="453" y="595" font-size="10" fill="#16a34a">vnet-spoke2 &#xB7; 10.2.0.0/24</text>
+  <rect x="1185" y="192" width="152" height="140" rx="22"
+        fill="#dbeafe" stroke="#2563eb" stroke-width="2.5"/>
+  <text x="1261" y="240" text-anchor="middle" font-size="26" fill="#1d4ed8">&#x2601;</text>
+  <text x="1261" y="268" text-anchor="middle" font-size="14" font-weight="bold" fill="#1d4ed8">Internet</text>
+  <text x="1261" y="286" text-anchor="middle" font-size="10" fill="#3b82f6">pip-lb-public</text>
+  <text x="1261" y="304" text-anchor="middle" font-size="10" font-weight="bold" fill="#1d4ed8">20.65.77.169</text>
+  <rect x="35" y="325" width="170" height="50" rx="8"
+        fill="white" stroke="#94a3b8" stroke-width="1.8"/>
+  <text x="120.0" y="346.0" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#475569">vm-onprem</text>
+  <text x="120.0" y="363.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">192.168.100.33</text>
+  <rect x="35" y="392" width="170" height="75" rx="8"
+        fill="white" stroke="#94a3b8" stroke-width="1.8"/>
+  <text x="120.0" y="417.0" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#475569">nva-onprem</text>
+  <text x="120.0" y="434.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">strongSwan IPsec</text>
+  <text x="120.0" y="451.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">192.168.100.2</text>
+  <rect x="272" y="155" width="262" height="65" rx="8"
+        fill="white" stroke="#3b82f6" stroke-width="1.8"/>
+  <text x="403.0" y="183.5" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#1d4ed8">VPN Gateway</text>
+  <text x="403.0" y="200.5" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#3b82f6">S2S &#xB7; BGP &#xB7; (optional)</text>
+  <rect x="272" y="250" width="262" height="135" rx="8"
+        fill="white" stroke="#2563eb" stroke-width="1.8"/>
+  <text x="403.0" y="296.5" text-anchor="middle"
+        font-size="12" font-weight="bold" fill="#1d4ed8">Hub BGP Router</text>
+  <text x="403.0" y="313.5" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#1e40af">10.100.0.68</text>
+  <text x="403.0" y="330.5" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#3b82f6">Learns 0.0.0.0/0 via conn-dmz</text>
+  <text x="403.0" y="347.5" text-anchor="middle"
+        font-size="9" font-weight="normal" fill="#64748b">Propagates to Spoke1, Spoke2</text>
+  <rect x="635" y="168" width="148" height="112" rx="8"
+        fill="white" stroke="#d97706" stroke-width="1.8"/>
+  <text x="709.0" y="203.0" text-anchor="middle"
+        font-size="12" font-weight="bold" fill="#92400e">lb-ilb</text>
+  <text x="709.0" y="220.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#d97706">Internal Load Balancer</text>
+  <text x="709.0" y="237.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#d97706">HA Ports &#xB7; active/active</text>
+  <text x="709.0" y="254.0" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#b45309">Frontend: 10.0.0.68</text>
+  <rect x="835" y="148" width="118" height="92" rx="8"
+        fill="white" stroke="#d97706" stroke-width="1.8"/>
+  <text x="894.0" y="173.0" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#92400e">nva-dmz-0</text>
+  <text x="894.0" y="190.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">Ubuntu 22.04</text>
+  <text x="894.0" y="207.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#d97706">iptables SNAT</text>
+  <text x="894.0" y="224.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">10.0.0.4</text>
+  <rect x="835" y="258" width="118" height="92" rx="8"
+        fill="white" stroke="#d97706" stroke-width="1.8"/>
+  <text x="894.0" y="283.0" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#92400e">nva-dmz-1</text>
+  <text x="894.0" y="300.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">Ubuntu 22.04</text>
+  <text x="894.0" y="317.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#d97706">iptables SNAT</text>
+  <text x="894.0" y="334.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#64748b">10.0.0.5</text>
+  <rect x="1007" y="178" width="148" height="112" rx="8"
+        fill="white" stroke="#d97706" stroke-width="1.8"/>
+  <text x="1081.0" y="213.0" text-anchor="middle"
+        font-size="12" font-weight="bold" fill="#78350f">lb-public</text>
+  <text x="1081.0" y="230.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#d97706">Public Load Balancer</text>
+  <text x="1081.0" y="247.0" text-anchor="middle"
+        font-size="10" font-weight="normal" fill="#d97706">SNAT outbound</text>
+  <text x="1081.0" y="264.0" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#b45309">20.65.77.169</text>
+  <rect x="272" y="603" width="120" height="72" rx="8"
+        fill="white" stroke="#16a34a" stroke-width="1.8"/>
+  <text x="332.0" y="626.5" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#15803d">vm-spoke1</text>
+  <text x="332.0" y="643.5" text-anchor="middle"
+        font-size="11" font-weight="normal" fill="#16a34a">10.1.0.4</text>
+  <text x="332.0" y="660.5" text-anchor="middle"
+        font-size="9" font-weight="normal" fill="#64748b">snet-workload</text>
+  <rect x="450" y="603" width="120" height="72" rx="8"
+        fill="white" stroke="#16a34a" stroke-width="1.8"/>
+  <text x="510.0" y="626.5" text-anchor="middle"
+        font-size="11" font-weight="bold" fill="#15803d">vm-spoke2</text>
+  <text x="510.0" y="643.5" text-anchor="middle"
+        font-size="11" font-weight="normal" fill="#16a34a">10.2.0.4</text>
+  <text x="510.0" y="660.5" text-anchor="middle"
+        font-size="9" font-weight="normal" fill="#64748b">snet-workload</text>
+  <path d="M 205,430 L 239,430 L 239,188 L 272,188" fill="none" stroke="#b45309" stroke-width="2.5"
+        stroke-dasharray="8 5" marker-start="url(#m-ipsec-r)" marker-end="url(#m-ipsec)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 332,560 L 332,480" fill="none" stroke="#1e293b" stroke-width="3"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 510,560 L 510,480" fill="none" stroke="#1e293b" stroke-width="3"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 421,480 L 421,560" fill="none" stroke="#7c3aed" stroke-width="2"
+        stroke-dasharray="8 5"  marker-end="url(#m-ctrl)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 555,295 L 615,295 L 615,224 L 635,224" fill="none" stroke="#1e293b" stroke-width="3"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 783,200 L 835,200" fill="none" stroke="#1e293b" stroke-width="2.5"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 783,248 L 808,248 L 808,304 L 835,304" fill="none" stroke="#1e293b" stroke-width="2.5"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 953,190 L 980,190 L 980,220 L 1007,220" fill="none" stroke="#1e293b" stroke-width="2.5"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 953,310 L 980,310 L 980,248 L 1007,248" fill="none" stroke="#1e293b" stroke-width="2.5"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 1155,234 L 1185,234" fill="none" stroke="#1e293b" stroke-width="3"
+          marker-end="url(#m-data)" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="332" cy="516" r="13" fill="white"/>
+  <circle cx="332" cy="516" r="10" fill="#1e293b"/>
+  <text x="332" y="520" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="white">1</text>
+  <circle cx="510" cy="516" r="13" fill="white"/>
+  <circle cx="510" cy="516" r="10" fill="#1e293b"/>
+  <text x="510" y="520" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="white">1</text>
+  <circle cx="608" cy="260" r="13" fill="white"/>
+  <circle cx="608" cy="260" r="10" fill="#2563eb"/>
+  <text x="608" y="264" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="white">2</text>
+  <circle cx="808" cy="178" r="13" fill="white"/>
+  <circle cx="808" cy="178" r="10" fill="#d97706"/>
+  <text x="808" y="182" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="white">3</text>
+  <circle cx="966" cy="180" r="13" fill="white"/>
+  <circle cx="966" cy="180" r="10" fill="#d97706"/>
+  <text x="966" y="184" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="white">4</text>
+  <circle cx="1168" cy="216" r="13" fill="white"/>
+  <circle cx="1168" cy="216" r="10" fill="#1e293b"/>
+  <text x="1168" y="220" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="white">5</text>
+  <text x="428" y="518" font-size="9" fill="#7c3aed">0/0 adv.</text>
+  <text x="234" y="318" text-anchor="middle" font-size="9" fill="#b45309"
+        transform="rotate(-90 234 318)">IPsec S2S</text>
+  <text x="621" y="308" font-size="9" fill="#64748b">conn-dmz</text>
+  <text x="621" y="320" font-size="9" fill="#64748b">0/0&#x2192;10.0.0.68</text>
+  <rect x="870" y="558" width="260" height="108" rx="8"
+        fill="white" stroke="#cbd5e1" stroke-width="1.5"/>
+  <text x="1000" y="575" text-anchor="middle" font-size="11"
+        font-weight="bold" fill="#374151">Legend</text>
+  <line x1="882" y1="594" x2="925" y2="594"
+        stroke="#1e293b" stroke-width="2.8" marker-end="url(#m-data)"/>
+  <text x="932" y="598" font-size="10" fill="#1e293b">Internet egress data path</text>
+  <line x1="882" y1="620" x2="925" y2="620"
+        stroke="#7c3aed" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#m-ctrl)"/>
+  <text x="932" y="624" font-size="10" fill="#7c3aed">Route advertisement (0/0)</text>
+  <line x1="882" y1="646" x2="925" y2="646"
+        stroke="#b45309" stroke-width="2.5" stroke-dasharray="7 4"
+        marker-start="url(#m-ipsec-r)" marker-end="url(#m-ipsec)"/>
+  <text x="932" y="650" font-size="10" fill="#b45309">IPsec S2S tunnel (optional)</text>
+  <rect x="10" y="703" width="1380" height="14" rx="4" fill="#e2e8f0"/>
+  <text x="700" y="714" text-anchor="middle" font-size="9" fill="#475569">
+    &#x2460; Spoke VM &#x2192; &#x2461; Hub defaultRouteTable (0/0)
+    &#x2192; &#x2462; ILB 10.0.0.68 (HA ports)
+    &#x2192; &#x2463; NVA iptables MASQUERADE
+    &#x2192; &#x2464; lb-public SNAT &#x2192; pip-lb-public 20.65.77.169 &#x2192; Internet</text>
 </svg>
