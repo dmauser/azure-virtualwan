@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/functions.sh"
 
 RG="${RESOURCE_GROUP:-rg-nva-spoke-internet}"
-HUB="${HUB:-vhub-nva-spoke}"
+HUB="${HUB:-hub-nva-si}"
 
 PASS=0; FAIL=0; WARN=0
 

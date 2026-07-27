@@ -61,7 +61,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Log "  Resource group: $Rg"
 
-$Location = ([string](az group show -n $Rg --query location -o tsv 2>$null)).Trim()
+$Location = "$(az group show -n $Rg --query location -o tsv 2>$null)".Trim()
 Log "  Region: $Location"
 
 # Deterministic storage account name: prefix + first 8 chars of subscription ID
@@ -87,7 +87,7 @@ if ($LASTEXITCODE -eq 0) {
     Log "  Created."
 }
 
-$LaId = ([string](az monitor log-analytics workspace show -g $Rg -n $LA_NAME --query id -o tsv 2>$null)).Trim()
+$LaId = "$(az monitor log-analytics workspace show -g $Rg -n $LA_NAME --query id -o tsv 2>$null)".Trim()
 Log "  Workspace ID: $LaId"
 
 # =============================================================================
@@ -110,7 +110,7 @@ if ($LASTEXITCODE -eq 0) {
     Log "  Created."
 }
 
-$SaId = ([string](az storage account show -n $SaName -g $Rg --query id -o tsv 2>$null)).Trim()
+$SaId = "$(az storage account show -n $SaName -g $Rg --query id -o tsv 2>$null)".Trim()
 Log "  Storage account ID: $SaId"
 
 # =============================================================================
@@ -154,7 +154,7 @@ foreach ($FlName in $FlowLogMap.Keys) {
     Log ""
     Log "  Flow log '$FlName' for VNet '$VnetName':"
 
-    $VnetId = ([string](az network vnet show -g $Rg -n $VnetName --query id -o tsv 2>$null)).Trim()
+    $VnetId = "$(az network vnet show -g $Rg -n $VnetName --query id -o tsv 2>$null)".Trim()
     if ([string]::IsNullOrWhiteSpace($VnetId)) {
         Log "  WARNING: VNet '$VnetName' not found in '$Rg' -- skipping."
         continue
@@ -190,7 +190,7 @@ $MetricsJson = '[{"category":"AllMetrics","enabled":true}]'
 foreach ($LbName in @("lb-public","lb-ilb")) {
     Log ""
     Log "  LB '$LbName':"
-    $LbId = ([string](az network lb show -g $Rg -n $LbName --query id -o tsv 2>$null)).Trim()
+    $LbId = "$(az network lb show -g $Rg -n $LbName --query id -o tsv 2>$null)".Trim()
     if ([string]::IsNullOrWhiteSpace($LbId)) {
         Log "  WARNING: '$LbName' not found in '$Rg' -- skipping."
         continue
