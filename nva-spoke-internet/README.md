@@ -6,7 +6,7 @@ This lab deploys a **Standard Azure Virtual WAN hub** (`10.100.0.0/23`) with two
 
 ## Architecture
 
-![NVA DMZ spoke Internet egress topology](./media/nva-spoke-internet.png)
+![NVA DMZ spoke Internet egress topology](./media/nva-spoke-internet.svg)
 
 > 📐 **Editable diagram:** [`./media/nva-spoke-internet.excalidraw`](./media/nva-spoke-internet.excalidraw)
 > - Open in **VS Code** with the [Excalidraw extension](https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor) (edits render inline).

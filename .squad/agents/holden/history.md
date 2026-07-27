@@ -131,6 +131,21 @@ Parameter files (.bicepparam) reduce preset-to-preset duplication while maintain
 - Excalidraw v2 arrows with `points` arrays and no element binding are the most portable format — avoids broken arrow rendering when IDs drift.
 - Root-level `media/` folder at repo root (not inside lab subfolder) is the right pattern for diagrams that may be referenced from multiple README files.
 
+## Session: nva-spoke-internet Diagram Relocation (2026-07-27)
+
+### Work Completed
+- Moved `media/nva-spoke-internet.excalidraw` from repo root into `nva-spoke-internet/media/` so the full diagram set (`.png` + `.excalidraw`) now lives together inside the lab folder.
+- Removed the now-empty root-level `media/` directory.
+- Updated all three `../media/` references in `nva-spoke-internet/README.md` to `./media/` (image embed line 9, excalidraw callout, footer source line).
+- Replaced the single-line Excalidraw callout with a three-option block (VS Code extension, excalidraw.com manual open, and direct raw GitHub URL after push).
+- Added `.gitignore`, `bicep/main.json`, and `bicep/cloud-init/` (nva.yaml, onprem-nva.yaml, workload.yaml) to the `## Files` tree to match actual disk contents.
+
+### Learnings
+
+- The diagram (`.png` + `.excalidraw`) now lives inside `nva-spoke-internet/media/`; README uses `./media/` local paths throughout. Prior decision to use root-level `media/` is superseded.
+- The Excalidraw open-instructions block (VS Code extension + excalidraw.com + raw GitHub URL) is the correct pattern for labs that ship `.excalidraw` source inside their folder.
+- `bicep/cloud-init/` and `bicep/main.json` must be included in the Files tree; they were present on disk but absent from the README.
+
 ## Team Update: 3vhub-er-ri Lab (2026-05-26)
 - Naomi delivered new `3vhub-er-ri/` lab: 3-region vWAN with ER (East+West via Megaport), AzFw Basic all hubs, RI (private). Uses native CLI for RI (no Bicep), ASPath hub preference, single interactive script with ER pause-poll pattern. LABS_INDEX.md updated.
 
