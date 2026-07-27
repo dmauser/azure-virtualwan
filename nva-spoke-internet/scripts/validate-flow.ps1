@@ -89,6 +89,7 @@ Log ""
 Log "=== Phase 2: Control-plane routes ==="
 
 # 2a. defaultRouteTable: 0.0.0.0/0 -> conn-dmz
+# Route prefixes live in routes[].destinations[] (array) -- use contains() to check presence.
 Log ""
 Log "  [2a] Hub defaultRouteTable routes:"
 $drt = az network vhub route-table show `
@@ -96,13 +97,16 @@ $drt = az network vhub route-table show `
     --query 'routes[].{destinations:destinations,nextHopType:nextHopType,nextHop:nextHop}' `
     -o table 2>$null
 Log $drt
-if ($drt -match "0\.0\.0\.0/0") {
+$q2a = "routes[?contains(destinations, '0.0.0.0/0')]"
+$drt0 = "$(az network vhub route-table show -g $Rg --vhub-name $Hub --name defaultRouteTable --query $q2a -o tsv 2>$null)".Trim()
+if (-not [string]::IsNullOrWhiteSpace($drt0)) {
     CheckPass "defaultRouteTable contains 0.0.0.0/0 route"
 } else {
     CheckFail "defaultRouteTable missing 0.0.0.0/0 route (routing wiring incomplete)"
 }
 
-# 2b. conn-dmz static route
+# 2b. conn-dmz static route: 0.0.0.0/0 -> 10.0.0.68 (ILB)
+# Route prefixes live in staticRoutes[].addressPrefixes[] (array) -- use contains() to check.
 Log ""
 Log "  [2b] conn-dmz static routes (expected: 0.0.0.0/0 -> 10.0.0.68):"
 $connRoutes = az network vhub connection show `
@@ -110,8 +114,13 @@ $connRoutes = az network vhub connection show `
     --query 'routingConfiguration.vnetRoutes.staticRoutes[].{name:name,prefix:addressPrefixes,nextHop:nextHopIpAddress}' `
     -o table 2>$null
 Log $connRoutes
-if ($connRoutes -match "0\.0\.0\.0/0") {
-    CheckPass "conn-dmz static route 0.0.0.0/0 -> 10.0.0.68 (ILB) present"
+$q2b = "routingConfiguration.vnetRoutes.staticRoutes[?contains(addressPrefixes, '0.0.0.0/0')].nextHopIpAddress"
+$connNH = "$(az network vhub connection show -g $Rg --vhub-name $Hub -n conn-dmz --query $q2b -o tsv 2>$null)".Trim()
+if (-not [string]::IsNullOrWhiteSpace($connNH)) {
+    CheckPass "conn-dmz static route 0.0.0.0/0 -> $connNH (ILB) present"
+    if ($connNH -ne "10.0.0.68") {
+        CheckWarn "conn-dmz nextHop = $connNH (expected 10.0.0.68 -- ILB frontend)"
+    }
 } else {
     CheckFail "conn-dmz static route 0.0.0.0/0 missing"
 }
@@ -171,10 +180,10 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($nhJson)) {
     $nhType = $nhObj.nextHopType
     $nhIp   = $nhObj.nextHopIpAddress
     Log "       nextHopType: $nhType   nextHopIpAddress: $nhIp"
-    if ($nhType -eq "VirtualNetworkGateway") {
-        CheckPass "NW next-hop: 0.0.0.0/0 -> VirtualNetworkGateway (vHub router)"
+    if ($nhType -eq "VirtualNetworkGateway" -or $nhType -eq "VirtualHub") {
+        CheckPass "NW next-hop: 0.0.0.0/0 -> $nhType (vHub router -- valid for vWAN spoke)"
     } else {
-        CheckFail "NW next-hop type = '$nhType' (expected VirtualNetworkGateway)"
+        CheckFail "NW next-hop type = '$nhType' (expected VirtualNetworkGateway or VirtualHub)"
     }
 } else {
     CheckWarn "NW next-hop failed (Network Watcher may not be enabled in this region)"
@@ -341,41 +350,75 @@ if ($LASTEXITCODE -eq 0) {
 # Phase 5 -- LB Metrics
 # Ref: https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer
 # Ref: https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer-reference
+# Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-monitor-metrics-cli
 # =============================================================================
 Log ""
 Log "=== Phase 5: Standard Load Balancer metrics ==="
-Log "  (Non-zero values confirm active traffic; zero is normal when lab is idle)"
+Log "  (30-min window; non-zero values confirm active traffic; zero is normal when lab is idle)"
 
 $lbPublicId = "$(az network lb show -g $Rg -n lb-public --query id -o tsv 2>$null)".Trim()
 $lbIlbId    = "$(az network lb show -g $Rg -n lb-ilb    --query id -o tsv 2>$null)".Trim()
+
+$StartTime = (Get-Date).ToUniversalTime().AddMinutes(-30).ToString("yyyy-MM-ddTHH:mm:ssZ")
+$EndTime   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+Log "  Window: $StartTime -> $EndTime"
 
 if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
     CheckWarn "lb-public not found -- metrics phase skipped"
 } else {
     Log ""
-    Log "  Public LB (lb-public) -- SNAT, availability, traffic metrics:"
-    foreach ($metric in @("UsedSNATPorts","AllocatedSNATPorts","SnatConnectionCount","ByteCount","PacketCount","DipAvailability","VipAvailability")) {
-        Log "  -- $metric :"
-        az monitor metrics list `
-            --resource $lbPublicId `
-            --metric $metric `
+    Log "  Public LB (lb-public) -- SNAT, availability, and traffic metrics:"
+    Log "  Note: correct metric names are UsedSnatPorts / AllocatedSnatPorts (lowercase 'nat')"
+    # Per https://learn.microsoft.com/azure/load-balancer/load-balancer-monitor-metrics-cli
+    # aggregations: Average for ports/availability; Total for counts/bytes
+    foreach ($m in @(
+        @{name="UsedSnatPorts";      agg="Average"},
+        @{name="AllocatedSnatPorts"; agg="Average"},
+        @{name="SnatConnectionCount";agg="Total"},
+        @{name="ByteCount";          agg="Total"},
+        @{name="PacketCount";        agg="Total"},
+        @{name="VipAvailability";    agg="Average"},
+        @{name="DipAvailability";    agg="Average"}
+    )) {
+        Log "  -- $($m.name) ($($m.agg)):"
+        $azOut = az monitor metrics list `
+            --resource   $lbPublicId `
+            --metric     $m.name `
+            --start-time $StartTime `
+            --end-time   $EndTime `
             --interval PT5M `
-            --aggregation Maximum Total `
-            -o table 2>$null
-        if ($LASTEXITCODE -ne 0) { Log "     (no data or metric unavailable)" }
+            --aggregation $m.agg `
+            -o table 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Log "     ERROR (exit $LASTEXITCODE): $azOut"
+            CheckWarn "$($m.name): az metrics call failed (see above)"
+        } else {
+            Log $azOut
+        }
     }
 
     Log ""
-    Log "  ILB (lb-ilb) -- health probe + traffic metrics:"
-    foreach ($metric in @("DipAvailability","ByteCount","PacketCount")) {
-        Log "  -- $metric :"
-        az monitor metrics list `
-            --resource $lbIlbId `
-            --metric $metric `
+    Log "  ILB (lb-ilb) -- backend health (DipAvailability only):"
+    Log "  NOTE: ILB ByteCount/PacketCount are ZERO by design for UDR-forwarded traffic."
+    Log "  Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-standard-diagnostics#multi-dimensional-metrics"
+    if (-not [string]::IsNullOrWhiteSpace($lbIlbId)) {
+        Log "  -- DipAvailability (Average):"
+        $azOut = az monitor metrics list `
+            --resource   $lbIlbId `
+            --metric     "DipAvailability" `
+            --start-time $StartTime `
+            --end-time   $EndTime `
             --interval PT5M `
-            --aggregation Maximum Total `
-            -o table 2>$null
-        if ($LASTEXITCODE -ne 0) { Log "     (no data or metric unavailable)" }
+            --aggregation "Average" `
+            -o table 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Log "     ERROR (exit $LASTEXITCODE): $azOut"
+            CheckWarn "ILB DipAvailability: az metrics call failed (see above)"
+        } else {
+            Log $azOut
+        }
+    } else {
+        CheckWarn "lb-ilb not found -- ILB metrics skipped"
     }
 }
 

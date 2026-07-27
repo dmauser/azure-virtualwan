@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 # =============================================================================
 # validate-flow.sh — READ-ONLY traffic-breakout validation for nva-spoke-internet
 #
@@ -78,6 +78,7 @@ log ""
 log "=== Phase 2: Control-plane routes ==="
 
 # 2a. defaultRouteTable: 0.0.0.0/0 -> conn-dmz
+# Route prefixes live in routes[].destinations[] (array) -- use contains() to check presence.
 log ""
 log "  [2a] Hub defaultRouteTable routes:"
 DRT=$(az network vhub route-table show \
@@ -85,13 +86,19 @@ DRT=$(az network vhub route-table show \
   --query 'routes[].{destinations:destinations,nextHopType:nextHopType,nextHop:nextHop}' \
   -o table 2>/dev/null || echo "ERROR fetching defaultRouteTable")
 log "$DRT"
-if echo "$DRT" | grep -q "0.0.0.0/0"; then
+# Targeted check using the destinations array directly
+DRT_CHK=$(az network vhub route-table show \
+  -g "$RG" --vhub-name "$HUB" --name defaultRouteTable \
+  --query "routes[?contains(destinations, '0.0.0.0/0')]" \
+  -o tsv 2>/dev/null || echo "")
+if [[ -n "$DRT_CHK" && "$DRT_CHK" != ERROR* ]]; then
   check_pass "defaultRouteTable contains 0.0.0.0/0 route"
 else
   check_fail "defaultRouteTable missing 0.0.0.0/0 route (routing wiring incomplete)"
 fi
 
-# 2b. conn-dmz static route: 0.0.0.0/0 -> 10.0.0.68
+# 2b. conn-dmz static route: 0.0.0.0/0 -> 10.0.0.68 (ILB)
+# Route prefixes live in staticRoutes[].addressPrefixes[] (array) -- use contains() to check.
 log ""
 log "  [2b] conn-dmz static routes (expected: 0.0.0.0/0 -> 10.0.0.68):"
 CONNROUTES=$(az network vhub connection show \
@@ -99,8 +106,16 @@ CONNROUTES=$(az network vhub connection show \
   --query 'routingConfiguration.vnetRoutes.staticRoutes[].{name:name,prefix:addressPrefixes,nextHop:nextHopIpAddress}' \
   -o table 2>/dev/null || echo "ERROR fetching conn-dmz")
 log "$CONNROUTES"
-if echo "$CONNROUTES" | grep -q "0.0.0.0/0"; then
-  check_pass "conn-dmz static route 0.0.0.0/0 -> 10.0.0.68 (ILB) present"
+# Targeted check: get nextHop for the 0.0.0.0/0 prefix
+CONN_CHK=$(az network vhub connection show \
+  -g "$RG" --vhub-name "$HUB" -n conn-dmz \
+  --query "routingConfiguration.vnetRoutes.staticRoutes[?contains(addressPrefixes, '0.0.0.0/0')].nextHopIpAddress" \
+  -o tsv 2>/dev/null || echo "")
+if [[ -n "$CONN_CHK" && "$CONN_CHK" != ERROR* ]]; then
+  check_pass "conn-dmz static route 0.0.0.0/0 -> ${CONN_CHK} (ILB) present"
+  if [[ "$CONN_CHK" != "10.0.0.68" ]]; then
+    check_warn "conn-dmz nextHop = $CONN_CHK (expected 10.0.0.68 -- ILB frontend)"
+  fi
 else
   check_fail "conn-dmz static route 0.0.0.0/0 missing"
 fi
@@ -159,12 +174,12 @@ NH_JSON=$(az network watcher show-next-hop \
 NH_TYPE=$(echo "$NH_JSON" | grep -o '"nextHopType":"[^"]*"' | cut -d'"' -f4)
 NH_IP=$(echo "$NH_JSON" | grep -o '"nextHopIpAddress":"[^"]*"' | cut -d'"' -f4)
 log "       nextHopType: $NH_TYPE   nextHopIpAddress: $NH_IP"
-if [[ "$NH_TYPE" == "VirtualNetworkGateway" ]]; then
-  check_pass "NW next-hop: 0.0.0.0/0 -> VirtualNetworkGateway (vHub router)"
+if [[ "$NH_TYPE" == "VirtualNetworkGateway" || "$NH_TYPE" == "VirtualHub" ]]; then
+  check_pass "NW next-hop: 0.0.0.0/0 -> $NH_TYPE (vHub router -- valid for vWAN spoke)"
 elif [[ "$NH_TYPE" == "ERROR" ]]; then
   check_warn "NW next-hop returned ERROR (Network Watcher may not be enabled; enable via Portal or enable-monitoring.sh)"
 else
-  check_fail "NW next-hop type = '$NH_TYPE' (expected VirtualNetworkGateway)"
+  check_fail "NW next-hop type = '$NH_TYPE' (expected VirtualNetworkGateway or VirtualHub)"
 fi
 
 # 2g. Network Watcher IP flow verify: vm-spoke1 -> 8.8.8.8:443 TCP Outbound
@@ -327,44 +342,68 @@ fi
 # Phase 5 -- LB Metrics
 # Ref: https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer
 # Ref: https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer-reference
+# Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-monitor-metrics-cli
 # =============================================================================
 log ""
 log "=== Phase 5: Standard Load Balancer metrics ==="
-log "  (Non-zero values confirm active traffic flow; zero values are normal when lab is idle)"
+log "  (30-min window; non-zero values confirm active traffic; zero is normal when lab is idle)"
 
 LB_PUBLIC_ID=$(az network lb show -g "$RG" -n lb-public --query id -o tsv 2>/dev/null || true)
 LB_ILB_ID=$(az network lb show -g "$RG" -n lb-ilb --query id -o tsv 2>/dev/null || true)
 
+# Compute 30-minute window (GNU date -d, BSD date -v, fallback to current time)
+METRICS_START=$(TZ=UTC date -d "30 minutes ago" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+             || TZ=UTC date -v-30M              +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+             || TZ=UTC date                     +"%Y-%m-%dT%H:%M:%SZ")
+METRICS_END=$(TZ=UTC date +"%Y-%m-%dT%H:%M:%SZ")
+log "  Window: $METRICS_START -> $METRICS_END"
+
+# run_metric <resource-id> <metric-name> <aggregation>
+run_metric() {
+  local resource_id="$1" metric="$2" agg="$3"
+  log "  -- $metric ($agg):"
+  local az_out az_rc=0
+  az_out=$(az monitor metrics list \
+    --resource   "$resource_id" \
+    --metric     "$metric" \
+    --start-time "$METRICS_START" \
+    --end-time   "$METRICS_END" \
+    --interval PT5M \
+    --aggregation "$agg" \
+    -o table 2>&1) || az_rc=$?
+  if [[ $az_rc -ne 0 ]]; then
+    log "     ERROR (exit $az_rc): $az_out"
+    check_warn "$metric: az metrics call failed (see above)"
+  else
+    log "$az_out"
+  fi
+}
+
 if [[ -z "$LB_PUBLIC_ID" ]]; then
-  check_warn "lb-public not found — metrics Phase skipped"
+  check_warn "lb-public not found — metrics phase skipped"
 else
   log ""
-  log "  Public LB (lb-public) — SNAT, availability, traffic metrics:"
-  # UsedSNATPorts, AllocatedSNATPorts, SnatConnectionCount, ByteCount,
-  # PacketCount, DipAvailability, VipAvailability
-  for METRIC in UsedSNATPorts AllocatedSNATPorts SnatConnectionCount ByteCount PacketCount DipAvailability VipAvailability; do
-    log "  -- $METRIC:"
-    az monitor metrics list \
-      --resource "$LB_PUBLIC_ID" \
-      --metric "$METRIC" \
-      --interval PT5M \
-      --aggregation Maximum Total \
-      -o table 2>/dev/null \
-      || log "     (no data or metric unavailable)"
-  done
+  log "  Public LB (lb-public) — SNAT, availability, and traffic metrics:"
+  log "  Note: correct metric names are UsedSnatPorts / AllocatedSnatPorts (lowercase 'nat')"
+  # Per https://learn.microsoft.com/azure/load-balancer/load-balancer-monitor-metrics-cli
+  # aggregations: Average for ports/availability; Total for counts/bytes
+  run_metric "$LB_PUBLIC_ID" "UsedSnatPorts"       "Average"
+  run_metric "$LB_PUBLIC_ID" "AllocatedSnatPorts"  "Average"
+  run_metric "$LB_PUBLIC_ID" "SnatConnectionCount" "Total"
+  run_metric "$LB_PUBLIC_ID" "ByteCount"           "Total"
+  run_metric "$LB_PUBLIC_ID" "PacketCount"         "Total"
+  run_metric "$LB_PUBLIC_ID" "VipAvailability"     "Average"
+  run_metric "$LB_PUBLIC_ID" "DipAvailability"     "Average"
 
   log ""
-  log "  ILB (lb-ilb) — health probe + traffic metrics:"
-  for METRIC in DipAvailability ByteCount PacketCount; do
-    log "  -- $METRIC:"
-    az monitor metrics list \
-      --resource "$LB_ILB_ID" \
-      --metric "$METRIC" \
-      --interval PT5M \
-      --aggregation Maximum Total \
-      -o table 2>/dev/null \
-      || log "     (no data or metric unavailable)"
-  done
+  log "  ILB (lb-ilb) — backend health (DipAvailability only):"
+  log "  NOTE: ILB ByteCount/PacketCount are ZERO by design for UDR-forwarded traffic."
+  log "  Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-standard-diagnostics#multi-dimensional-metrics"
+  if [[ -n "$LB_ILB_ID" ]]; then
+    run_metric "$LB_ILB_ID" "DipAvailability" "Average"
+  else
+    check_warn "lb-ilb not found — ILB metrics skipped"
+  fi
 fi
 
 # =============================================================================
