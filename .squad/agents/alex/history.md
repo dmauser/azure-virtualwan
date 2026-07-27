@@ -95,3 +95,17 @@ See `.squad/decisions.md` for detailed decision entries including:
 - Flow validation & monitoring (all decisions timestamped with rationale)
 
 Full session history available in `history-archive.md`.
+### 2026-07-27 — Architecture diagram rebuild (Task 6)
+- Rebuilt 
+va-spoke-internet/media/nva-spoke-internet.svg as hand-authored standalone SVG (18 KB, 1400x800 viewBox).
+- SVG constraints for GitHub rendering: no external fonts, no <script>, no <foreignObject>; ont-family="Segoe UI, Arial, sans-serif" inline.
+- Rebuilt 
+va-spoke-internet/media/nva-spoke-internet.excalidraw as Excalidraw v2 JSON (117 elements, 106 KB), matching SVG layout; roughness=0, fontFamily=2.
+- Color palette: hub=#eff6ff (blue tint), DMZ=#fffbeb (amber tint), spokes=#f0fdf4 (green), on-prem=#f8fafc (grey-dashed border).
+- Arrow types: solid black = egress data path; dashed purple = route advertisement (0/0 propagation); dashed brown bidirectional = IPsec S2S tunnel.
+- Egress flow: Spoke VM → Hub defaultRouteTable → conn-dmz → ILB 10.0.0.68 (HA ports) → nva-dmz-0/1 (iptables MASQUERADE) → lb-public SNAT → pip-lb-public 20.65.77.169 → Internet.
+- Removed 
+va-spoke-internet/media/nva-spoke-internet.png via git rm.
+- README line 9 updated from .png to .svg.
+- Commit: 9f83356.
+- PowerShell # parsing issue with hex colors → workaround: write Python to .py file and run it, never python -c "..." with hex colors.
