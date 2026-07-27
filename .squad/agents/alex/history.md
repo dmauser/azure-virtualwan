@@ -110,7 +110,17 @@ va-spoke-internet/media/nva-spoke-internet.png via git rm.
 - Commit: 9f83356.
 - PowerShell # parsing issue with hex colors → workaround: write Python to .py file and run it, never python -c "..." with hex colors.
 
-## Learnings
+
+### 2026-07-27 — Azure ILB Health-Probe Symmetry Fix (lb-ilb 0% healthy bug)
+
+**Root cause:** Azure Standard LB health probes originate from the platform IP **168.63.129.16**. The ILB probes the PA *trust* NIC (ethernet1/2, snet-trust 10.0.0.64/27). PAN-OS generates the SYN-ACK with a trust source IP, but with no /32 route for 168.63.129.16 the virtual-router matched 0/0 and sent the reply out **ethernet1/1** (untrust). Azure SDN sees a trust subnet source IP egressing the untrust NIC → spoofing drop → probe never ACKs → 0% healthy → all spoke egress traffic dropped.
+
+**Fix:** Added static route `azure-probe-via-trust` (`168.63.129.16/32 → 10.0.0.65, ethernet1/2, metric 10`) as the first entry in the virtual-router static-route block, forcing SYN-ACK replies to exit the same interface the probe arrived on.
+
+**Reusable pattern:** Any PAN-OS (or other stateless NVA) placed behind an Azure ILB **MUST** have a host route (/32) to 168.63.129.16 pointing back out the probed dataplane interface. The probe arrives on the trust/backend NIC; without this route, the default 0/0 sends the reply out the wrong NIC, Azure SDN drops it as a spoof, and the health probe never becomes healthy. This is unrelated to security policy or NAT — it is purely a virtual-router routing issue.
+
+**Scope:** bootstrap.xml is shared by both firewalls (pa-fw-0 and pa-fw-1); single edit covers both. Also fixed two pre-existing `--dport` occurrences in XML comments (double-hyphen is invalid per XML spec; changed to `-port` phrasing and `-&#45;dport` entity notation).
+
 
 ### 2026-07-27 — PAN-OS VM-Series Azure Bootstrap (nva-spoke-internet-paloalto)
 
@@ -158,3 +168,34 @@ va-spoke-internet/media/nva-spoke-internet.png via git rm.
 - validate-flow.sh inlines `log()` function (no functions.sh dependency in PA lab)
 
 **2026-07-27:** PA lab (nva-spoke-internet-paloalto) passed review gate — Amos PASS verdict, live deploy ready (separate opt-in).
+
+**2026-07-27 — MG-policy bootstrap blocker + post-boot API config-push fallback:**
+
+#### MG-policy allowSharedKeyAccess=false bootstrap blocker
+- Management-group policy `allowSharedKeyAccess=false` on DMAUSER-FDPO blocks `az storage account keys list` (shared-key auth) — the mechanism `deploy.sh` Phase 5b uses to upload `bootstrap.xml` / `init-cfg.txt` to Azure Files
+- PAN-OS Azure Files bootstrap requires shared-key SMB auth; when blocked, both firewalls boot factory-default with no interfaces/zones/routes/NAT → 0 PAN-OS sessions → spoke egress fails
+- The Azure routing design is NOT the problem: the identical Linux NVA lab uses the same hub routing and its live validation passes egress. Spoke UDRs are NOT the fix.
+- Root cause is purely a config-delivery failure; fix is a post-boot API config-push fallback.
+
+#### Post-boot API config-push pattern (import + load + commit)
+- After PA VM boots (takes 10-15 min for PAN-OS API to be ready), apply day-0 config via PAN-OS XML API:
+  1. Poll `GET /api/?type=keygen&user=U&password=P` until `<key>` returned (30s backoff, bounded by timeout)
+  2. POST multipart: `type=import&category=configuration&key=K&file=@bootstrap.xml` stores named config on device
+  3. POST op: `<load><config><from>bootstrap.xml</from></config></load>` loads as candidate
+  4. POST commit: `<commit></commit>` returns job ID or "no changes" (idempotent)
+  5. Poll job status until `<status>FIN</status><result>OK</result>`
+- Import+load approach avoids hand-translating 320-line XML into xpath set commands — guaranteed fidelity
+- Idempotent: re-importing and committing same file = "no changes to commit" (no-op if bootstrap already applied)
+- Self-signed cert: `curl -sk` (bash); PS 5.x: ServicePointManager TrustAll; PS 7+: -SkipCertificateCheck
+- Variable name trap in PS double-quoted strings: `$var:` (colon after variable) is parsed as namespace qualifier — use `${var}:` to delimit
+
+#### Interface contract with deploy scripts (Naomi owns deploy.ps1/.sh)
+- PowerShell: `-MgmtIps <string[]>` `-AdminUsername <string>` `-AdminPassword <string>` `-TimeoutMinutes <int> = 20`
+- Bash: `--mgmt-ips "ip1,ip2"` `--admin-username U` `--admin-password P` `[--timeout-minutes 20]`
+- Naomi's deploy scripts will call these after VM provisioning; do NOT modify deploy.ps1 / deploy.sh
+
+#### 168.63.129.16/32 symmetric probe-return route (reinforced)
+- Azure LB health probes originate from 168.63.129.16; without /32 static route, probe SYN-ACK exits eth1/1 (wrong interface) → Azure SDN drops as spoof → ILB 0% healthy → all spoke egress fails
+- This /32 forces probe reply to exit eth1/2 (trust), same interface the probe arrived on
+- Present in bootstrap.xml as static route `azure-probe-via-trust`: 168.63.129.16/32 → nexthop 10.0.0.65 via ethernet1/2
+- Scripts verify this route post-commit as part of the PASS/FAIL check
