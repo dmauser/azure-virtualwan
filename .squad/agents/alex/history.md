@@ -194,3 +194,79 @@ The team successfully rebuilt the nva-spoke-internet lab infrastructure as code.
 - amos: QA validation (8/8 PASS + 1 LOW defect fixed)
 
 Lab is ready for end-to-end testing.
+
+---
+
+## Session: nva-spoke-internet Flow Validation + Monitoring Enablement (2026-07-27)
+
+### Work Completed
+
+Added four new scripts and README sections for comprehensive traffic-breakout validation and optional monitoring enablement for the `nva-spoke-internet` lab.
+
+**New files:**
+- `nva-spoke-internet/scripts/validate-flow.sh` — Read-only 5-phase Bash validation script
+- `nva-spoke-internet/scripts/validate-flow.ps1` — PowerShell parity
+- `nva-spoke-internet/scripts/enable-monitoring.sh` — Optional Bash monitoring stack provisioner
+- `nva-spoke-internet/scripts/enable-monitoring.ps1` — PowerShell parity
+
+**README additions:**
+- `### 5 — Trace the Internet breakout (end-to-end)` subsection under `## Validation`
+- New top-level `## Monitoring & Logging` section with KQL quickstart and cost note
+- Updated `## Files` tree with all 4 new scripts
+
+**Decision document:** `.squad/decisions/inbox/alex-flow-validation.md`
+
+## Learnings
+
+### Validated Standard LB metric names (namespace: `Microsoft.Network/loadBalancers`)
+
+Public LB (`lb-public`) — SNAT + availability + traffic:
+- `UsedSNATPorts` — SNAT ports currently in use
+- `AllocatedSNATPorts` — SNAT ports pre-allocated for backend members
+- `SnatConnectionCount` — Active outbound SNAT connections
+- `ByteCount` — Bytes through the LB (rolling 5-min)
+- `PacketCount` — Packets through the LB
+- `DipAvailability` — Health probe status per backend instance
+- `VipAvailability` — Data path availability on the frontend
+
+ILB (`lb-ilb`) — health + traffic:
+- `DipAvailability`, `ByteCount`, `PacketCount`
+
+Source: https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer-reference · https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer
+
+### VNet flow logs chosen over NSG flow logs
+
+- **NSG flow logs are being retired**: no new NSG flow logs can be created after **June 30, 2025**; all NSG flow logs retire **September 30, 2027**.
+- All monitoring scripts use `az network watcher flow-log create --vnet <id>` (VNet flow logs).
+- Source: https://learn.microsoft.com/azure/network-watcher/nsg-flow-logs-migrate · https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-overview
+
+### Confirmed resource names (from Bicep + live deploy)
+
+| Resource | Name |
+|----------|------|
+| Resource group | `rg-nva-spoke-internet` (eastus2) |
+| Virtual WAN hub | `vhub-nva-spoke` (ASN 65515) |
+| Public LB | `lb-public` · PIP: `pip-lb-public` · outbound rule: `snat-outbound` |
+| Internal LB | `lb-ilb` · frontend IP: `10.0.0.68` · HA rule: `ha-ports-rule` |
+| DMZ NSG | `nsg-dmz` |
+| NVAs | `nva-dmz-0`, `nva-dmz-1` · NICs: `nic-nva-dmz-0`, `nic-nva-dmz-1` |
+| Spoke VMs | `vm-spoke1` (10.1.0.4), `vm-spoke2` (10.2.0.4) · NICs: `nic-vm-spoke1`, `nic-vm-spoke2` |
+| VNet names | `vnet-dmz`, `vnet-spoke1`, `vnet-spoke2` |
+| Hub connection | `conn-dmz` (static route 0.0.0.0/0 → 10.0.0.68) |
+
+### validate-flow: 5-phase approach
+
+1. **Pre-checks** — az login, RG exists, hub routingState = Provisioned
+2. **Control-plane** — defaultRouteTable 0/0, conn-dmz static route, spoke NIC effective routes (VirtualNetworkGateway), vHub get-effective-routes, NW next-hop, NW IP flow verify, NW connectivity test
+3. **Data-plane** — curl ifconfig.io from vm-spoke1 + vm-spoke2 via run-command; assert returned IP = pip-lb-public
+4. **NVA evidence** — iptables MASQUERADE counters on nva-dmz-0/1, conntrack -L, concurrent tcpdump + spoke curl
+5. **LB metrics** — az monitor metrics list for both lb-public (7 metrics) and lb-ilb (3 metrics)
+
+### enable-monitoring: 6-phase approach
+
+1. Pre-checks (login, RG, derive LOCATION + SA_NAME)
+2. Log Analytics workspace `log-nva-spoke-internet` (30-day retention)
+3. Storage account `stnvaspk<sub-8-chars>` (Standard_LRS)
+4. Network Watcher ensure-exists (`NetworkWatcher_<region>` in `NetworkWatcherRG`)
+5. VNet flow logs on vnet-dmz/vnet-spoke1/vnet-spoke2 with Traffic Analytics
+6. LB diagnostic settings (AllMetrics) on lb-public + lb-ilb → workspace
