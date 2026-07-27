@@ -358,6 +358,39 @@ cd nva-spoke-internet-paloalto
 
 > ℹ️ **Network Watcher** checks (next-hop, IP flow verify, connectivity) require the regional Network Watcher to be enabled. The scripts flag these as WARN (not FAIL) when the watcher is absent. Run `enable-monitoring.sh` / `enable-monitoring.ps1` to provision it.
 
+## Known Limitations & Bootstrap Fallback
+
+Some Azure subscriptions and management groups enforce security policies that prevent unrestricted shared-key (SMB) access to storage accounts (`allowSharedKeyAccess=false`). The PAN-OS day-0 bootstrap process requires shared-key authentication to mount and download `bootstrap.xml` from Azure Files — OAuth tokens are not supported for the Files data plane. When this policy is enforced:
+
+**Symptom if unmitigated:**
+- Deployment completes successfully
+- Palo Alto firewalls boot and become API-reachable
+- ILB health probes pass (PA management plane is healthy)
+- **Spoke → Internet egress fails**: traffic reaches the PA firewalls but receives no reply, indicating the firewalls are running in factory-default mode (no security policy, no NAT rules from `bootstrap.xml`)
+
+**Built-in mitigation (automatic, no user action required):**
+The deploy script (`Phase 5b`) detects whether the storage account policy allows shared-key access. If the policy blocks it:
+1. A clear warning is logged: `WARNING: Storage account allowSharedKeyAccess is forced false by policy; bootstrap file upload skipped.`
+2. The script continues — the storage account is created but SMB uploads are bypassed
+3. **Phase 7b** (post-VM-boot) automatically runs `apply-panos-config.ps1` (PowerShell) or `apply-panos-config.sh` (Bash)
+4. This fallback queries each PA firewall's management IP (via `pip-pa-0-mgmt`, `pip-pa-1-mgmt`) and applies the exact `bootstrap.xml` configuration via the PAN-OS XML API (`import configuration → load → commit`), idempotent
+5. The PAN-OS management plane typically becomes API-ready **10–15 minutes** after VM boot, so Phase 7b polls with backoff until the firewall responds
+
+**Result:** The firewalls are configured via the API fallback, egress flows work normally, and validation passes. The swap from Azure Files to API-driven bootstrap is transparent to the operator.
+
+**Network/routing design validation:** The hub routing configuration (`0.0.0.0/0 → conn-dmz → ILB 10.0.0.68`) is correct and validated by the Linux NVA variant (`nva-spoke-internet/`), which uses the same topology and is live-deployed with no egress issues. Any egress failure in this lab is a config-delivery symptom, not a routing defect.
+
+**Manual fallback (if needed):** If Phase 7b does not run or you want to re-apply the config manually:
+
+```bash
+pwsh ./scripts/apply-panos-config.ps1 \
+  -MgmtIps @('<pa-0-mgmt-pip>', '<pa-1-mgmt-pip>') \
+  -AdminUsername azureuser \
+  -AdminPassword '<password>'
+```
+
+> ℹ️ Replace `<pa-0-mgmt-pip>` and `<pa-1-mgmt-pip>` with the public IPs of `pip-pa-0-mgmt` and `pip-pa-1-mgmt` (printed by `deploy.sh` Phase 7). The script applies the bootstrap config idempotently — re-running is safe if the phase already completed.
+
 ## Cleanup
 
 ### Bash
