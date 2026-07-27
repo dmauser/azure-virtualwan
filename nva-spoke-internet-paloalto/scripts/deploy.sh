@@ -139,51 +139,87 @@ az storage account create \
   -g "$RG" -n "$BOOTSTRAP_SA" -l "$LOCATION" \
   --sku Standard_LRS --kind StorageV2 \
   --min-tls-version TLS1_2 \
+  --allow-shared-key-access true \
   --output none
 log "  ✔ Storage account created."
 
+# Verify the effective allowSharedKeyAccess setting.
+# A management-group policy can override --allow-shared-key-access true back to false,
+# silently blocking all Azure Files SMB data-plane operations (share/dir/upload).
+SHARED_KEY_BOOTSTRAP_AVAILABLE=true
+effective_shared_key=$(az storage account show -g "$RG" -n "$BOOTSTRAP_SA" \
+    --query allowSharedKeyAccess -o tsv 2>/dev/null || true)
+if [[ "$effective_shared_key" == "false" ]]; then
+    SHARED_KEY_BOOTSTRAP_AVAILABLE=false
+    log ""
+    log "  WARNING: Subscription policy enforces allowSharedKeyAccess=false;"
+    log "           Azure Files bootstrap upload will be skipped. The storage account"
+    log "           is retained so palo-alto.bicep customData references resolve."
+    log "           The lab will fall back to post-boot PAN-OS API config push (Phase 7b)."
+    log ""
+else
+    log "  ✔ allowSharedKeyAccess=true confirmed — Azure Files upload will proceed."
+fi
+
+# Retrieve storage key (management-plane; succeeds regardless of shared-key policy).
+# Key is always passed to Bicep so customData renders correctly even in fallback mode.
 BOOTSTRAP_SA_KEY=$(az storage account keys list \
   -g "$RG" -n "$BOOTSTRAP_SA" \
   --query "[0].value" -o tsv)
 
-az storage share create \
-  --account-name "$BOOTSTRAP_SA" \
-  --account-key "$BOOTSTRAP_SA_KEY" \
-  -n "$BOOTSTRAP_SHARE" \
-  --output none
-log "  ✔ Azure Files share '$BOOTSTRAP_SHARE' created."
+if [[ "$SHARED_KEY_BOOTSTRAP_AVAILABLE" == "true" ]]; then
+    # ── Data-plane operations (skipped when policy blocks shared-key access) ──
 
-# PA bootstrap requires these 4 directories in the share root
-for dir in config content license software; do
-  az storage directory create \
-    --account-name "$BOOTSTRAP_SA" \
-    --account-key "$BOOTSTRAP_SA_KEY" \
-    --share-name "$BOOTSTRAP_SHARE" \
-    -n "$dir" \
-    --output none
-done
-log "  ✔ Bootstrap directories created: config/ content/ license/ software/"
+    if ! az storage share create \
+      --account-name "$BOOTSTRAP_SA" \
+      --account-key "$BOOTSTRAP_SA_KEY" \
+      -n "$BOOTSTRAP_SHARE" \
+      --output none; then
+        log "  WARNING: Failed to create Azure Files share '$BOOTSTRAP_SHARE'."
+        log "           Phase 7b config push will configure the PA firewalls post-boot."
+        SHARED_KEY_BOOTSTRAP_AVAILABLE=false
+    else
+        log "  ✔ Azure Files share '$BOOTSTRAP_SHARE' created."
 
-# Upload the two PA day-0 config files (authored by Alex; referenced paths are required)
-for f in init-cfg.txt bootstrap.xml; do
-  SRC="${BICEP_DIR}/bootstrap/${f}"
-  DST="config/${f}"
-  if [[ ! -f "$SRC" ]]; then
-    log "  WARNING: Bootstrap file not found: $SRC"
-    log "           Skipping upload — PA will boot in minimal state without this file."
-    continue
-  fi
-  az storage file upload \
-    --account-name "$BOOTSTRAP_SA" \
-    --account-key "$BOOTSTRAP_SA_KEY" \
-    --share-name "$BOOTSTRAP_SHARE" \
-    --path "$DST" \
-    --source "$SRC" \
-    --output none
-  log "  ✔ Uploaded ${f} → ${BOOTSTRAP_SHARE}/${DST}"
-done
+        # PA bootstrap requires these 4 directories in the share root
+        for dir in config content license software; do
+            if ! az storage directory create \
+              --account-name "$BOOTSTRAP_SA" \
+              --account-key "$BOOTSTRAP_SA_KEY" \
+              --share-name "$BOOTSTRAP_SHARE" \
+              -n "$dir" \
+              --output none; then
+                log "  WARNING: Failed to create directory '$dir' in bootstrap share."
+            fi
+        done
+        log "  ✔ Bootstrap directories created: config/ content/ license/ software/"
 
-log "  ✔ Bootstrap storage ready: account=$BOOTSTRAP_SA  share=$BOOTSTRAP_SHARE"
+        # Upload the two PA day-0 config files (authored by Alex; referenced paths are required)
+        for f in init-cfg.txt bootstrap.xml; do
+            SRC="${BICEP_DIR}/bootstrap/${f}"
+            DST="config/${f}"
+            if [[ ! -f "$SRC" ]]; then
+                log "  WARNING: Bootstrap file not found: $SRC"
+                log "           Skipping upload — PA will boot in minimal state without this file."
+                continue
+            fi
+            if ! az storage file upload \
+              --account-name "$BOOTSTRAP_SA" \
+              --account-key "$BOOTSTRAP_SA_KEY" \
+              --share-name "$BOOTSTRAP_SHARE" \
+              --path "$DST" \
+              --source "$SRC" \
+              --output none; then
+                log "  WARNING: Failed to upload '$f' to bootstrap share."
+                log "           Phase 7b config push will configure the PA firewalls post-boot."
+            else
+                log "  ✔ Uploaded ${f} → ${BOOTSTRAP_SHARE}/${DST}"
+            fi
+        done
+    fi
+fi
+
+log "  Bootstrap storage ready: account=$BOOTSTRAP_SA  share=$BOOTSTRAP_SHARE  sharedKey=$SHARED_KEY_BOOTSTRAP_AVAILABLE"
 
 # =============================================================================
 # Phase 6 — Bicep deployment
@@ -258,6 +294,37 @@ log "  Public LB PIP   : $PUBLIC_LB_PIP"
 if [[ "$ILB_FRONTEND_IP" != "10.0.0.68" ]]; then
   echo "  WARNING: ILB frontend IP from outputs is '$ILB_FRONTEND_IP', expected '10.0.0.68'."
   echo "           Review Bicep output.  Continuing with actual value."
+fi
+
+# =============================================================================
+# Phase 7b — Post-boot PAN-OS day-0 config push
+# =============================================================================
+log "=== Phase 7b: Applying PAN-OS day-0 config (post-boot) ==="
+# Always run — idempotent verify+repair whether Azure Files bootstrap succeeded or not.
+# pip-pa-0-mgmt / pip-pa-1-mgmt are the management PIPs deployed by palo-alto.bicep.
+PA0_MGMT_IP=$(az network public-ip show -g "$RG" -n "pip-pa-0-mgmt" \
+    --query ipAddress -o tsv 2>/dev/null || true)
+PA1_MGMT_IP=$(az network public-ip show -g "$RG" -n "pip-pa-1-mgmt" \
+    --query ipAddress -o tsv 2>/dev/null || true)
+
+# Build comma-separated list of non-empty IPs
+MGMT_IPS_CSV=""
+for _ip in "$PA0_MGMT_IP" "$PA1_MGMT_IP"; do
+    [[ -z "$_ip" ]] && continue
+    MGMT_IPS_CSV="${MGMT_IPS_CSV:+${MGMT_IPS_CSV},}${_ip}"
+done
+
+if [[ -n "$MGMT_IPS_CSV" ]]; then
+    if ! bash "${SCRIPT_DIR}/apply-panos-config.sh" \
+        --mgmt-ips "$MGMT_IPS_CSV" \
+        --admin-username "$ADMIN_USERNAME" \
+        --admin-password "$ADMIN_PASSWORD"; then
+        log "  WARNING: PAN-OS config push reported errors on one or more firewalls. Check PA config/commit state before validating egress."
+    else
+        log "  ✔ PAN-OS day-0 config applied to all firewalls."
+    fi
+else
+    log "  WARNING: No PA management IPs found in outputs — cannot apply post-boot config."
 fi
 
 # =============================================================================
