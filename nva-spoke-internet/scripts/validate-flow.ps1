@@ -71,14 +71,14 @@ if ($rgEc -ne 0) {
 }
 Log "  Resource group: $Rg"
 
-$hubRouting = (az network vhub show -g $Rg -n $Hub --query routingState -o tsv 2>$null).Trim()
+$hubRouting = ([string](az network vhub show -g $Rg -n $Hub --query routingState -o tsv 2>$null)).Trim()
 if ($hubRouting -eq "Provisioned") {
     CheckPass "Hub '$Hub' routingState = Provisioned"
 } else {
     CheckFail "Hub '$Hub' routingState = $hubRouting (expected Provisioned)"
 }
 
-$HubId       = (az network vhub show -g $Rg -n $Hub --query id -o tsv 2>$null).Trim()
+$HubId       = ([string](az network vhub show -g $Rg -n $Hub --query id -o tsv 2>$null)).Trim()
 $DefaultRtId = "${HubId}/hubRouteTables/defaultRouteTable"
 
 # =============================================================================
@@ -238,8 +238,8 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ctJson)) {
 Log ""
 Log "=== Phase 3: Data-plane -- curl from spoke VMs ==="
 
-$PublicLbPip = (az network public-ip show -g $Rg -n pip-lb-public `
-    --query ipAddress -o tsv 2>$null).Trim()
+$PublicLbPip = ([string](az network public-ip show -g $Rg -n pip-lb-public `
+    --query ipAddress -o tsv 2>$null)).Trim()
 Log "  Public LB PIP (pip-lb-public): $PublicLbPip"
 Log "  Expected: VMs return this IP -- SNAT proof through NVA/Public LB"
 
@@ -347,8 +347,8 @@ Log ""
 Log "=== Phase 5: Standard Load Balancer metrics ==="
 Log "  (Non-zero values confirm active traffic; zero is normal when lab is idle)"
 
-$lbPublicId = (az network lb show -g $Rg -n lb-public --query id -o tsv 2>$null).Trim()
-$lbIlbId    = (az network lb show -g $Rg -n lb-ilb    --query id -o tsv 2>$null).Trim()
+$lbPublicId = ([string](az network lb show -g $Rg -n lb-public --query id -o tsv 2>$null)).Trim()
+$lbIlbId    = ([string](az network lb show -g $Rg -n lb-ilb    --query id -o tsv 2>$null)).Trim()
 
 if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
     CheckWarn "lb-public not found -- metrics phase skipped"
