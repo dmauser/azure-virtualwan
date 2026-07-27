@@ -8,10 +8,12 @@ This lab deploys a **Standard Azure Virtual WAN hub** (`10.100.0.0/23`) with two
 
 ![NVA DMZ spoke Internet egress topology](./media/nva-spoke-internet.svg)
 
+> 🖉 **[▶ Open this diagram in Excalidraw](https://excalidraw.com/#url=https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/nva-spoke-internet/media/nva-spoke-internet.excalidraw)** — opens the editable source in the Excalidraw web app.
+
 > 📐 **Editable diagram:** [`./media/nva-spoke-internet.excalidraw`](./media/nva-spoke-internet.excalidraw)
 > - Open in **VS Code** with the [Excalidraw extension](https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor) (edits render inline).
 > - Or go to **[excalidraw.com](https://excalidraw.com)** → *Menu → Open* and select the downloaded `.excalidraw` file.
-> - Direct raw source (after push): [open raw file](https://raw.githubusercontent.com/dmauser/azure-virtualwan/dmauser-musical-guide/nva-spoke-internet/media/nva-spoke-internet.excalidraw)
+> - Direct raw source: [open raw file](https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/nva-spoke-internet/media/nva-spoke-internet.excalidraw)
 
 ## Address Plan
 
