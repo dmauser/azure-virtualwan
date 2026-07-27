@@ -1,0 +1,10 @@
+#cloud-config
+# Workload VM: minimal toolset for connectivity validation
+package_update: true
+packages:
+  - iputils-ping
+  - traceroute
+  - tcpdump
+  - curl
+  - net-tools
+  - dnsutils

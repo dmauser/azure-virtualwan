@@ -164,9 +164,8 @@ ONPREM_NVA_PRIVATE_IP="$(get_output onpremNvaPrivateIp)"
 ONPREM_NVA_NAME="$(get_output onpremNvaName)"
 ONPREM_VM_NAME="$(get_output onpremVmName)"
 
-# defaultRouteTable resource ID (constructed; not a Bicep output)
-SUBSCRIPTION=$(az account show --query id -o tsv)
-DEFAULT_RT_ID="/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.Network/virtualHubs/${HUB}/hubRouteTables/defaultRouteTable"
+# defaultRouteTable resource ID — derived from the already-fetched HUB_ID output
+DEFAULT_RT_ID="${HUB_ID}/hubRouteTables/defaultRouteTable"
 
 log "  Hub             : $HUB"
 log "  VWAN            : $VWAN_NAME"
