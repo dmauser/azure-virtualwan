@@ -109,228 +109,83 @@
   3. Poll loop with configurable `MAX_WAIT_MIN=180`, `sleep 30`, abort with resume hint on timeout
   4. Timeout message includes instruction to re-run from Phase 9 onward
 
-## Session: 3vhub-er-ri live deployment (2026-05-26)
-
-**Deployment target:** DMAUSER-FDPO subscription (78216abe-8139-4b45-8715-6bab2010101e)
-**Phases executed:** 0-7 (stopped as requested before Phase 8)
-**Total elapsed:** ~52 minutes (15:08 → 16:00)
-
-### Phase timings
-| Phase | Duration | Notes |
-|-------|----------|-------|
-| 0 Pre-flight | ~4 min | Had to disable broken `nsp`, `portal`, `staticwebapp` extensions (WinError 5 access-denied on `.dist-info`); `azure-firewall` auto-installed on first use |
-| 1 RG + vWAN | ~22 sec | Smooth |
-| 2 3 vHubs | ~9 min | All 3 Succeeded; `--hub-routing-preference ASPath` accepted at create time (no fallback needed) |
-| 3 VNets + NSGs | ~87 sec | Smooth |
-| 4 VMs | ~8 min | **eastus capacity blocked ALL tested sizes** (DS1_v2, D2s_v5, D2s_v3, D4s_v3, B2s, A2_v2, B1s, etc.) — westus and centralus VMs created fine with DS1_v2 |
-| 5 Hub connections | ~2 min | All Succeeded quickly; routingState=Provisioned was immediate |
-| 6 ER circuits | ~10 min each (sequential) | eastus circuit first, then westus |
-| 7 Service keys | instant | Both keys printed |
-
-### CLI surprises / findings
-
-- **Windows PowerShell `--nsg ""`:** Empty string arg fails with "expected one argument". The `--nsg ''` also fails. Solution: omit `--nsg` entirely (subnet NSG from Phase 3 already applied).
-- **`--hub-routing-preference ASPath` at create time:** WORKS — no update fallback needed on CLI 2.83.0 with virtual-wan extension.
-- **Broken extensions (nsp, portal, staticwebapp):** These had unreadable `.dist-info` folders (`WinError 5`), causing ALL az commands to fail fatally. Fixed by renaming the extension folders to `.disabled`. This is a known environment-specific issue.
-- **eastus VM capacity:** Subscription DMAUSER-FDPO has no VM capacity in eastus for any standard size (DS1_v2, D2s_v3, D2s_v5, D4s_v3, E2s_v3, B2s, B1s, A2_v2, F2s, B4ms, DC2s_v3). Quota shows 0/100 used — this is a capacity restriction, not a quota issue. Likely subscription-type restriction. westus and centralus are unaffected.
-- **`--no-wait` exit code bug:** When `--no-wait` is used and the deployment fails at ARM preflight validation, some failures return exit code 0 (bug in az CLI). Always poll provisioning state after --no-wait to confirm actual success.
-
-### ER circuit IDs (for reference in Phase 9+)
-- `er-vhub-eastus`: service key `69ce114c-d9c2-4cd1-b61b-f3a9a94815fc`, location Washington DC
-- `er-vhub-westus`: service key `98843cf6-0a74-4472-910e-d672871ce388`, location Silicon Valley
-
-### VM public IPs
-- `vm-spoke-east`: **NOT CREATED** (eastus capacity restriction)
-- `vm-spoke-west`: `13.83.148.81` (westus, Standard_DS1_v2)
-- `vm-spoke-central`: `172.173.70.139` (centralus, Standard_DS1_v2)
-
-## Session: 3vhub-er-ri resume phases 8-15 (2026-05-26)
-
-**Deployment target:** DMAUSER-FDPO subscription (78216abe-8139-4b45-8715-6bab2010101e), RG `lab-3vhub-er-ri`
-**Requested by:** Daniel Mauser
-
-### Work Completed
-- Verified both ExpressRoute circuits were `serviceProviderProvisioningState=Provisioned`.
-- Created ER gateways `vhub-eastus-ergw` and `vhub-westus-ergw` with scale unit 1.
-- Connected ER gateways to existing AzurePrivatePeering objects: `conn-er-eastus` and `conn-er-westus` both `Succeeded`.
-- Created Basic firewall policies for eastus, westus, and centralus with `allow-all` network rule collections.
-- Deployed Basic hub Azure Firewalls on all 3 vHubs:
-  - `vhub-eastus-azfw` private IP `10.1.0.132`, public IP `13.72.86.117`
-  - `vhub-westus-azfw` private IP `10.2.0.132`, public IP `104.42.44.154`
-  - `vhub-centralus-azfw` private IP `10.3.0.132`, public IP `20.12.223.50`
-- Enabled Routing Intent for `PrivateTraffic` only on all 3 hubs, next hop = local hub firewall.
-
-### CLI Findings
-- Routing Intent CLI on this workstation requires `--vhub` and `next-hop` in the routing policy object; `--vhub-name` and `nextHop` failed validation.
-- Megaport had already created AzurePrivatePeering for both circuits, so no manual peering overwrite was performed.
-
-### Final VM public IPs
-- `vm-spoke-east`: `104.209.170.25`
-- `vm-spoke-west`: `13.83.148.81`
-- `vm-spoke-central`: `172.173.70.139`
-
-
-## Session: 3vhub-er-ri deploy speedup (2026-05-26T19:51:57-05:00)
-
-**Requested by:** Daniel Mauser
-
-### Work Completed
-- Reordered `3vhub-er-ri-deploy.azcli` so ExpressRoute circuits are created immediately after RG/vWAN, with service keys printed before vHub/spoke work.
-- Kept the Megaport human handoff pause, but changed it to wait for order placement only; provider `Provisioned` polling now happens immediately before ER gateway creation.
-- Parallelized per-region spoke network setup, ER gateway connections, firewall policy chains, and Routing Intent creation.
-- Replaced sequential spoke-connection and Routing Intent polling with combined all-resource polling loops.
-- Updated README considerations and deployment timing estimate to reflect the overlap strategy.
-
-### Rationale
-Expose Megaport service keys as early as possible and overlap external provider provisioning with independent Azure work while preserving deployed-resource semantics and interactive UX.
-
-## Session: svh-dynamic-er-ri initial build (2026-06-15)
+## Session: nva-spoke-internet Bicep IaC build (2026-07-24)
 
 **Requested by:** Daniel Mauser  
-**New lab:** `svh-dynamic-er-ri/` — dynamic N-hub reusable rebuild of `3vhub-er-ri`.
+**New lab:** `nva-spoke-internet/bicep/` — full Bicep IaC for the IPTables NVA internet-breakout lab.
 
 ### Files Created
-- `infra/bicep/modules/diagnostics.bicep` — optional Log Analytics workspace (PerGB2018, 30-day retention)
-- `infra/bicep/main.bicep` — RG-scoped orchestrator; loops over `hubs` array; deploys vWAN, vHubs, FW policies, firewalls, spoke VNets, conditional VMs, conditional ER gateways, Key Vault, optional diagnostics workspace
-- `infra/parameters/sample.singlehub.json` — single-hub example params
-- `infra/parameters/sample.multihub.json` — 3-hub example (eastus/westus/centralus, 2 with ER gateways)
-- `scripts/deploy.sh` + `scripts/deploy.ps1` — feature-equivalent interactive/non-interactive wrappers
-- `scripts/cleanup.sh` + `scripts/cleanup.ps1` — cleanup with `--vms-only`, `--er-only`, `--all` modes
 
-### Key Design Decisions
+| File | Description |
+|------|-------------|
+| `cloud-init/nva.yaml` | DMZ NVA: ip_forward, iptables MASQUERADE (eth0), FORWARD ACCEPT, SSH ACCEPT, netfilter-persistent save |
+| `cloud-init/onprem-nva.yaml` | On-prem NVA: strongSwan + FRR install, ip_forward, bgpd enabled, services enabled |
+| `cloud-init/workload.yaml` | Workload VM: ping, traceroute, tcpdump, curl, net-tools, dnsutils |
+| `modules/vm.bicep` | Generic Ubuntu 22.04 VM: password auth, managed boot diagnostics (no storageUri), StandardSSD_LRS, optional cloud-init, IP forwarding, public IP, static private IP, LB pool membership |
+| `modules/vwan-hub.bicep` | vWAN (vwan-nva-si) + vHub (hub-nva-si) + conditional VPN GW (vpngw-nva-si) |
+| `modules/dmz.bicep` | DMZ VNet (10.0.0.0/24), snet-nva + snet-ilb, NSG, UDR (0/0→Internet on snet-nva) |
+| `modules/public-lb.bicep` | Standard Public LB: PIP, TCP-22 probe, SSH LB rule (disableOutboundSnat=true), outbound SNAT rule |
+| `modules/internal-lb.bicep` | Standard ILB: static frontend 10.0.0.68 in snet-ilb, HA-ports rule (All/0/0) |
+| `modules/nva.bicep` | 2x NVA VMs (nva-dmz-0/1): loop, both in Public LB + ILB backend pools, cloud-init |
+| `modules/spoke.bicep` | Parameterized spoke VNet + workload subnet + VM; used for Spoke1 (10.1) and Spoke2 (10.2) |
+| `modules/onprem.bicep` | Always-deployed module with deployOnPrem gate; on-prem NVA (PIP + static IP) + workload VM + UDR |
+| `main.bicep` | RG-scoped orchestrator; wires all modules; 16-output contract for Alex's deploy.sh |
+| `main.bicepparam` | Sample params file (placeholder creds, deployOnPrem=false) |
 
-1. **Hub config includes `vmSize`** — per-hub vmSize in the hub array object (populated from `pick_vm_sku` pre-flight) avoids the eastus capacity issue from the live `3vhub-er-ri` deployment where a global vmSize would block all hubs.
+### Compile Result
 
-2. **Secrets passed inline, not in params file** — `adminPassword` passed as `--parameters adminPassword=...` to `az deployment group create`; params file contains everything else (including `adminUsername` and `sshPublicKey`). This keeps the generated JSON file inspectable without leaking the password.
+`az bicep build --file nva-spoke-internet/bicep/main.bicep` → **exit code 0, zero warnings** (after fixing BCP318 null-assertion and unused-var).
 
-3. **ER gateway creation dual-path** — ER gateways can be pre-created by Bicep (when `hub.deployErGateway=true`) OR created on-demand by the deploy script when the user maps a circuit to a hub at interactive prompt. Script checks for existence and creates if missing.
+### Key Bicep Learnings
 
-4. **No jq dependency** — hub/spoke/fw names are computed in the script from the naming convention instead of being parsed from deployment JSON outputs. Deployment outputs are still emitted for external tooling.
+1. **Conditional module output null-safety (BCP318):** When accessing properties of a conditional (`if (cond)`) resource inside a conditional module or ternary output, Bicep warns BCP318. Fix: use the non-null assertion operator `resource!.property` — communicates to Bicep that you know the resource exists when the branch is evaluated. Example: `vnet!.properties.subnets[0].id`, `nvaOnprem!.outputs.publicIp`.
 
-5. **Cleanup modes** — `--vms-only` deletes VMs+NICs+PIPs; `--er-only` deletes connections → gateways → circuits (in order); `--all` deletes the whole RG. All require explicit `yes` confirmation.
+2. **"Always deploy, gate inside" pattern for conditional modules:** Instead of `module foo = if (cond)` at the call site (which forces all outputs to be nullable), deploy the module unconditionally and gate resources inside via `if (deployOnPrem)`. Outputs return `''` when not deployed. This avoids `reference()` on undeployed resources and removes BCP318 from caller. Trade-off: the module file always runs through ARM, but with no actual resources created.
 
-6. **KV soft-delete note** — cleanup scripts remind users to purge the Key Vault via `az keyvault purge` since RG deletion leaves KV in 7-day soft-deleted state.
+3. **HA-ports ILB rule shape:** `protocol: 'All'`, `frontendPort: 0`, `backendPort: 0`, `enableFloatingIP: true`. Frontend IP MUST be static (`privateIPAllocationMethod: 'Static'`). API version `2024-05-01` required for LBs to access latest ARM schema cleanly.
 
-### Bicep notes
-- `contains(hub, 'vmSize') ? hub.vmSize : vmSize` used for per-hub vmSize override with global fallback (valid Bicep built-in for object property check on untyped array elements)
-- Conditional module loops `[for (hub, i) in hubs: if (hub.deployVm) {...}]` used for VMs and ER gateways
-- `hubRoutingPreference` = `ExpressRoute` is hardcoded in the `vhub.bicep` module; deploy script also runs a fallback `az network vhub update` check post-deployment
+4. **Public LB outbound rule coexistence:** LB rules MUST have `disableOutboundSnat: true` when an outbound rule is also defined on the same LB. Otherwise ARM rejects with a conflict error. The outbound rule uses `allocatedOutboundPorts: 0` (auto) and `enableTcpReset: true`.
 
-## Session: svh-dynamic-er-ri capacity pre-flight (2026-06-15)
+5. **cloud-init path resolution:** `loadFileAsBase64('../cloud-init/nva.yaml')` is resolved at Bicep **compile time** relative to the module file location (not CWD). From `modules/nva.bicep`, `../cloud-init/` resolves correctly to `bicep/cloud-init/`. This means the built ARM JSON embeds the base64-encoded cloud-init inline — no runtime file access needed.
 
-**Requested by:** Daniel Mauser  
-**Trigger:** svh-dynamic-er-ri live deployment succeeded on vWAN/vHub/Firewall (~30 min) then failed on VM with `SkuNotAvailable` / allocation capacity errors in eastus, eastus2, centralus, and westus2. The `az vm list-skus` restrictions check returned empty (appeared to allow the SKU) but allocation was blocked.  
+6. **customData conditional union pattern:** `union({osProfileBase}, empty(customData) ? {} : {customData: customData})` avoids sending an empty-string base64 blob as customData (which ARM accepts but is wasteful/confusing). Only include `customData` in `osProfile` when non-empty.
 
-### Work Completed
+7. **LB backend pool membership in looping module:** Pass `lbBackendPoolRefs array = []` to `vm.bicep` as `[{id: poolId1}, {id: poolId2}]` from the calling module. No `[for ...]` loop needed in the NIC ipConfig — `loadBalancerBackendAddressPools: lbBackendPoolRefs` is set directly. Works cleanly with the `[for i in range(0, 2)]` module loop in `nva.bicep`.
 
-Added Phase 5b VM capacity pre-flight to `deploy.ps1` and `deploy.sh`:
+8. **Unused param suppression via output:** If a param is needed post-deploy by scripts (e.g., `onpremBgpAsn`) but not used in any Bicep resource, emit it as a module output. This satisfies the Bicep linter and makes it available via `az deployment group show --query properties.outputs`.
 
-- **`Test-VmCapacity`** (PowerShell) / **`preflight_vm_capacity`** (bash): creates a throw-away resource group (`capcheck-<labPrefix>-<region>-<rand>`), a minimal VNet/subnet (`10.250.0.0/24`), and runs a **synchronous** `az vm create` (no `--no-wait`) with the chosen SKU. Capacity errors surface immediately. If the initial SKU fails, the function iterates through `$VmSkuCandidates` / `VM_SKU_CANDIDATES` in the same region. A working SKU is propagated back; if ALL candidates fail, the function aborts the run with a clear timestamped error before any vWAN/vHub resources are deployed.
-- **Probe RG always deleted**: bash uses explicit cleanup before every return; PS1 uses `try/finally`.
-- **Escape hatch**: `-SkipCapacityCheck` / `--skip-capacity-check` flag and `LAB_SKIP_CAPACITY_CHECK=1` env var bypass the probe with a warning.
-- **Phase placement**: after Phase 5 (params file written, all regions and SKUs known) and before Phase 6 (main Bicep deployment). Only runs when `deploy_vms=true` / `$DeployVms`.
+9. **DMZ snet-nva UDR (0/0 → Internet):** Critical safety route. When the vHub later programs 0/0 → ILB into the spoke VNets, the NVA subnet must not also receive that propagated route (it would create a routing loop). The UDR with `nextHopType: Internet` on snet-nva pins the NVA's own egress to Internet, overriding any hub-propagated default. `disableBgpRoutePropagation: false` is intentional — we still want specific routes from the hub, just not the 0/0.
 
-### Key CLI Learning
+10. **Output contract discipline:** All 16 outputs in `main.bicep` have exact names matching Alex's `deploy.sh` `jq` queries. Any rename breaks the deploy chain silently. Documented in `.squad/decisions.md` via inbox entry.
 
-`az vm list-skus ... restrictions` returns EMPTY even for capacity-blocked SKUs in some subscription types (confirmed DMAUSER-FDPO eastus, eastus2, centralus, westus2 — all returned no restrictions but allocation failed). The ONLY reliable capacity check is a real synchronous `az vm create`.
+### Address Plan Used
 
-### Abort message text (on total failure)
-
-```
-  ╔══════════════════════════════════════════════════════════════════╗
-  ║  ✗  VM CAPACITY PRE-FLIGHT FAILED — deployment aborted          ║
-  ╚══════════════════════════════════════════════════════════════════╝
-  Region     : <region>
-  Tried SKUs : <list>
-  Azure error: <first matching error line>
-
-  ➤ Suggested alternate regions to try:
-      eastus  eastus2  westus  westus2  westus3  centralus  southcentralus
-
-  ➤ Re-run deploy.ps1/deploy.sh and choose a different region for the affected hub.
-  ➤ No vWAN/vHub resources have been deployed — safe to re-run.
-```
-
-### Escape hatch names
-- PS1 flag: `-SkipCapacityCheck`  
-- SH flag: `--skip-capacity-check`  
-- Env var (both): `LAB_SKIP_CAPACITY_CHECK=1`
-
-### Verification Results
-- `deploy.ps1` PowerShell Parser → 0 parse errors ✔
-- `validate.ps1` PowerShell Parser → 0 parse errors ✔
-- `deploy.sh` bash -n → PASS, 0 CRLF ✔
-- `validate.sh` bash -n → PASS, 0 CRLF ✔
-
-## Learnings
-
-### Learning 1: Detached Deployment Processes (Windows) Do NOT Inherit CLI Context
-
-**Context:** Round 2 live deployment (2026-06-16).  
-**Problem:** Launching `deploy.ps1` with PowerShell background mode (`detach:true`) on Windows did not inherit az CLI login context or environment variables. The process ran but produced no resource group or deployment logs.  
-**Resolution:** Use `mode="async"` with `Tee-Object` for long-running deploys. Async (attached) mode preserves session environment variables and CLI context correctly.  
-**Implication:** All long-deploy orchestration should use async-attached, not detached background processes.
-
-### Learning 2: Subscription 78216abe Does NOT Support Bring-Your-Own-Public-IP
-
-**Context:** Round 2 live deployment (2026-06-16).  
-**Restriction:** Subscription 78216abe-8139-4b45-8715-6bab2010101e is **not registered** for `Microsoft.Network/AllowBringYourOwnPublicIpAddress`.  
-**Implication:** VMs must be created with `attachPublicIp=false` at deploy time (lab default is correct). Attempting to add a public IP post-VM-creation fails with HTTP 403 (Forbidden).  
-**Workaround:** Accept no-public-IP default. Access VMs via Azure Serial Console (built-in) or VM-to-VM SSH within the lab VNet (password auth via Key Vault).  
-**Lesson:** Subscription type and feature registration constraints must be validated early (Phase 0 pre-flights). Lab defaults (no public IP) are correct for restricted subscriptions.
+| Resource | CIDR / IP |
+|----------|-----------|
+| vWAN Hub | 10.100.0.0/23 |
+| DMZ VNet | 10.0.0.0/24 |
+| snet-nva (DMZ) | 10.0.0.0/26 |
+| snet-ilb (DMZ) | 10.0.0.64/26 |
+| ILB frontend (static) | 10.0.0.68 |
+| Spoke1 VNet | 10.1.0.0/24 → snet-workload 10.1.0.0/26 |
+| Spoke2 VNet | 10.2.0.0/24 → snet-workload 10.2.0.0/26 |
+| On-prem VNet | 192.168.100.0/24 |
+| snet-nva (on-prem) | 192.168.100.0/27 |
+| snet-workload (on-prem) | 192.168.100.32/27 |
+| On-prem NVA (static) | 192.168.100.4 |
 
 ---
 
-## Cross-Agent Note: Amos Script Hardening (2026-06-16)
+## Team Update: 2026-07-24
 
-**From:** Scribe (recording Amos discoveries)  
-**For:** Naomi (owns deploy.ps1 / deploy.sh)  
-**Topic:** Script hardening standards from live validation
+**Lab Status:** nva-spoke-internet Bicep rebuild **COMPLETE & VALIDATED**
 
-Amos fixed two critical query patterns in validate.ps1/validate.sh that directly affect your deploy scripts:
+The team successfully rebuilt the nva-spoke-internet lab infrastructure as code. All agents contributed:
+- naomi: 13 Bicep files
+- alex: 6 deployment scripts
+- holden: README + topology diagram
+- amos: QA validation (8/8 PASS + 1 LOW defect fixed)
 
-1. **vWAN tier query:** Use `--query typePropertiesType` (not `--query sku`). The az CLI remaps ARM `properties.type` → `typePropertiesType`. Your code likely references this for vWAN Standard/Basic tier checks.
+Lab is ready for end-to-end testing.
 
-2. **Allow-all firewall rule query:** Use `ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]` (flatten with `[]` before filtering). The pattern `[0][0]` against a projected list-of-lists always returns null.
-
-3. **Phase 10 ER provider pause:** Amos added a non-interactive guard: if `$IsNonInteractive` (PS) or `NON_INTERACTIVE=1` (bash), print guidance and skip blocking prompts. This prevents CI pipelines and `pwsh -NonInteractive` from hanging on `Read-Host` at the ER provider pause.
-
-**Action:** If your deploy.ps1/deploy.sh queries vWAN SKU or allow-all rules, update them to use the corrected patterns. Add non-interactive guards to any operator-interaction prompts.
-
-**Skill reference:** See `.squad/skills/azure-validation-queries/SKILL.md` for the canonical az CLI query patterns for vWAN, firewall, and connectivity validation.
-
----
-
-## Session: connect-er standalone scripts (2026-06-16)
-
-**Requested by:** Daniel Mauser
-**Trigger:** Circuits provisioned by Megaport; user needs to connect them to vHub ER gateways without re-running the full deploy.ps1.
-
-### Work Completed
-
-Created two standalone post-provisioning scripts in `svh-dynamic-er-ri/scripts/`:
-- **connect-er.ps1** (PowerShell 7+, #Requires -Version 7.0)
-- **connect-er.sh** (bash, set -euo pipefail, LF-only)
-
-### ER Circuit → vHub Gateway Connection Pattern
-
-**Exact CLI sequence:**
-1. `az network express-route list -g <rg>` — discover circuits, check `serviceProviderProvisioningState`
-2. `az network vhub list -g <rg>` — discover hubs + locations
-3. `az network express-route gateway show -g <rg> -n <hub>-ergw` — check/create gateway with `--min-val 1 --virtual-hub <hub>`
-4. `az network express-route show -g <rg> -n <circuit> --query 'peerings[0].id' -o tsv` — get AzurePrivatePeering id
-5. `az network vhub route-table show --name defaultRouteTable --vhub-name <hub> -g <rg> --query id -o tsv` — get default route table id
-6. `az network express-route gateway connection create --name <hub>-conn-to-<circuit> -g <rg> --gateway-name <hub>-ergw --peering <peeringId> --associated-route-table <rtid> --propagated-route-tables <rtid> --labels default -o none`
-7. Poll `az network express-route gateway connection show --query provisioningState` to `Succeeded`
-
-**Idempotency approach:** Before creating, call `az network express-route gateway connection list --gateway-name <hub>-ergw` and check for a connection named `<hub>-conn-to-<circuit>`. If found, skip with "AlreadyConnected".
-
-**Connection name convention:** `${targetHub}-conn-to-${circuitName}`
-
-**Non-interactive mode:** Pass `-CircuitHubMap "circuit=hub,circuit=hub"` (PS) or `--circuit-hub-map "circuit=hub,circuit=hub"` (bash). Also honoured via `LAB_CIRCUIT_HUB_MAP` env var. Interactive mode: prompts "Connect <circuit> to which hub number? [1]".
-
-**Poll timeout:** Uses iteration counter (not wall-clock), max configurable via `-MaxWaitMin`/`--max-wait-min` (default 20 min = 40 × 30 s). On timeout: prints warning and continues (does not hard-fail the run).
-
-### Verification
-- `connect-er.ps1` PowerShell Parser → 0 parse errors ✔
-- `connect-er.sh` bash -n → PASS, 0 CRLF ✔
+**2026-07-24 — DEPLOYMENT STATUS:** lab is LIVE in DMAUSER-FDPO (eastus2, B2s), 7/7 validation PASS — Alex

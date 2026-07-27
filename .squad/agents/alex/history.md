@@ -1,57 +1,97 @@
 # Alex — History
 
-## Project Context
-- **Project:** azure-virtualwan — Azure Virtual WAN lab scenarios and deployment scripts
-- **Stack:** Azure CLI (.azcli), Bicep, ARM JSON, Bash/Shell
-- **Domain:** Azure Networking (Virtual WAN, VPN, ExpressRoute, BGP, NVAs, Azure Firewall, Secured Virtual Hubs, Routing Intent)
-- **User:** Daniel Mauser
-- **Created:** 2026-05-04
+**Last Updated:** 2026-07-27  
+**Note:** Full session history archived to history-archive.md (19.6 KB).
 
-## Session: unified-lab-phase1 (2026-05-04T17:02:00Z)
+## Core Identity
 
-### Work Completed
-- Built `main.bicep` orchestrator to drive Phase 1 topology decisions
-- Implemented decision-tree logic selecting preset configuration based on user topology preference
-- Created 2 connectivity modules:
-  - `vnet-connection.bicep` — vWAN vNet connection with delegation and route propagation
-  - `vpn-site.bicep` — VPN site provisioning with address prefix and link bandwidth config
-- Established module composition pattern that allows main.bicep to call core modules (from Naomi) + connectivity modules as single declarative flow
+- **Role:** Network Engineer  
+- **Stack:** Azure CLI, Bicep, ARM JSON, Bash/PowerShell
+- **Domain:** Azure Networking (Virtual WAN, custom NVAs, Routing Intent, ER/VPN)
+- **Key Labs Authored:** svh-dynamic-er-ri, nva-spoke-internet
 
-### Key Insight
-Orchestrator layer benefits from clear module interfaces (input parameters, output IDs). Decision-tree logic in main.bicep decouples topology selection from infrastructure details, enabling presets to drive deployment without orchestrator rewrites. Module interdependencies require careful dependency ordering (hubs before sites, connections after both).
+---
 
-## Learnings
+## Key Learnings (Session: nva-spoke-internet)
 
-- `Microsoft.Network/virtualHubs/routingIntent` rejects deployment if the hub firewall is not in `Succeeded` state; Bicep modules must enforce `dependsOn` on the firewall resource, while CLI scripts use post-provisioning `az network vhub routing-intent create`.
-- Routing Intent destination strings are ARM-canonical: `'PrivateTraffic'` (RFC-1918 aggregate) and `'Internet'` (0.0.0.0/0). Policy names (`PrivateTraffic`, `InternetTraffic`) are labels only.
-- Azure Firewall Basic tier in secured-hub mode supports `internetOnly`/`both` Routing Intent for connectivity testing but lacks IDPS and TLS inspection; document the Basic-tier caveat in any lab that uses these modes.
-- Routing Intent is mutually exclusive with custom hub route tables; never add static routes to `defaultRouteTable` that overlap RI destinations.
-- `hubRoutingPreference = ExpressRoute` is a lab-wide invariant for svh-dynamic-er-ri; fixed in `vhub.bicep` and validated by assertion scripts.
-- **VNet connection `enableInternetSecurity` (Propagate Default Route)** is a silent prerequisite for Routing Intent internet modes: if omitted (default false), the `0.0.0.0/0` default route is NOT injected into the spoke and internet traffic bypasses the hub firewall. Must be set to `true` via `--internet-security true` in CLI (`az network vhub connection create`) for any `internetOnly` or `both` RI mode. The Bicep path sets it unconditionally (`enableInternetSecurity: true`); the CLI path must set it conditionally based on the selected RI mode.
-- In multi-hub deployments with private Routing Intent, inter-hub spoke-to-spoke traffic is inspected by the firewall in BOTH the source and destination hubs (double inspection). Azure Firewall Basic is ~250 Mbps aggregate — cross-hub throughput is approximately halved in lab measurements.
-- When validating RI internet mode, the most reliable assertion is `az network vhub connection show ... --query enableInternetSecurity` — this checks the control-plane flag directly without requiring data-plane traffic. Asserting the presence of `0.0.0.0/0` in effective routes requires the connection and RI to be fully provisioned and the route table to be populated, which can be timing-dependent in CI.
+### Virtual WAN Custom NVA Routing (no Routing Intent)
 
-## Team Update: 3vhub-er-ri Lab (2026-05-26)
-- Naomi delivered new `3vhub-er-ri/` lab: 3-region vWAN with ER (East+West via Megaport), AzFw Basic all hubs, RI (private). Uses native CLI for RI (no Bicep), ASPath hub preference, single interactive script with ER pause-poll pattern. LABS_INDEX.md updated.
+Two CLI operations required for spoke→NVA→internet traffic:
 
-## Session: svh-dynamic-er-ri Lab Delivery (2026-06-15)
+1. **DMZ connection static route** — `az network vhub connection create` with `--route-name`, `--address-prefixes "0.0.0.0/0"`, `--next-hop <ILB-IP>`
+2. **Hub defaultRouteTable static route** — `az network vhub route-table route add --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $CONN_DMZ_ID`
 
-### Lab Delivered
-**svh-dynamic-er-ri** — Dynamic replacement for `3vhub-er-ri`. Parameterized 1–4 hubs with ExpressRoute, Azure Firewall Basic, Routing Intent. Uses **ExpressRoute** hubRoutingPreference (not ASPath as in 3vhub-er-ri).
+**Key distinction:** Do NOT set `--internet-security` true when using custom static routes (that flag is only for Routing Intent modes).
 
-### Work Completed
-- Authored `routing-intent.bicep` defining all three RI modes (privateOnly, internetOnly, both) with canonical ARM JSON shapes
-- Documented routing design in `alex-routing-design.md`: ExpressRoute preference rationale, RI JSON schemas, destination strings, global mode enforcement, Azure Firewall Basic caveat, no custom route tables rule, resource naming convention
-- Validated RI modes against reference lab and ARM API requirements
+### VNet Connections Must Be Post-Deploy
 
-### Key Decisions Made
-1. **ExpressRoute preference (not ASPath)**: Simpler, more predictable for single-ER-per-hub topologies in dynamic labs
-2. **All RI modes supported**: privateOnly (default), internetOnly, both — with documented Basic SKU Internet caveat
-3. **No custom hub route tables**: RI incompatible with static routes overlapping destinations
-4. **Naming contract**: `<hubName>/<hubName>-ri` for RI child resources
+VNet connections cannot be created in Bicep due to hub routingState timing issues. Always poll `routingState == Provisioned` before creating connections.
 
-### Learnings Confirmed
-- RI destination strings are ARM-canonical: `PrivateTraffic` (RFC-1918 aggregate), `Internet` (0.0.0.0/0)
-- Basic tier lacks IDPS/TLS inspection; document for internetOnly/both modes
-- Routing Intent requires firewall `Succeeded` state; CLI creation after firewall deployment (Naomi's scripts)
-- Global RI mode (same mode on all hubs) prevents asymmetric routing
+### On-Prem BGP-over-IPsec
+
+- **strongSwan**: IKEv2, one `conn` per hub GW instance (active/active=2), route-based (0.0.0.0/0), `auto=start`, `dpdaction=restart`
+- **FRR**: `router bgp 65001`, two neighbors, `ebgp-multihop 5` required (BGP peer not directly connected)
+- **PSK pattern**: Create connection first, then `vpn-site-link-conn sharedkey update` separately
+- **Hub queries**: `ipConfigurations[0].publicIpAddress` and `bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]`
+
+### Bicep Output Contract (nva-spoke-internet)
+
+Consumed outputs: location, vwanName, hubName, hubId, dmzVnetId, spoke1VnetId, spoke2VnetId, ilbFrontendIp, publicLbPublicIp, nvaNames, vpnGatewayName, onpremVnetId, onpremNvaPublicIp, onpremNvaPrivateIp, onpremNvaName, onpremVmName
+
+Params TO Bicep: location, adminUsername, adminPassword, vmSize, deployOnPrem, onpremBgpAsn
+
+Key constant: ILB frontend IP = **10.0.0.68** (in DMZ 10.0.0.0/24)
+
+### Deploy.ps1 Fixes (D1–D4)
+
+1. Non-interactive password via ``
+2. DeployOnPrem prompt fix using `System.Management.Automation.PSBoundParametersDictionary.ContainsKey()`
+3. DefaultRtId reuse (eliminate redundant `az account show`)
+4. Windows empty-string bug: pre-create NIC instead of passing `--public-ip-address ""`
+
+### Live Validation Results
+
+**Deployment on DMAUSER-FDPO (2026-07-24, Phases 1–13):**
+- **Resources:** All 24 present (hub, vWAN, 3 VNets, 2 NVAs, 2 workload VMs, Public LB, ILB, etc.)
+- **Hub routingState:** Provisioned ✅
+- **Routing:** defaultRouteTable 0/0→conn-dmz ✅ | conn-dmz static 0/0→10.0.0.68 ✅
+- **Effective routes:** Spoke NICs see 0.0.0.0/0 via VirtualNetworkGateway ✅
+- **Egress (curl ifconfig.io):** Returned Public LB PIP (20.65.77.169) ✅
+- **East-west (Spoke1→Spoke2):** 3/3 pings, 0% loss ✅
+- **LB metrics:** All 7 metrics on public LB + 3 on ILB collected ✅
+
+**Status: PASS 12 / FAIL 0 / WARN 2** (warnings = Network Watcher not enabled, expected)
+
+### Flow Validation & Monitoring Scripts (2026-07-27)
+
+**validate-flow.sh/.ps1:** 5-phase read-only validation—
+1. Pre-checks (az login, RG, hub routingState)
+2. Control-plane (route table routes, effective routes, Network Watcher tests)
+3. Data-plane (curl ifconfig.io from spoke VMs)
+4. NVA evidence (iptables, conntrack, tcpdump)
+5. LB metrics (Standard LB namespace)
+
+**enable-monitoring.sh/.ps1:** 6-phase optional provisioning—
+1. Pre-checks
+2. Log Analytics workspace (30-day retention)
+3. Storage account (Standard_LRS)
+4. Network Watcher ensure-exists
+5. VNet flow logs (future-proofed; NSG flow logs retire Sept 2027)
+6. LB diagnostic settings (AllMetrics to workspace)
+
+### EXPECTED-RESULTS.md is Canonical Baseline
+
+The `nva-spoke-internet/EXPECTED-RESULTS.md` file captures the healthy state from live deployment (PASS 12/FAIL 0/WARN 2). README links to it. Entire lab infrastructure now committed under nva-spoke-internet/, ready for branch push + PR review.
+
+---
+
+## Decision References
+
+See `.squad/decisions.md` for detailed decision entries including:
+- Bicep lab decisions (Phase 1–4)
+- vWAN NVA routing wiring
+- Deploy script patterns
+- Diagram relocation
+- Flow validation & monitoring (all decisions timestamped with rationale)
+
+Full session history available in `history-archive.md`.

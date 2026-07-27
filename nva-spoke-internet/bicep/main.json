@@ -1,0 +1,2810 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.42.1.51946",
+      "templateHash": "6694197551390087565"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "metadata": {
+        "description": "Azure region for all resources"
+      }
+    },
+    "adminUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "Admin username for all VMs"
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Admin password for all VMs"
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "metadata": {
+        "description": "VM size (B-series); validated against region by deploy.sh before calling this template"
+      }
+    },
+    "deployOnPrem": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Deploy the on-premises simulation (VPN GW + on-prem VNet/NVA/VM)"
+      }
+    },
+    "onpremBgpAsn": {
+      "type": "int",
+      "defaultValue": 65001,
+      "metadata": {
+        "description": "BGP ASN for the on-prem NVA (used by configure-onprem.sh after deploy)"
+      }
+    }
+  },
+  "variables": {
+    "tags": {
+      "lab": "nva-spoke-internet",
+      "deployedBy": "bicep"
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "vwan-hub-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "deployOnPrem": {
+            "value": "[parameters('deployOnPrem')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "17947635037829874480"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "deployOnPrem": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Deploy S2S VPN Gateway inside the hub (required for on-prem option)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "vwanName": "vwan-nva-si",
+            "hubName": "hub-nva-si",
+            "vpnGwName": "vpngw-nva-si"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualWans",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('vwanName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "type": "Standard",
+                "allowBranchToBranchTraffic": true,
+                "disableVpnEncryption": false
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualHubs",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('hubName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualWan": {
+                  "id": "[resourceId('Microsoft.Network/virtualWans', variables('vwanName'))]"
+                },
+                "addressPrefix": "10.100.0.0/23",
+                "sku": "Standard"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualWans', variables('vwanName'))]"
+              ]
+            },
+            {
+              "condition": "[parameters('deployOnPrem')]",
+              "type": "Microsoft.Network/vpnGateways",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('vpnGwName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "virtualHub": {
+                  "id": "[resourceId('Microsoft.Network/virtualHubs', variables('hubName'))]"
+                },
+                "vpnGatewayScaleUnit": 1,
+                "bgpSettings": {
+                  "asn": 65515
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualHubs', variables('hubName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vwanName": {
+              "type": "string",
+              "metadata": {
+                "description": "Virtual WAN name"
+              },
+              "value": "[variables('vwanName')]"
+            },
+            "hubName": {
+              "type": "string",
+              "metadata": {
+                "description": "Virtual Hub name"
+              },
+              "value": "[variables('hubName')]"
+            },
+            "hubId": {
+              "type": "string",
+              "metadata": {
+                "description": "Virtual Hub resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/virtualHubs', variables('hubName'))]"
+            },
+            "vpnGatewayName": {
+              "type": "string",
+              "metadata": {
+                "description": "VPN Gateway name; empty string when not deployed"
+              },
+              "value": "[if(parameters('deployOnPrem'), variables('vpnGwName'), '')]"
+            },
+            "vpnGatewayId": {
+              "type": "string",
+              "metadata": {
+                "description": "VPN Gateway resource ID; empty string when not deployed"
+              },
+              "value": "[if(parameters('deployOnPrem'), resourceId('Microsoft.Network/vpnGateways', variables('vpnGwName')), '')]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "dmz-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "5116311379132765858"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-11-01",
+              "name": "nsg-dmz",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-SSH-Inbound",
+                    "properties": {
+                      "priority": 100,
+                      "protocol": "Tcp",
+                      "access": "Allow",
+                      "direction": "Inbound",
+                      "sourceAddressPrefix": "*",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRange": "22",
+                      "description": "Allow SSH inbound for mgmt and health probe"
+                    }
+                  },
+                  {
+                    "name": "Allow-RFC1918-Inbound",
+                    "properties": {
+                      "priority": 110,
+                      "protocol": "*",
+                      "access": "Allow",
+                      "direction": "Inbound",
+                      "sourceAddressPrefixes": [
+                        "10.0.0.0/8",
+                        "172.16.0.0/12",
+                        "192.168.0.0/16"
+                      ],
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "*",
+                      "destinationPortRange": "*",
+                      "description": "Allow all RFC-1918 traffic inbound (spoke + hub traffic)"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/routeTables",
+              "apiVersion": "2023-11-01",
+              "name": "udr-snet-nva",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "disableBgpRoutePropagation": false,
+                "routes": [
+                  {
+                    "name": "to-internet",
+                    "properties": {
+                      "addressPrefix": "0.0.0.0/0",
+                      "nextHopType": "Internet"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "vnet-dmz",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "10.0.0.0/24"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-nva",
+                    "properties": {
+                      "addressPrefix": "10.0.0.0/26",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', 'nsg-dmz')]"
+                      },
+                      "routeTable": {
+                        "id": "[resourceId('Microsoft.Network/routeTables', 'udr-snet-nva')]"
+                      }
+                    }
+                  },
+                  {
+                    "name": "snet-ilb",
+                    "properties": {
+                      "addressPrefix": "10.0.0.64/26",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', 'nsg-dmz')]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', 'nsg-dmz')]",
+                "[resourceId('Microsoft.Network/routeTables', 'udr-snet-nva')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "DMZ VNet resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', 'vnet-dmz')]"
+            },
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "DMZ VNet name"
+              },
+              "value": "vnet-dmz"
+            },
+            "snetNvaId": {
+              "type": "string",
+              "metadata": {
+                "description": "snet-nva subnet resource ID"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', 'vnet-dmz'), '2023-11-01').subnets[0].id]"
+            },
+            "snetIlbId": {
+              "type": "string",
+              "metadata": {
+                "description": "snet-ilb subnet resource ID"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', 'vnet-dmz'), '2023-11-01').subnets[1].id]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "public-lb-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "12245902278238350105"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "lbName": "lb-public",
+            "pipName": "pip-lb-public",
+            "frontendName": "frontend",
+            "backendName": "nva-backend",
+            "probeName": "health-probe-ssh"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/publicIPAddresses",
+              "apiVersion": "2023-11-01",
+              "name": "[variables('pipName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "publicIPAllocationMethod": "Static"
+              }
+            },
+            {
+              "type": "Microsoft.Network/loadBalancers",
+              "apiVersion": "2023-11-01",
+              "name": "[variables('lbName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard"
+              },
+              "properties": {
+                "frontendIPConfigurations": [
+                  {
+                    "name": "[variables('frontendName')]",
+                    "properties": {
+                      "publicIPAddress": {
+                        "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('pipName'))]"
+                      }
+                    }
+                  }
+                ],
+                "backendAddressPools": [
+                  {
+                    "name": "[variables('backendName')]"
+                  }
+                ],
+                "probes": [
+                  {
+                    "name": "[variables('probeName')]",
+                    "properties": {
+                      "protocol": "Tcp",
+                      "port": 22,
+                      "intervalInSeconds": 5,
+                      "numberOfProbes": 2
+                    }
+                  }
+                ],
+                "loadBalancingRules": [
+                  {
+                    "name": "ssh-mgmt",
+                    "properties": {
+                      "frontendIPConfiguration": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('lbName'), variables('frontendName'))]"
+                      },
+                      "backendAddressPool": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('lbName'), variables('backendName'))]"
+                      },
+                      "probe": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('lbName'), variables('probeName'))]"
+                      },
+                      "protocol": "Tcp",
+                      "frontendPort": 22,
+                      "backendPort": 22,
+                      "enableFloatingIP": false,
+                      "idleTimeoutInMinutes": 4,
+                      "disableOutboundSnat": true
+                    }
+                  }
+                ],
+                "outboundRules": [
+                  {
+                    "name": "snat-outbound",
+                    "properties": {
+                      "frontendIPConfigurations": [
+                        {
+                          "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('lbName'), variables('frontendName'))]"
+                        }
+                      ],
+                      "backendAddressPool": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('lbName'), variables('backendName'))]"
+                      },
+                      "protocol": "All",
+                      "allocatedOutboundPorts": 0,
+                      "enableTcpReset": true,
+                      "idleTimeoutInMinutes": 4
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/publicIPAddresses', variables('pipName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "lbId": {
+              "type": "string",
+              "metadata": {
+                "description": "Public LB resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/loadBalancers', variables('lbName'))]"
+            },
+            "backendPoolId": {
+              "type": "string",
+              "metadata": {
+                "description": "Backend pool resource ID (used by NVA NICs)"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/loadBalancers', variables('lbName')), '2023-11-01').backendAddressPools[0].id]"
+            },
+            "publicIpAddress": {
+              "type": "string",
+              "metadata": {
+                "description": "Public IP address of the LB frontend (egress/mgmt IP)"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', variables('pipName')), '2023-11-01').ipAddress]"
+            },
+            "publicIpId": {
+              "type": "string",
+              "metadata": {
+                "description": "Public IP resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/publicIPAddresses', variables('pipName'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "ilb-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "snetIlbId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'dmz-deploy'), '2025-04-01').outputs.snetIlbId.value]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "1392748234106176803"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "snetIlbId": {
+              "type": "string",
+              "metadata": {
+                "description": "snet-ilb subnet resource ID (10.0.0.64/26 in vnet-dmz)"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "lbName": "lb-ilb",
+            "frontendName": "frontend",
+            "backendName": "nva-backend",
+            "probeName": "health-probe-ssh",
+            "ilbFrontendIp": "10.0.0.68"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/loadBalancers",
+              "apiVersion": "2024-05-01",
+              "name": "[variables('lbName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Regional"
+              },
+              "properties": {
+                "frontendIPConfigurations": [
+                  {
+                    "name": "[variables('frontendName')]",
+                    "properties": {
+                      "subnet": {
+                        "id": "[parameters('snetIlbId')]"
+                      },
+                      "privateIPAddress": "[variables('ilbFrontendIp')]",
+                      "privateIPAllocationMethod": "Static"
+                    }
+                  }
+                ],
+                "backendAddressPools": [
+                  {
+                    "name": "[variables('backendName')]"
+                  }
+                ],
+                "probes": [
+                  {
+                    "name": "[variables('probeName')]",
+                    "properties": {
+                      "protocol": "Tcp",
+                      "port": 22,
+                      "intervalInSeconds": 5,
+                      "numberOfProbes": 2
+                    }
+                  }
+                ],
+                "loadBalancingRules": [
+                  {
+                    "name": "ha-ports-rule",
+                    "properties": {
+                      "frontendIPConfiguration": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('lbName'), variables('frontendName'))]"
+                      },
+                      "backendAddressPool": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('lbName'), variables('backendName'))]"
+                      },
+                      "probe": {
+                        "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('lbName'), variables('probeName'))]"
+                      },
+                      "protocol": "All",
+                      "frontendPort": 0,
+                      "backendPort": 0,
+                      "enableFloatingIP": true,
+                      "idleTimeoutInMinutes": 4
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "outputs": {
+            "lbId": {
+              "type": "string",
+              "metadata": {
+                "description": "ILB resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/loadBalancers', variables('lbName'))]"
+            },
+            "backendPoolId": {
+              "type": "string",
+              "metadata": {
+                "description": "Backend pool resource ID (used by NVA NICs)"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/loadBalancers', variables('lbName')), '2024-05-01').backendAddressPools[0].id]"
+            },
+            "frontendIpAddress": {
+              "type": "string",
+              "metadata": {
+                "description": "ILB frontend private IP address (= 10.0.0.68, the 0/0 next-hop for the hub)"
+              },
+              "value": "[variables('ilbFrontendIp')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'dmz-deploy')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "nva-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "snetNvaId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'dmz-deploy'), '2025-04-01').outputs.snetNvaId.value]"
+          },
+          "publicLbBackendPoolId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'public-lb-deploy'), '2025-04-01').outputs.backendPoolId.value]"
+          },
+          "ilbBackendPoolId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ilb-deploy'), '2025-04-01').outputs.backendPoolId.value]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "1398689245421147432"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "snetNvaId": {
+              "type": "string",
+              "metadata": {
+                "description": "snet-nva subnet resource ID (10.0.0.0/26 in vnet-dmz)"
+              }
+            },
+            "publicLbBackendPoolId": {
+              "type": "string",
+              "metadata": {
+                "description": "Public LB backend pool resource ID"
+              }
+            },
+            "ilbBackendPoolId": {
+              "type": "string",
+              "metadata": {
+                "description": "ILB backend pool resource ID"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "metadata": {
+                "description": "Admin username"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Admin password (secure)"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_B2s",
+              "metadata": {
+                "description": "VM size"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "nvaCloudInit": "I2Nsb3VkLWNvbmZpZw0KIyBETVogTlZBOiBlbmFibGUgSVAgZm9yd2FyZGluZyArIGlwdGFibGVzIE1BU1FVRVJBREUgZm9yIHNwb2tlIGludGVybmV0IGVncmVzcw0KcGFja2FnZV91cGRhdGU6IHRydWUNCnBhY2thZ2VzOg0KICAtIGlwdGFibGVzLXBlcnNpc3RlbnQNCg0Kd3JpdGVfZmlsZXM6DQogIC0gcGF0aDogL2V0Yy9zeXNjdGwuZC85OS1pcC1mb3J3YXJkLmNvbmYNCiAgICBjb250ZW50OiB8DQogICAgICBuZXQuaXB2NC5pcF9mb3J3YXJkID0gMQ0KICAgIG93bmVyOiByb290OnJvb3QNCiAgICBwZXJtaXNzaW9uczogJzA2NDQnDQoNCnJ1bmNtZDoNCiAgLSBzeXNjdGwgLXcgbmV0LmlwdjQuaXBfZm9yd2FyZD0xDQogICMgTUFTUVVFUkFERSBhbGwgb3V0Ym91bmQgdHJhZmZpYyBvbiBldGgwIChTTkFUJ2QgYWdhaW4gYnkgUHVibGljIExCIG91dGJvdW5kIHJ1bGUpDQogIC0gaXB0YWJsZXMgLXQgbmF0IC1BIFBPU1RST1VUSU5HIC1vIGV0aDAgLWogTUFTUVVFUkFERQ0KICAjIEFsbG93IGZvcndhcmRlZCB0cmFmZmljIChkZWZhdWx0IEZPUldBUkQgcG9saWN5IGlzIERST1Agb24gVWJ1bnR1KQ0KICAtIGlwdGFibGVzIC1BIEZPUldBUkQgLWogQUNDRVBUDQogICMgQWxsb3cgU1NIIGluYm91bmQgKGhlYWx0aCBwcm9iZSArIG1nbXQpDQogIC0gaXB0YWJsZXMgLUEgSU5QVVQgLXAgdGNwIC0tZHBvcnQgMjIgLWogQUNDRVBUDQogICMgUGVyc2lzdCBydWxlcyBhY3Jvc3MgcmVib290cw0KICAtIG5ldGZpbHRlci1wZXJzaXN0ZW50IHNhdmUNCg=="
+          },
+          "resources": [
+            {
+              "copy": {
+                "name": "nvaVm",
+                "count": "[length(range(0, 2))]"
+              },
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('nva-dmz-{0}-deploy', range(0, 2)[copyIndex()])]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "[format('nva-dmz-{0}', range(0, 2)[copyIndex()])]"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[parameters('snetNvaId')]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "customData": {
+                    "value": "[variables('nvaCloudInit')]"
+                  },
+                  "enableIPForwarding": {
+                    "value": true
+                  },
+                  "attachPublicIp": {
+                    "value": false
+                  },
+                  "lbBackendPoolRefs": {
+                    "value": [
+                      {
+                        "id": "[parameters('publicLbBackendPoolId')]"
+                      },
+                      {
+                        "id": "[parameters('ilbBackendPoolId')]"
+                      }
+                    ]
+                  },
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.42.1.51946",
+                      "templateHash": "3068182848726013202"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      }
+                    },
+                    "location": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Azure region"
+                      }
+                    },
+                    "subnetId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Subnet resource ID for the primary NIC"
+                      }
+                    },
+                    "adminUsername": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Admin username"
+                      }
+                    },
+                    "adminPassword": {
+                      "type": "securestring",
+                      "metadata": {
+                        "description": "Admin password (secure)"
+                      }
+                    },
+                    "vmSize": {
+                      "type": "string",
+                      "defaultValue": "Standard_B2s",
+                      "metadata": {
+                        "description": "VM size (B-series recommended for cost)"
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Resource tags"
+                      }
+                    },
+                    "customData": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Base64-encoded cloud-init (customData). Use loadFileAsBase64() at call site. Empty = no cloud-init."
+                      }
+                    },
+                    "enableIPForwarding": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Enable IP forwarding on the NIC. Set true for NVAs."
+                      }
+                    },
+                    "attachPublicIp": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Attach a Standard static public IP to the NIC."
+                      }
+                    },
+                    "privateIPAddress": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Static private IP address. Empty string = Dynamic allocation."
+                      }
+                    },
+                    "lbBackendPoolRefs": {
+                      "type": "array",
+                      "defaultValue": [],
+                      "metadata": {
+                        "description": "LB backend pool references to join. Array of {id: string} objects. Empty = no LB pools."
+                      }
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('attachPublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('pip-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('nic-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "enableIPForwarding": "[parameters('enableIPForwarding')]",
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "[if(empty(parameters('privateIPAddress')), 'Dynamic', 'Static')]",
+                              "privateIPAddress": "[if(empty(parameters('privateIPAddress')), null(), parameters('privateIPAddress'))]",
+                              "publicIPAddress": "[if(parameters('attachPublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))), null())]",
+                              "loadBalancerBackendAddressPools": "[parameters('lbBackendPoolRefs')]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2023-09-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": "[union(createObject('computerName', parameters('vmName'), 'adminUsername', parameters('adminUsername'), 'adminPassword', parameters('adminPassword'), 'linuxConfiguration', createObject('disablePasswordAuthentication', false())), if(empty(parameters('customData')), createObject(), createObject('customData', parameters('customData'))))]",
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "Canonical",
+                            "offer": "0001-com-ubuntu-server-jammy",
+                            "sku": "22_04-lts-gen2",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "vmId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM resource ID"
+                      },
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    },
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      },
+                      "value": "[parameters('vmName')]"
+                    },
+                    "privateIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Primary NIC private IP address"
+                      },
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName'))), '2023-11-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Public IP address (empty string if not attached)"
+                      },
+                      "value": "[if(parameters('attachPublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName'))), '2023-11-01').ipAddress, '')]"
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "nvaNames": {
+              "type": "array",
+              "metadata": {
+                "description": "NVA VM names (always [nva-dmz-0, nva-dmz-1])"
+              },
+              "value": [
+                "nva-dmz-0",
+                "nva-dmz-1"
+              ]
+            },
+            "nva0PrivateIp": {
+              "type": "string",
+              "metadata": {
+                "description": "NVA 0 private IP"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('nva-dmz-{0}-deploy', range(0, 2)[0])), '2025-04-01').outputs.privateIp.value]"
+            },
+            "nva1PrivateIp": {
+              "type": "string",
+              "metadata": {
+                "description": "NVA 1 private IP"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('nva-dmz-{0}-deploy', range(0, 2)[1])), '2025-04-01').outputs.privateIp.value]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'dmz-deploy')]",
+        "[resourceId('Microsoft.Resources/deployments', 'ilb-deploy')]",
+        "[resourceId('Microsoft.Resources/deployments', 'public-lb-deploy')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "spoke1-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vnetName": {
+            "value": "vnet-spoke1"
+          },
+          "vnetAddressPrefix": {
+            "value": "10.1.0.0/24"
+          },
+          "workloadSubnetPrefix": {
+            "value": "10.1.0.0/26"
+          },
+          "vmName": {
+            "value": "vm-spoke1"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "9530434132557984583"
+            }
+          },
+          "parameters": {
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet name (e.g. vnet-spoke1)"
+              }
+            },
+            "vnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet address prefix (e.g. 10.1.0.0/24)"
+              }
+            },
+            "workloadSubnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload subnet prefix (e.g. 10.1.0.0/26)"
+              }
+            },
+            "vmName": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload VM name (e.g. vm-spoke1)"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "metadata": {
+                "description": "Admin username"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Admin password (secure)"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_B2s",
+              "metadata": {
+                "description": "VM size"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "workloadCloudInit": "I2Nsb3VkLWNvbmZpZw0KIyBXb3JrbG9hZCBWTTogbWluaW1hbCB0b29sc2V0IGZvciBjb25uZWN0aXZpdHkgdmFsaWRhdGlvbg0KcGFja2FnZV91cGRhdGU6IHRydWUNCnBhY2thZ2VzOg0KICAtIGlwdXRpbHMtcGluZw0KICAtIHRyYWNlcm91dGUNCiAgLSB0Y3BkdW1wDQogIC0gY3VybA0KICAtIG5ldC10b29scw0KICAtIGRuc3V0aWxzDQo="
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/routeTables",
+              "apiVersion": "2023-11-01",
+              "name": "[format('udr-{0}-workload', parameters('vnetName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "disableBgpRoutePropagation": false,
+                "routes": []
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('vnetName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('vnetAddressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-workload",
+                    "properties": {
+                      "addressPrefix": "[parameters('workloadSubnetPrefix')]",
+                      "routeTable": {
+                        "id": "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('{0}-deploy', parameters('vmName'))]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "[parameters('vmName')]"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[0].id]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "customData": {
+                    "value": "[variables('workloadCloudInit')]"
+                  },
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.42.1.51946",
+                      "templateHash": "3068182848726013202"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      }
+                    },
+                    "location": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Azure region"
+                      }
+                    },
+                    "subnetId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Subnet resource ID for the primary NIC"
+                      }
+                    },
+                    "adminUsername": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Admin username"
+                      }
+                    },
+                    "adminPassword": {
+                      "type": "securestring",
+                      "metadata": {
+                        "description": "Admin password (secure)"
+                      }
+                    },
+                    "vmSize": {
+                      "type": "string",
+                      "defaultValue": "Standard_B2s",
+                      "metadata": {
+                        "description": "VM size (B-series recommended for cost)"
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Resource tags"
+                      }
+                    },
+                    "customData": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Base64-encoded cloud-init (customData). Use loadFileAsBase64() at call site. Empty = no cloud-init."
+                      }
+                    },
+                    "enableIPForwarding": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Enable IP forwarding on the NIC. Set true for NVAs."
+                      }
+                    },
+                    "attachPublicIp": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Attach a Standard static public IP to the NIC."
+                      }
+                    },
+                    "privateIPAddress": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Static private IP address. Empty string = Dynamic allocation."
+                      }
+                    },
+                    "lbBackendPoolRefs": {
+                      "type": "array",
+                      "defaultValue": [],
+                      "metadata": {
+                        "description": "LB backend pool references to join. Array of {id: string} objects. Empty = no LB pools."
+                      }
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('attachPublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('pip-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('nic-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "enableIPForwarding": "[parameters('enableIPForwarding')]",
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "[if(empty(parameters('privateIPAddress')), 'Dynamic', 'Static')]",
+                              "privateIPAddress": "[if(empty(parameters('privateIPAddress')), null(), parameters('privateIPAddress'))]",
+                              "publicIPAddress": "[if(parameters('attachPublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))), null())]",
+                              "loadBalancerBackendAddressPools": "[parameters('lbBackendPoolRefs')]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2023-09-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": "[union(createObject('computerName', parameters('vmName'), 'adminUsername', parameters('adminUsername'), 'adminPassword', parameters('adminPassword'), 'linuxConfiguration', createObject('disablePasswordAuthentication', false())), if(empty(parameters('customData')), createObject(), createObject('customData', parameters('customData'))))]",
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "Canonical",
+                            "offer": "0001-com-ubuntu-server-jammy",
+                            "sku": "22_04-lts-gen2",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "vmId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM resource ID"
+                      },
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    },
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      },
+                      "value": "[parameters('vmName')]"
+                    },
+                    "privateIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Primary NIC private IP address"
+                      },
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName'))), '2023-11-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Public IP address (empty string if not attached)"
+                      },
+                      "value": "[if(parameters('attachPublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName'))), '2023-11-01').ipAddress, '')]"
+                    }
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+            },
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet name"
+              },
+              "value": "[parameters('vnetName')]"
+            },
+            "workloadSubnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload subnet resource ID"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[0].id]"
+            },
+            "vmName": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload VM name"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-deploy', parameters('vmName'))), '2025-04-01').outputs.vmName.value]"
+            },
+            "vmPrivateIp": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload VM private IP"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-deploy', parameters('vmName'))), '2025-04-01').outputs.privateIp.value]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "spoke2-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "vnetName": {
+            "value": "vnet-spoke2"
+          },
+          "vnetAddressPrefix": {
+            "value": "10.2.0.0/24"
+          },
+          "workloadSubnetPrefix": {
+            "value": "10.2.0.0/26"
+          },
+          "vmName": {
+            "value": "vm-spoke2"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "9530434132557984583"
+            }
+          },
+          "parameters": {
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet name (e.g. vnet-spoke1)"
+              }
+            },
+            "vnetAddressPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet address prefix (e.g. 10.1.0.0/24)"
+              }
+            },
+            "workloadSubnetPrefix": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload subnet prefix (e.g. 10.1.0.0/26)"
+              }
+            },
+            "vmName": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload VM name (e.g. vm-spoke1)"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "metadata": {
+                "description": "Admin username"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Admin password (secure)"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_B2s",
+              "metadata": {
+                "description": "VM size"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "workloadCloudInit": "I2Nsb3VkLWNvbmZpZw0KIyBXb3JrbG9hZCBWTTogbWluaW1hbCB0b29sc2V0IGZvciBjb25uZWN0aXZpdHkgdmFsaWRhdGlvbg0KcGFja2FnZV91cGRhdGU6IHRydWUNCnBhY2thZ2VzOg0KICAtIGlwdXRpbHMtcGluZw0KICAtIHRyYWNlcm91dGUNCiAgLSB0Y3BkdW1wDQogIC0gY3VybA0KICAtIG5ldC10b29scw0KICAtIGRuc3V0aWxzDQo="
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/routeTables",
+              "apiVersion": "2023-11-01",
+              "name": "[format('udr-{0}-workload', parameters('vnetName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "disableBgpRoutePropagation": false,
+                "routes": []
+              }
+            },
+            {
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('vnetName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "[parameters('vnetAddressPrefix')]"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-workload",
+                    "properties": {
+                      "addressPrefix": "[parameters('workloadSubnetPrefix')]",
+                      "routeTable": {
+                        "id": "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "[format('{0}-deploy', parameters('vmName'))]",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "[parameters('vmName')]"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[0].id]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "customData": {
+                    "value": "[variables('workloadCloudInit')]"
+                  },
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.42.1.51946",
+                      "templateHash": "3068182848726013202"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      }
+                    },
+                    "location": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Azure region"
+                      }
+                    },
+                    "subnetId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Subnet resource ID for the primary NIC"
+                      }
+                    },
+                    "adminUsername": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Admin username"
+                      }
+                    },
+                    "adminPassword": {
+                      "type": "securestring",
+                      "metadata": {
+                        "description": "Admin password (secure)"
+                      }
+                    },
+                    "vmSize": {
+                      "type": "string",
+                      "defaultValue": "Standard_B2s",
+                      "metadata": {
+                        "description": "VM size (B-series recommended for cost)"
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Resource tags"
+                      }
+                    },
+                    "customData": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Base64-encoded cloud-init (customData). Use loadFileAsBase64() at call site. Empty = no cloud-init."
+                      }
+                    },
+                    "enableIPForwarding": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Enable IP forwarding on the NIC. Set true for NVAs."
+                      }
+                    },
+                    "attachPublicIp": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Attach a Standard static public IP to the NIC."
+                      }
+                    },
+                    "privateIPAddress": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Static private IP address. Empty string = Dynamic allocation."
+                      }
+                    },
+                    "lbBackendPoolRefs": {
+                      "type": "array",
+                      "defaultValue": [],
+                      "metadata": {
+                        "description": "LB backend pool references to join. Array of {id: string} objects. Empty = no LB pools."
+                      }
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('attachPublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('pip-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('nic-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "enableIPForwarding": "[parameters('enableIPForwarding')]",
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "[if(empty(parameters('privateIPAddress')), 'Dynamic', 'Static')]",
+                              "privateIPAddress": "[if(empty(parameters('privateIPAddress')), null(), parameters('privateIPAddress'))]",
+                              "publicIPAddress": "[if(parameters('attachPublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))), null())]",
+                              "loadBalancerBackendAddressPools": "[parameters('lbBackendPoolRefs')]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2023-09-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": "[union(createObject('computerName', parameters('vmName'), 'adminUsername', parameters('adminUsername'), 'adminPassword', parameters('adminPassword'), 'linuxConfiguration', createObject('disablePasswordAuthentication', false())), if(empty(parameters('customData')), createObject(), createObject('customData', parameters('customData'))))]",
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "Canonical",
+                            "offer": "0001-com-ubuntu-server-jammy",
+                            "sku": "22_04-lts-gen2",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "vmId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM resource ID"
+                      },
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    },
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      },
+                      "value": "[parameters('vmName')]"
+                    },
+                    "privateIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Primary NIC private IP address"
+                      },
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName'))), '2023-11-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Public IP address (empty string if not attached)"
+                      },
+                      "value": "[if(parameters('attachPublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName'))), '2023-11-01').ipAddress, '')]"
+                    }
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "vnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet resource ID"
+              },
+              "value": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
+            },
+            "vnetName": {
+              "type": "string",
+              "metadata": {
+                "description": "Spoke VNet name"
+              },
+              "value": "[parameters('vnetName')]"
+            },
+            "workloadSubnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload subnet resource ID"
+              },
+              "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName')), '2023-11-01').subnets[0].id]"
+            },
+            "vmName": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload VM name"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-deploy', parameters('vmName'))), '2025-04-01').outputs.vmName.value]"
+            },
+            "vmPrivateIp": {
+              "type": "string",
+              "metadata": {
+                "description": "Workload VM private IP"
+              },
+              "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-deploy', parameters('vmName'))), '2025-04-01').outputs.privateIp.value]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "onprem-deploy",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "deployOnPrem": {
+            "value": "[parameters('deployOnPrem')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "onpremBgpAsn": {
+            "value": "[parameters('onpremBgpAsn')]"
+          },
+          "adminUsername": {
+            "value": "[parameters('adminUsername')]"
+          },
+          "adminPassword": {
+            "value": "[parameters('adminPassword')]"
+          },
+          "vmSize": {
+            "value": "[parameters('vmSize')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.42.1.51946",
+              "templateHash": "9437009254376765012"
+            }
+          },
+          "parameters": {
+            "deployOnPrem": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Deploy on-premises simulation resources"
+              }
+            },
+            "location": {
+              "type": "string",
+              "metadata": {
+                "description": "Azure region (used as a simulated \"on-prem\" region)"
+              }
+            },
+            "onpremBgpAsn": {
+              "type": "int",
+              "defaultValue": 65001,
+              "metadata": {
+                "description": "On-prem NVA BGP ASN (used in cloud-init rendered by configure-onprem.sh)"
+              }
+            },
+            "adminUsername": {
+              "type": "string",
+              "metadata": {
+                "description": "Admin username"
+              }
+            },
+            "adminPassword": {
+              "type": "securestring",
+              "metadata": {
+                "description": "Admin password (secure)"
+              }
+            },
+            "vmSize": {
+              "type": "string",
+              "defaultValue": "Standard_B2s",
+              "metadata": {
+                "description": "VM size"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Resource tags"
+              }
+            }
+          },
+          "variables": {
+            "onpremNvaCloudInit": "I2Nsb3VkLWNvbmZpZw0KIyBPbi1wcmVtIE5WQTogaW5zdGFsbCBzdHJvbmdTd2FuIChJUHNlYykgKyBGUlIgKEJHUCkgKyBlbmFibGUgSVAgZm9yd2FyZGluZw0KIyBQZXItdHVubmVsL0JHUCBjb25maWcgaXMgcmVuZGVyZWQgcG9zdC1kZXBsb3kgYnkgQWxleCdzIGNvbmZpZ3VyZS1vbnByZW0uc2gNCiMgdmlhIGF6IHZtIHJ1bi1jb21tYW5kIG9uY2UgVlBOIEdhdGV3YXkgcHVibGljIElQcyArIFBTSyBhcmUga25vd24uDQpwYWNrYWdlX3VwZGF0ZTogdHJ1ZQ0KcGFja2FnZXM6DQogIC0gc3Ryb25nc3dhbg0KICAtIHN0cm9uZ3N3YW4tcGtpDQogIC0gZnJyDQogIC0gaXB0YWJsZXMtcGVyc2lzdGVudA0KICAtIG5ldC10b29scw0KDQp3cml0ZV9maWxlczoNCiAgLSBwYXRoOiAvZXRjL3N5c2N0bC5kLzk5LWlwLWZvcndhcmQuY29uZg0KICAgIGNvbnRlbnQ6IHwNCiAgICAgIG5ldC5pcHY0LmlwX2ZvcndhcmQgPSAxDQogICAgb3duZXI6IHJvb3Q6cm9vdA0KICAgIHBlcm1pc3Npb25zOiAnMDY0NCcNCg0KcnVuY21kOg0KICAtIHN5c2N0bCAtdyBuZXQuaXB2NC5pcF9mb3J3YXJkPTENCiAgIyBFbmFibGUgQkdQIGRhZW1vbiBpbiBGUlINCiAgLSBzZWQgLWkgJ3MvXmJncGQ9bm8vYmdwZD15ZXMvJyAvZXRjL2Zyci9kYWVtb25zDQogICMgRW5hYmxlIHNlcnZpY2VzDQogIC0gc3lzdGVtY3RsIGVuYWJsZSBzdHJvbmdzd2FuLXN0YXJ0ZXINCiAgLSBzeXN0ZW1jdGwgZW5hYmxlIGZycg0KICAjIFBlcnNpc3QgSVAgdGFibGVzIChhbGxvdyBmb3J3YXJkaW5nKQ0KICAtIGlwdGFibGVzIC1BIEZPUldBUkQgLWogQUNDRVBUDQogIC0gbmV0ZmlsdGVyLXBlcnNpc3RlbnQgc2F2ZQ0K",
+            "workloadCloudInit": "I2Nsb3VkLWNvbmZpZw0KIyBXb3JrbG9hZCBWTTogbWluaW1hbCB0b29sc2V0IGZvciBjb25uZWN0aXZpdHkgdmFsaWRhdGlvbg0KcGFja2FnZV91cGRhdGU6IHRydWUNCnBhY2thZ2VzOg0KICAtIGlwdXRpbHMtcGluZw0KICAtIHRyYWNlcm91dGUNCiAgLSB0Y3BkdW1wDQogIC0gY3VybA0KICAtIG5ldC10b29scw0KICAtIGRuc3V0aWxzDQo="
+          },
+          "resources": [
+            {
+              "condition": "[parameters('deployOnPrem')]",
+              "type": "Microsoft.Network/routeTables",
+              "apiVersion": "2023-11-01",
+              "name": "udr-onprem-workload",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "disableBgpRoutePropagation": false,
+                "routes": [
+                  {
+                    "name": "to-azure-via-nva",
+                    "properties": {
+                      "addressPrefix": "10.0.0.0/8",
+                      "nextHopType": "VirtualAppliance",
+                      "nextHopIpAddress": "192.168.100.4"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "condition": "[parameters('deployOnPrem')]",
+              "type": "Microsoft.Network/virtualNetworks",
+              "apiVersion": "2023-11-01",
+              "name": "vnet-onprem",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "addressSpace": {
+                  "addressPrefixes": [
+                    "192.168.100.0/24"
+                  ]
+                },
+                "subnets": [
+                  {
+                    "name": "snet-nva",
+                    "properties": {
+                      "addressPrefix": "192.168.100.0/27"
+                    }
+                  },
+                  {
+                    "name": "snet-workload",
+                    "properties": {
+                      "addressPrefix": "192.168.100.32/27",
+                      "routeTable": {
+                        "id": "[resourceId('Microsoft.Network/routeTables', 'udr-onprem-workload')]"
+                      }
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/routeTables', 'udr-onprem-workload')]"
+              ]
+            },
+            {
+              "condition": "[parameters('deployOnPrem')]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "nva-onprem-deploy",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "nva-onprem"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', 'vnet-onprem'), '2023-11-01').subnets[0].id]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "customData": {
+                    "value": "[variables('onpremNvaCloudInit')]"
+                  },
+                  "enableIPForwarding": {
+                    "value": true
+                  },
+                  "attachPublicIp": {
+                    "value": true
+                  },
+                  "privateIPAddress": {
+                    "value": "192.168.100.4"
+                  },
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.42.1.51946",
+                      "templateHash": "3068182848726013202"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      }
+                    },
+                    "location": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Azure region"
+                      }
+                    },
+                    "subnetId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Subnet resource ID for the primary NIC"
+                      }
+                    },
+                    "adminUsername": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Admin username"
+                      }
+                    },
+                    "adminPassword": {
+                      "type": "securestring",
+                      "metadata": {
+                        "description": "Admin password (secure)"
+                      }
+                    },
+                    "vmSize": {
+                      "type": "string",
+                      "defaultValue": "Standard_B2s",
+                      "metadata": {
+                        "description": "VM size (B-series recommended for cost)"
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Resource tags"
+                      }
+                    },
+                    "customData": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Base64-encoded cloud-init (customData). Use loadFileAsBase64() at call site. Empty = no cloud-init."
+                      }
+                    },
+                    "enableIPForwarding": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Enable IP forwarding on the NIC. Set true for NVAs."
+                      }
+                    },
+                    "attachPublicIp": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Attach a Standard static public IP to the NIC."
+                      }
+                    },
+                    "privateIPAddress": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Static private IP address. Empty string = Dynamic allocation."
+                      }
+                    },
+                    "lbBackendPoolRefs": {
+                      "type": "array",
+                      "defaultValue": [],
+                      "metadata": {
+                        "description": "LB backend pool references to join. Array of {id: string} objects. Empty = no LB pools."
+                      }
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('attachPublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('pip-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('nic-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "enableIPForwarding": "[parameters('enableIPForwarding')]",
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "[if(empty(parameters('privateIPAddress')), 'Dynamic', 'Static')]",
+                              "privateIPAddress": "[if(empty(parameters('privateIPAddress')), null(), parameters('privateIPAddress'))]",
+                              "publicIPAddress": "[if(parameters('attachPublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))), null())]",
+                              "loadBalancerBackendAddressPools": "[parameters('lbBackendPoolRefs')]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2023-09-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": "[union(createObject('computerName', parameters('vmName'), 'adminUsername', parameters('adminUsername'), 'adminPassword', parameters('adminPassword'), 'linuxConfiguration', createObject('disablePasswordAuthentication', false())), if(empty(parameters('customData')), createObject(), createObject('customData', parameters('customData'))))]",
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "Canonical",
+                            "offer": "0001-com-ubuntu-server-jammy",
+                            "sku": "22_04-lts-gen2",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "vmId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM resource ID"
+                      },
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    },
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      },
+                      "value": "[parameters('vmName')]"
+                    },
+                    "privateIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Primary NIC private IP address"
+                      },
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName'))), '2023-11-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Public IP address (empty string if not attached)"
+                      },
+                      "value": "[if(parameters('attachPublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName'))), '2023-11-01').ipAddress, '')]"
+                    }
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', 'vnet-onprem')]"
+              ]
+            },
+            {
+              "condition": "[parameters('deployOnPrem')]",
+              "type": "Microsoft.Resources/deployments",
+              "apiVersion": "2025-04-01",
+              "name": "vm-onprem-deploy",
+              "properties": {
+                "expressionEvaluationOptions": {
+                  "scope": "inner"
+                },
+                "mode": "Incremental",
+                "parameters": {
+                  "vmName": {
+                    "value": "vm-onprem"
+                  },
+                  "location": {
+                    "value": "[parameters('location')]"
+                  },
+                  "subnetId": {
+                    "value": "[reference(resourceId('Microsoft.Network/virtualNetworks', 'vnet-onprem'), '2023-11-01').subnets[1].id]"
+                  },
+                  "adminUsername": {
+                    "value": "[parameters('adminUsername')]"
+                  },
+                  "adminPassword": {
+                    "value": "[parameters('adminPassword')]"
+                  },
+                  "vmSize": {
+                    "value": "[parameters('vmSize')]"
+                  },
+                  "customData": {
+                    "value": "[variables('workloadCloudInit')]"
+                  },
+                  "tags": {
+                    "value": "[parameters('tags')]"
+                  }
+                },
+                "template": {
+                  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+                  "contentVersion": "1.0.0.0",
+                  "metadata": {
+                    "_generator": {
+                      "name": "bicep",
+                      "version": "0.42.1.51946",
+                      "templateHash": "3068182848726013202"
+                    }
+                  },
+                  "parameters": {
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      }
+                    },
+                    "location": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Azure region"
+                      }
+                    },
+                    "subnetId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Subnet resource ID for the primary NIC"
+                      }
+                    },
+                    "adminUsername": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Admin username"
+                      }
+                    },
+                    "adminPassword": {
+                      "type": "securestring",
+                      "metadata": {
+                        "description": "Admin password (secure)"
+                      }
+                    },
+                    "vmSize": {
+                      "type": "string",
+                      "defaultValue": "Standard_B2s",
+                      "metadata": {
+                        "description": "VM size (B-series recommended for cost)"
+                      }
+                    },
+                    "tags": {
+                      "type": "object",
+                      "defaultValue": {},
+                      "metadata": {
+                        "description": "Resource tags"
+                      }
+                    },
+                    "customData": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Base64-encoded cloud-init (customData). Use loadFileAsBase64() at call site. Empty = no cloud-init."
+                      }
+                    },
+                    "enableIPForwarding": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Enable IP forwarding on the NIC. Set true for NVAs."
+                      }
+                    },
+                    "attachPublicIp": {
+                      "type": "bool",
+                      "defaultValue": false,
+                      "metadata": {
+                        "description": "Attach a Standard static public IP to the NIC."
+                      }
+                    },
+                    "privateIPAddress": {
+                      "type": "string",
+                      "defaultValue": "",
+                      "metadata": {
+                        "description": "Static private IP address. Empty string = Dynamic allocation."
+                      }
+                    },
+                    "lbBackendPoolRefs": {
+                      "type": "array",
+                      "defaultValue": [],
+                      "metadata": {
+                        "description": "LB backend pool references to join. Array of {id: string} objects. Empty = no LB pools."
+                      }
+                    }
+                  },
+                  "resources": [
+                    {
+                      "condition": "[parameters('attachPublicIp')]",
+                      "type": "Microsoft.Network/publicIPAddresses",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('pip-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "sku": {
+                        "name": "Standard"
+                      },
+                      "properties": {
+                        "publicIPAllocationMethod": "Static"
+                      }
+                    },
+                    {
+                      "type": "Microsoft.Network/networkInterfaces",
+                      "apiVersion": "2023-11-01",
+                      "name": "[format('nic-{0}', parameters('vmName'))]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "enableIPForwarding": "[parameters('enableIPForwarding')]",
+                        "ipConfigurations": [
+                          {
+                            "name": "ipconfig1",
+                            "properties": {
+                              "subnet": {
+                                "id": "[parameters('subnetId')]"
+                              },
+                              "privateIPAllocationMethod": "[if(empty(parameters('privateIPAddress')), 'Dynamic', 'Static')]",
+                              "privateIPAddress": "[if(empty(parameters('privateIPAddress')), null(), parameters('privateIPAddress'))]",
+                              "publicIPAddress": "[if(parameters('attachPublicIp'), createObject('id', resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))), null())]",
+                              "loadBalancerBackendAddressPools": "[parameters('lbBackendPoolRefs')]"
+                            }
+                          }
+                        ]
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName')))]"
+                      ]
+                    },
+                    {
+                      "type": "Microsoft.Compute/virtualMachines",
+                      "apiVersion": "2023-09-01",
+                      "name": "[parameters('vmName')]",
+                      "location": "[parameters('location')]",
+                      "tags": "[parameters('tags')]",
+                      "properties": {
+                        "hardwareProfile": {
+                          "vmSize": "[parameters('vmSize')]"
+                        },
+                        "osProfile": "[union(createObject('computerName', parameters('vmName'), 'adminUsername', parameters('adminUsername'), 'adminPassword', parameters('adminPassword'), 'linuxConfiguration', createObject('disablePasswordAuthentication', false())), if(empty(parameters('customData')), createObject(), createObject('customData', parameters('customData'))))]",
+                        "storageProfile": {
+                          "imageReference": {
+                            "publisher": "Canonical",
+                            "offer": "0001-com-ubuntu-server-jammy",
+                            "sku": "22_04-lts-gen2",
+                            "version": "latest"
+                          },
+                          "osDisk": {
+                            "createOption": "FromImage",
+                            "managedDisk": {
+                              "storageAccountType": "StandardSSD_LRS"
+                            }
+                          }
+                        },
+                        "networkProfile": {
+                          "networkInterfaces": [
+                            {
+                              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                            }
+                          ]
+                        },
+                        "diagnosticsProfile": {
+                          "bootDiagnostics": {
+                            "enabled": true
+                          }
+                        }
+                      },
+                      "dependsOn": [
+                        "[resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName')))]"
+                      ]
+                    }
+                  ],
+                  "outputs": {
+                    "vmId": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM resource ID"
+                      },
+                      "value": "[resourceId('Microsoft.Compute/virtualMachines', parameters('vmName'))]"
+                    },
+                    "vmName": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "VM name"
+                      },
+                      "value": "[parameters('vmName')]"
+                    },
+                    "privateIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Primary NIC private IP address"
+                      },
+                      "value": "[reference(resourceId('Microsoft.Network/networkInterfaces', format('nic-{0}', parameters('vmName'))), '2023-11-01').ipConfigurations[0].properties.privateIPAddress]"
+                    },
+                    "publicIp": {
+                      "type": "string",
+                      "metadata": {
+                        "description": "Public IP address (empty string if not attached)"
+                      },
+                      "value": "[if(parameters('attachPublicIp'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-{0}', parameters('vmName'))), '2023-11-01').ipAddress, '')]"
+                    }
+                  }
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/virtualNetworks', 'vnet-onprem')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "onpremVnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "On-prem VNet resource ID (empty if not deployed)"
+              },
+              "value": "[if(parameters('deployOnPrem'), resourceId('Microsoft.Network/virtualNetworks', 'vnet-onprem'), '')]"
+            },
+            "onpremNvaPublicIp": {
+              "type": "string",
+              "metadata": {
+                "description": "On-prem NVA public IP address (empty if not deployed)"
+              },
+              "value": "[if(parameters('deployOnPrem'), reference(resourceId('Microsoft.Resources/deployments', 'nva-onprem-deploy'), '2025-04-01').outputs.publicIp.value, '')]"
+            },
+            "onpremNvaPrivateIp": {
+              "type": "string",
+              "metadata": {
+                "description": "On-prem NVA private IP address (empty if not deployed)"
+              },
+              "value": "[if(parameters('deployOnPrem'), reference(resourceId('Microsoft.Resources/deployments', 'nva-onprem-deploy'), '2025-04-01').outputs.privateIp.value, '')]"
+            },
+            "onpremNvaName": {
+              "type": "string",
+              "metadata": {
+                "description": "On-prem NVA VM name (empty if not deployed)"
+              },
+              "value": "[if(parameters('deployOnPrem'), 'nva-onprem', '')]"
+            },
+            "onpremVmName": {
+              "type": "string",
+              "metadata": {
+                "description": "On-prem workload VM name (empty if not deployed)"
+              },
+              "value": "[if(parameters('deployOnPrem'), 'vm-onprem', '')]"
+            },
+            "onpremBgpAsn": {
+              "type": "int",
+              "metadata": {
+                "description": "On-prem NVA BGP ASN (read by configure-onprem.sh via deployment output)"
+              },
+              "value": "[parameters('onpremBgpAsn')]"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "location": {
+      "type": "string",
+      "metadata": {
+        "description": "Deployment region"
+      },
+      "value": "[parameters('location')]"
+    },
+    "vwanName": {
+      "type": "string",
+      "metadata": {
+        "description": "Virtual WAN name"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vwan-hub-deploy'), '2025-04-01').outputs.vwanName.value]"
+    },
+    "hubName": {
+      "type": "string",
+      "metadata": {
+        "description": "Virtual Hub name"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vwan-hub-deploy'), '2025-04-01').outputs.hubName.value]"
+    },
+    "hubId": {
+      "type": "string",
+      "metadata": {
+        "description": "Virtual Hub resource ID"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vwan-hub-deploy'), '2025-04-01').outputs.hubId.value]"
+    },
+    "dmzVnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "DMZ VNet resource ID"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'dmz-deploy'), '2025-04-01').outputs.vnetId.value]"
+    },
+    "spoke1VnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Spoke 1 VNet resource ID"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'spoke1-deploy'), '2025-04-01').outputs.vnetId.value]"
+    },
+    "spoke2VnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "Spoke 2 VNet resource ID"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'spoke2-deploy'), '2025-04-01').outputs.vnetId.value]"
+    },
+    "ilbFrontendIp": {
+      "type": "string",
+      "metadata": {
+        "description": "ILB frontend private IP (0/0 next-hop for hub route table)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'ilb-deploy'), '2025-04-01').outputs.frontendIpAddress.value]"
+    },
+    "publicLbPublicIp": {
+      "type": "string",
+      "metadata": {
+        "description": "Public LB egress/mgmt public IP address"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'public-lb-deploy'), '2025-04-01').outputs.publicIpAddress.value]"
+    },
+    "nvaNames": {
+      "type": "array",
+      "metadata": {
+        "description": "NVA VM names array"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'nva-deploy'), '2025-04-01').outputs.nvaNames.value]"
+    },
+    "vpnGatewayName": {
+      "type": "string",
+      "metadata": {
+        "description": "VPN Gateway name (empty string when deployOnPrem=false)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vwan-hub-deploy'), '2025-04-01').outputs.vpnGatewayName.value]"
+    },
+    "onpremVnetId": {
+      "type": "string",
+      "metadata": {
+        "description": "On-prem VNet resource ID (empty string when deployOnPrem=false)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'onprem-deploy'), '2025-04-01').outputs.onpremVnetId.value]"
+    },
+    "onpremNvaPublicIp": {
+      "type": "string",
+      "metadata": {
+        "description": "On-prem NVA public IP address (empty string when deployOnPrem=false)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'onprem-deploy'), '2025-04-01').outputs.onpremNvaPublicIp.value]"
+    },
+    "onpremNvaPrivateIp": {
+      "type": "string",
+      "metadata": {
+        "description": "On-prem NVA private IP address (empty string when deployOnPrem=false)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'onprem-deploy'), '2025-04-01').outputs.onpremNvaPrivateIp.value]"
+    },
+    "onpremNvaName": {
+      "type": "string",
+      "metadata": {
+        "description": "On-prem NVA VM name (empty string when deployOnPrem=false)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'onprem-deploy'), '2025-04-01').outputs.onpremNvaName.value]"
+    },
+    "onpremVmName": {
+      "type": "string",
+      "metadata": {
+        "description": "On-prem workload VM name (empty string when deployOnPrem=false)"
+      },
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'onprem-deploy'), '2025-04-01').outputs.onpremVmName.value]"
+    }
+  }
+}

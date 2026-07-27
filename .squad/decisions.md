@@ -4,676 +4,486 @@
 
 ---
 
-## Decision: New Lab `3vhub-er-ri` Added
+# Decision: nva-spoke-internet Bicep Output Contract
 
-**Date:** 2026-05-26
-**Author:** Naomi (Infra Dev)
-**Status:** Accepted
-**Requested by:** Daniel Mauser
+**Date:** 2026-07-24  
+**Author:** Naomi (Infra Dev)  
+**Status:** Active — do not change without coordinating with Alex
 
-### Context
+## Decision
 
-Added a new lab folder `3vhub-er-ri/` demonstrating a 3-region Virtual WAN topology with ExpressRoute on 2 hubs, Azure Firewall Basic on all 3 hubs, and Routing Intent (private traffic only) across all 3 hubs. This fills a gap in the lab catalog for multi-hub + ER + AzFw Basic + RI in a single scenario.
+The 16 outputs of `nva-spoke-internet/bicep/main.bicep` are a **locked contract** consumed by name in Alex's `deploy.sh` via `az deployment group show --query properties.outputs.<name>.value`. Any rename or removal breaks the deploy chain **silently** (the script just gets an empty string and proceeds incorrectly).
 
-### Decisions Made
+## Output Contract (exact names, do not rename)
 
-#### 1. Single interactive script with `read -p` ER pause
+| Output | Type | Notes |
+|--------|------|-------|
+| `location` | string | |
+| `vwanName` | string | |
+| `hubName` | string | |
+| `hubId` | string | |
+| `dmzVnetId` | string | full resource ID |
+| `spoke1VnetId` | string | full resource ID |
+| `spoke2VnetId` | string | full resource ID |
+| `ilbFrontendIp` | string | always `10.0.0.68` |
+| `publicLbPublicIp` | string | egress/mgmt public IP |
+| `nvaNames` | array | `['nva-dmz-0','nva-dmz-1']` |
+| `vpnGatewayName` | string | `''` when deployOnPrem=false |
+| `onpremVnetId` | string | `''` when deployOnPrem=false |
+| `onpremNvaPublicIp` | string | `''` when deployOnPrem=false |
+| `onpremNvaPrivateIp` | string | `''` when deployOnPrem=false |
+| `onpremNvaName` | string | `''` when deployOnPrem=false |
+| `onpremVmName` | string | `''` when deployOnPrem=false |
 
-The deployment uses one script (`3vhub-er-ri-deploy.azcli`) rather than separate deploy + erconn scripts. The script pauses at Phase 7 after printing the ER service keys, allowing the user to hand them to Megaport. This matches the intent of reducing context-switching for the operator and keeps the full workflow in one file.
+## Input Parameters (exact names, deploy.sh passes these)
 
-#### 2. ASPath routing preference on all hubs at create time with update fallback
+| Param | Type | Default |
+|-------|------|---------|
+| `location` | string | — (required) |
+| `adminUsername` | string | — (required) |
+| `adminPassword` | @secure() string | — (required) |
+| `vmSize` | string | `'Standard_B2s'` |
+| `deployOnPrem` | bool | `false` |
+| `onpremBgpAsn` | int | `65001` |
 
-All 3 vHubs are created with `--hub-routing-preference ASPath`. After waiting for the hubs to succeed, the script verifies the property and applies `az network vhub update --hub-routing-preference ASPath` as a fallback for CLI extension versions that silently ignore the create-time flag.
+## Rationale
 
-#### 3. Native CLI for Routing Intent (no Bicep)
+Alex's `configure-onprem.sh` and all hub-connection steps depend on these exact strings. Bicep's type system won't catch a mismatch — the error surfaces only at runtime when the script tries to use an empty VNet ID for peering. Document here so any future Bicep refactor checks this list first.
 
-Routing Intent is enabled using `az network vhub routing-intent create` with a JSON routing-policies array, polling `az network vhub routing-intent show --query provisioningState`. This avoids the Bicep/ARM deployment used in older `enable-ri.azcli` references and aligns with current CLI extension capabilities.
-
-#### 4. Azure Firewall Basic SKU in vHub
-
-All three hubs use `--sku AZFW_Hub --tier Basic`. The AzFw policy is also created with `--sku Basic`. Management IPs are handled transparently by the vHub-managed deployment (no explicit `--management-ip-configuration` needed for hub firewalls).
-
-### Impact
-
-- `LABS_INDEX.md` updated with new row for `3vhub-er-ri` (status: ✅ Complete).
-- New lab added to repository. No existing labs modified.
 
 ---
 
-## Decision: Routing Design — svh-dynamic-er-ri Lab
+# Decision: vWAN NVA 0/0 Routing Wiring for nva-spoke-internet
+
+**Date:** 2026-07-24  
+**Author:** Alex (Network Engineer)  
+**Status:** Adopted
+
+## Context
+
+The `nva-spoke-internet` lab uses a custom NVA pair (not Azure Firewall) to inspect and SNAT internet-bound traffic from Spoke1 and Spoke2.  We need spoke VMs to use 0.0.0.0/0 → NVA → SNAT via Public LB PIP.  Routing Intent is NOT used (requires Azure Firewall as the next-hop; custom NVAs are not supported as RI targets).
+
+## Decision
+
+Use **two custom static route entries** (no Routing Intent, no custom route table — use defaultRouteTable):
+
+### 1. DMZ connection static route (set at connection create time)
+```bash
+az network vhub connection create -n conn-dmz ... \
+  --route-name "default-via-ilb" \
+  --address-prefixes "0.0.0.0/0" \
+  --next-hop "10.0.0.68"
+```
+This instructs the hub: for 0/0 traffic resolved to the DMZ connection, forward to ILB frontend 10.0.0.68 (HA-ports backend = both NVAs).
+
+### 2. defaultRouteTable static route (added after connection is Succeeded)
+```bash
+CONN_DMZ_ID=$(az network vhub connection show -g $RG --vhub-name $HUB -n conn-dmz --query id -o tsv)
+az network vhub route-table route add \
+  -g $RG --vhub-name $HUB --name defaultRouteTable \
+  --route-name "to-internet" \
+  --destination-type CIDR --destinations "0.0.0.0/0" \
+  --next-hop-type ResourceID --next-hop "$CONN_DMZ_ID"
+```
+This causes Spoke1/Spoke2 (associated to defaultRouteTable) to learn 0.0.0.0/0 → conn-dmz.
+
+### Net result
+Spoke1/Spoke2 effective routes: `0.0.0.0/0 → conn-dmz → ILB 10.0.0.68 → NVA (active/active) → SNAT → Public LB PIP`
+
+## Alternatives Rejected
+
+| Option | Why rejected |
+|--------|-------------|
+| Routing Intent (privateOnly/internetOnly/both) | Requires Azure Firewall as the next-hop; not compatible with custom NVA |
+| Custom hub route table | Not needed — defaultRouteTable is used; custom tables add management overhead with no benefit for a single-spoke-group lab |
+| `--internet-security true` on spoke connections | Only needed for Routing Intent internet modes; causes unintended behavior in custom static route setups |
+| Static 0/0 advertised from NVA via BGP | Not applicable — NVAs are in a spoke (DMZ VNet), not on-hub NVAs; BGP advertisement would require a BGP peering setup not present in this lab |
+
+## Impact
+
+- `deploy.sh` Phase 9: creates conn-dmz with `--route-name/--address-prefixes/--next-hop`
+- `deploy.sh` Phase 10+11: adds defaultRouteTable route via `az network vhub route-table route add`
+- `deploy.ps1`: identical logic using PowerShell `az` calls
+- Naomi's Bicep: no change needed for this routing mechanism; VNet connections are NOT created in Bicep (timing issues with hub routingState)
+
+## Notes on az CLI command shapes (version sensitivity)
+
+- `az network vhub connection create --route-name --address-prefixes --next-hop` — connection-level static route; available in az-cli ≥ 2.40
+- `az network vhub route-table route add --destination-type CIDR --destinations --next-hop-type ResourceID --next-hop` — adds a route to an existing route table; available in az-cli ≥ 2.40
+- `az network vhub routing-intent` uses `--vhub` (NOT `--vhub-name`) — different from all `az network vhub connection` commands which use `--vhub-name`; do not mix up
+
+
+---
+
+# Decision: nva-spoke-internet Lab Documentation & Diagram
+
+**Author:** Holden  
+**Date:** 2026-07-24  
+**Status:** Accepted  
+
+## Decisions Made
+
+### 1. Media folder at repo root (not inside lab subfolder)
+
+**Decision:** `media/nva-spoke-internet.excalidraw` and the exported `media/nva-spoke-internet.png` live at the **repo root `media/`** folder, not inside `nva-spoke-internet/media/`.
+
+**Rationale:** The task instructions explicitly specify `![diagram](../media/nva-spoke-internet.png)` in the README, which resolves to root-level `media/` from `nva-spoke-internet/README.md`. A root-level `media/` folder also allows topology images to be shared or cross-linked across labs without duplication. The old `nva-spoke-internet/media/nva-spoke-internet.png` (azcli lab diagram) is left untouched.
+
+**Impact:** Naomi/Alex scripts and any future CI pipeline that exports the .excalidraw to .png should target `media/` at the repo root.
+
+---
+
+### 2. Excalidraw diagram traffic flow direction
+
+**Decision:** Traffic flows **upward** in the diagram Y-axis. Internet is at the top (y=20); the vWAN Hub is in the center (y=530); on-prem simulation is at the bottom (y=790).
+
+**Rationale:** Placing the internet destination at the top matches the conventional network diagram convention (external/cloud "above", on-prem "below"). The hub occupies the visual center as the routing hub, with spokes branching left and right. This produces a clean vertical traffic path: Spoke VM (bottom-left/right) → Hub (center) → ILB → NVA → PLB → Internet (top).
+
+---
+
+### 3. Excalidraw element style
+
+**Decision:** `roughness: 0` on all elements, no element binding (`startBinding/endBinding: null`), arrow points as relative arrays.
+
+**Rationale:** Zero roughness gives a clean infrastructure-diagram look consistent with the repo's other technical diagrams. No element binding makes the JSON portable — if element IDs change, arrows don't break. Relative `points` arrays are simpler to author and maintain than absolute coordinates on arrow endpoints.
+
+---
+
+### 4. Hub routing sequencing documented as script-driven (not Bicep)
+
+**Decision:** README explicitly calls out that hub VNet connections and `defaultRouteTable` route programming are script-driven, performed after `routingState = Provisioned`, not in Bicep.
+
+**Rationale:** Consistent with the pattern established in `svh-dynamic-er-ri`. Azure control plane rejects connection/route operations while the hub is initialising. Documenting this prominently prevents confusion for developers who expect all infrastructure to be idempotent Bicep.
+
+---
+
+## Impact on Other Agents
+
+- **Naomi (scripts):** `deploy.sh` / `deploy.ps1` must write exported PNG to `media/` at repo root (not `nva-spoke-internet/media/`).
+- **Alex (bicep):** No change — bicep modules are unaffected by media folder location.
+- **Team:** Future labs should use root-level `media/` for topology diagrams to enable cross-lab image reuse.
+
+
+---
+
+# Finding: nva-spoke-internet Bicep Lab Validation
+
+**Author:** Amos (Tester)  
+**Date:** 2026-07-24T16:50:18Z  
+**Status:** Finding — action required on D1  
+**Related:** `naomi-nva-si-output-contract.md`, `alex-nva-spoke-internet-vwan-routing.md`
+
+---
+
+## Summary
+
+Independent QA pass on the `nva-spoke-internet` lab (Bicep + scripts + cloud-init).
+All structural checks pass. One low-severity defect found in `deploy.sh`.
+
+---
+
+## Validation Results
+
+| Task | Check | Result | Notes |
+|------|-------|--------|-------|
+| 1 | `az bicep build` compile | **PASS** | Exit 0, zero BCP diagnostics; v0.42.1 advisory to upgrade to v0.45.15 |
+| 2 | `bash -n` lint (all 4 scripts) | **PASS** | functions.sh, deploy.sh, configure-onprem.sh, cleanup.sh — clean |
+| 3 | Contract cross-check (16 outputs) | **PASS + D1** | All 16 outputs present in main.bicep and main.json; see defect |
+| 4 | Address plan audit | **PASS** | All CIDRs/ASNs match contract; no 10.200.0.0 references |
+| 5 | VM size preflight | **PASS** | pick_vm_sku + preflight_vm_capacity in Phase 3, before Phase 6 Bicep deploy |
+| 6 | Routing sequencing | **PASS** | poll_until gates Phase 8; connections created in Phases 9-11 post-Provisioned |
+| 7 | Boot diag / serial console | **PASS** | vm.bicep: `bootDiagnostics: { enabled: true }`, no storageUri |
+| 8 | Cloud-init review | **PASS** | nva.yaml: ip_forward + MASQUERADE + SSH INPUT; onprem-nva.yaml: strongSwan + FRR |
+
+---
+
+## Defects
+
+### D1 — `HUB_ID` fetched but never used (LOW severity)
+
+**File:** `nva-spoke-internet/scripts/deploy.sh:155`  
+**Symptom:** Variable `HUB_ID` is assigned from `get_output hubId` but is referenced nowhere downstream.  
+**Root cause:** `DEFAULT_RT_ID` is constructed at line 169 via a separate `az account show` call instead of from `HUB_ID`.
+
+```bash
+# deploy.sh line 155 — assigned but never used:
+HUB_ID="$(get_output hubId)"
+
+# deploy.sh line 167-169 — constructs DEFAULT_RT_ID without HUB_ID:
+SUBSCRIPTION=$(az account show --query id -o tsv)
+DEFAULT_RT_ID="/subscriptions/${SUBSCRIPTION}/resourceGroups/${RG}/providers/Microsoft.Network/virtualHubs/${HUB}/hubRouteTables/defaultRouteTable"
+```
+
+**Fix (Naomi):** Replace lines 167-169 with:
+```bash
+DEFAULT_RT_ID="${HUB_ID}/hubRouteTables/defaultRouteTable"
+```
+This removes one extra `az account show` API call and eliminates the dead variable.  
+**Impact if not fixed:** None — functional, just wasteful and confusing to maintainers.
+
+---
+
+## Observations (non-defect)
+
+### O1 — `disableBgpRoutePropagation: false` on snet-nva UDR
+
+**File:** `nva-spoke-internet/bicep/modules/dmz.bicep:67`  
+Hub-propagated routes appear in the NVA subnet routing table. The explicit `0.0.0.0/0 → Internet` UDR route correctly overrides any propagated 0/0 (UDR static wins over BGP for same prefix). No functional impact. Setting `disableBgpRoutePropagation: true` would be more defensive and reduce route-table noise.
+
+### O2 — ILB frontend hardcoded as Bicep `var` (by design)
+
+`ilbFrontendIp = '10.0.0.68'` (internal-lb.bicep:27). The value is statically assigned in both Bicep and ARM. The deploy.sh guard at line 183 catches any drift. This pattern is intentional and correct.
+
+### O3 — Bicep compiler version advisory
+
+Current: v0.42.1.51946. Upgrade to v0.45.15 available. Not a warning or BCP diagnostic; all output is structurally valid.
+
+---
+
+## Reusable Validation Patterns Established
+
+1. **Bicep contract cross-check**: compare `grep -n "output " main.bicep` against all `get_output <name>` calls in deploy script — zero mismatches is the pass criterion.
+2. **Dead variable detection**: `grep "HUB_ID" deploy.sh | wc -l` — count occurrences; if assignment is the only occurrence, it's unused.
+3. **Old CIDR scan**: `grep -r "10.200.0.0" .` — must return zero results after any CIDR migration refactor.
+4. **Cloud-init completeness check for NVA**: nva.yaml must have `ip_forward = 1`, `MASQUERADE`, `FORWARD -j ACCEPT`, and `INPUT --dport 22 -j ACCEPT` (last item supports ILB TCP/22 health probe).
+
+See `.squad/skills/vwan-nva-routing/SKILL.md` for updated verification commands.
+
+---
+
+## Test Plan
+
+See the end-to-end validation test plan in the Amos validation report. Key test cases:
+
+1. **Spoke → Internet egress**: `curl -s https://ifconfig.me` from spoke1/spoke2 VM must return the Public LB PIP
+2. **Effective routes**: spoke NIC effective routes must show `0.0.0.0/0` via `conn-dmz`
+3. **HA failover**: stop nva-0, re-run curl from spoke — traffic resumes via nva-1 (ILB health probe detects failure in ~15s)
+4. **Serial console**: `az serial-console connect -g $RG -n <vm-name>` must open without error (boot diag enabled)
+5. **On-prem BGP (deployOnPrem=true)**: `az network vpn-gateway connection show` BGP status = Connected; on-prem VM can ping/SSH spoke1/spoke2 private IPs
+
+All test cases are runnable with az CLI + ssh; no custom tooling required.
+
+---
+
+# Decision: Non-interactive deploy.ps1 patterns + Windows preflight fix
+
+**Author:** Alex  
+**Date:** 2026-07-24T22:28:48Z  
+**Context:** Live deploy of nva-spoke-internet lab to DMAUSER-FDPO (eastus2)
+
+---
+
+## Decision 1: `$env:ADMIN_PASSWORD` env-var fallback for unattended runs
+
+**Problem:** `deploy.ps1` blocks on `Read-Host -AsSecureString` in an interactive loop, preventing CI/agent use.
+
+**Decision:** Insert an env-var check BEFORE the `while` loop. If `$env:ADMIN_PASSWORD` is set and ≥12 chars, skip interactive prompting entirely. The `while` condition is changed from `while ($true)` to `while ([string]::IsNullOrWhiteSpace($AdminPasswordPlain))` so the loop is skipped rather than broken out of — no `break` required.
+
+```powershell
+if (-not [string]::IsNullOrWhiteSpace($env:ADMIN_PASSWORD) -and $env:ADMIN_PASSWORD.Length -ge 12) {
+    $AdminPasswordPlain = $env:ADMIN_PASSWORD
+    Log "  Admin password : (taken from `$env:ADMIN_PASSWORD)"
+}
+while ([string]::IsNullOrWhiteSpace($AdminPasswordPlain)) { ... }
+```
+
+**Rationale:** Preserves interactive path (env var absent → loop runs as before). Allows unattended deploy from CI or agent contexts where `$env:ADMIN_PASSWORD` is pre-set in the calling process. Password never written to disk in git-tracked files.
+
+---
+
+## Decision 2: `$PSBoundParameters.ContainsKey('DeployOnPrem')` for switch params
+
+**Problem:** `[switch]$DeployOnPrem` evaluates to `$false` both when omitted and when explicitly passed as `-DeployOnPrem:$false`. The guard `if (-not $DeployOnPrem)` therefore fires the interactive `Read-Host` prompt even when the caller explicitly opts out.
+
+**Decision:** Replace `if (-not $DeployOnPrem)` with `if (-not $PSBoundParameters.ContainsKey('DeployOnPrem'))` — only prompt if the switch was genuinely absent from the command line.
+
+**Rationale:** Standard PowerShell idiom for distinguishing "not passed" from "passed as false". Allows `-DeployOnPrem:$false` to cleanly suppress the prompt in all non-interactive contexts.
+
+---
+
+## Decision 3: Windows `az vm create --public-ip-address ""` is a silent no-arg bug
+
+**Problem:** Phase 3 preflight used `az vm create --public-ip-address ""` to suppress public IP creation. On Windows PowerShell, the empty string `""` is dropped silently when passed to an external command. `az` receives `--public-ip-address` with no value → `ERROR: argument --public-ip-address: expected one argument` → exit code 2 → ALL VM SKUs appear capacity-blocked (false negative).
+
+**Decision:** Pre-create a NIC without a public IP (`az network nic create`), then use `az vm create --nics capchk-nic` with no `--public-ip-address` argument. The absence of the flag (not an empty-string argument) reliably suppresses public IP creation cross-platform.
+
+**Rationale:** The root cause is Windows PowerShell's handling of empty string args to external commands — this is not a capacity issue and not az-CLI-version-specific. The NIC pre-creation pattern avoids the arg entirely and is portable (Linux bash + Windows PS1).
+
+**Scope:** Affects any PowerShell deploy script that passes empty strings to `az` for optional arguments. Apply this pattern to: `--public-ip-address ""`, `--subnet ""`, `--vnet-name ""` and any other optional resource-name args.
+
+---
+
+## Decision 4: Use `-SkipPreflight` when quota is confirmed adequate
+After diagnosing the false-fail above, the preflight was bypassed with `-SkipPreflight` for the production run. The preflight fix was applied to deploy.ps1 for future use, but confirmed quota (B-series: 0/100 vCPUs used) made the check unnecessary for this run.
+
+---
+
+# Decision: nva-spoke-internet Flow Validation + Monitoring Enablement
 
 **Author:** Alex (Network Engineer)  
-**Date:** 2026-06-15T17:34:27-05:00  
-**Status:** Accepted
-
-### Why `hubRoutingPreference = ExpressRoute`
-
-Every Virtual Hub in this lab is created with `hubRoutingPreference: 'ExpressRoute'`.
-
-**Rationale:**
-- In a multi-hub topology with both VPN and ExpressRoute attachments, the hub's route-selection algorithm must be deterministic. `ExpressRoute` preference instructs the hub control-plane to prefer ER-learned routes when the same prefix is reachable via both ER and VPN.
-- Lab scenarios validate spoke-to-spoke and spoke-to-on-prem reachability over ER. Without this preference, VPN routes can shadow ER routes mid-test, producing intermittent failures that are hard to reproduce.
-- Fixed in `vhub.bicep` (`var hubRoutingPreference = 'ExpressRoute'`) so every hub is identical. Validation scripts assert this value.
-
-**Enforcement:** Do NOT change `hubRoutingPreference` to `ASPath` or `VpnGateway` in any hub module without a lab-wide requirement change and team sign-off.
-
-### Routing Intent JSON Shapes
-
-All three modes are defined in `routing-intent.bicep`. The canonical JSON shapes (matching the ARM API and az CLI `--routing-policies` argument) are:
-
-#### `privateOnly`
-```json
-[
-  {
-    "name": "PrivateTraffic",
-    "destinations": ["PrivateTraffic"],
-    "nextHop": "<firewallResourceId>"
-  }
-]
-```
-
-#### `internetOnly`
-```json
-[
-  {
-    "name": "InternetTraffic",
-    "destinations": ["Internet"],
-    "nextHop": "<firewallResourceId>"
-  }
-]
-```
-
-#### `both`
-```json
-[
-  {
-    "name": "PrivateTraffic",
-    "destinations": ["PrivateTraffic"],
-    "nextHop": "<firewallResourceId>"
-  },
-  {
-    "name": "InternetTraffic",
-    "destinations": ["Internet"],
-    "nextHop": "<firewallResourceId>"
-  }
-]
-```
-
-**Destination string rules (ARM canonical values):**
-| String | Covers |
-|---|---|
-| `PrivateTraffic` | All RFC-1918 prefixes learned from VNet connections, VPN sites, ER circuits |
-| `Internet` | Default route (0.0.0.0/0) — Internet-bound traffic |
-
-**Policy name rules:** Names are informational labels in ARM. Use `PrivateTraffic` and `InternetTraffic` consistently across all hubs so logs and Azure Monitor queries match.
-
-**Routing Intent is GLOBAL in this lab** — the same `mode` value MUST be applied to all hubs in a deployment. Mixed modes across hubs in the same vWAN produce asymmetric routing that breaks spoke-to-spoke connectivity through the firewall.
-
-### Azure Firewall Basic — Internet Traffic Caveat
-
-Azure Firewall **Basic** tier is deployed in all hubs (`tier: 'Basic'` in `secured-vhub-firewall.bicep`).
-
-**Known limitation:** Azure Firewall Basic in secured-hub mode has documented restrictions on Internet traffic inspection via Routing Intent. Specifically:
-
-- Basic tier does **not** support IDPS (Intrusion Detection and Prevention System).
-- Basic tier does **not** support TLS inspection.
-- For `internetOnly` and `both` modes, Internet traffic will egress through the firewall for allow/deny enforcement, but without the deep-inspection capabilities available in Standard/Premium tiers.
-- Microsoft documentation notes that Azure Firewall Basic may have limitations steering Internet traffic in secured-hub configurations; always validate that your subscription and region support the desired `internetOnly`/`both` mode with Basic tier before production use.
-
-**Lab posture:** `internetOnly` and `both` modes are **supported** in this lab for connectivity testing (verify reachability, inspect firewall logs). They are **not** a production-grade Internet security posture with Basic tier. Label test results accordingly.
-
-### Rule: No Custom Hub Route Tables or Static Default-Route-Table Routes
-
-**Do NOT create:**
-- Custom hub route tables (e.g., `Microsoft.Network/virtualHubs/hubRouteTables` beyond the system `defaultRouteTable`)
-- Static routes in `defaultRouteTable` that overlap with Routing Intent destinations (e.g., a static `0.0.0.0/0` or `10.0.0.0/8` pointing anywhere)
-
-**Why:** Routing Intent is incompatible with custom route tables on the same hub. ARM will reject or silently override custom static routes when Routing Intent is active. The Routing Intent resource owns the default-route-table population for its declared destinations. Adding conflicting routes causes ARM deployment errors or undefined routing behavior.
-
-**Rule applies to:** Naomi's Bicep modules, Holden's CLI scripts, and any ARM templates targeting hubs in this lab.
-
-### Resource Naming Convention
-
-Routing Intent child resource: `<hubName>/<hubName>-ri`
-
-Example: hub `vhub-eastus` → Routing Intent `vhub-eastus/vhub-eastus-ri`
-
----
-
-## Decision: svh-dynamic-er-ri Documentation Structure
-
-**Date:** 2026-06-15T17:34:27-05:00  
-**Author:** Holden (Lead Architect)  
-**Status:** Accepted
-
-### Context
-
-New lab `svh-dynamic-er-ri` is a dynamic, reusable replacement for `3vhub-er-ri` that deploys 1..N Secured Virtual Hubs based on user input. The Bicep modules were already authored; documentation was absent. The reference lab `3vhub-er-ri/README.md` established the repo voice and structure (Mermaid diagram, Considerations section, CLI-first examples).
-
-### Decision
-
-Authored a five-file documentation set for `svh-dynamic-er-ri`:
-
-1. **`README.md`** — Top-level lab doc. Matches repo voice. Includes: dynamic N-hub Mermaid diagram, address plan table, per-hub component table, Considerations (Route Preference = ExpressRoute and allow-all warnings prominently), Parameters table, deploy examples (7 scenarios), validate steps, cleanup steps, cost notes.
-
-2. **`docs/architecture.md`** — Deep-dive components, Bicep module mapping, address plan formula, routing design (ExpressRoute preference rationale, RI modes, Bicep-vs-script step table), demand-driven ER gateway model, Key Vault secret handling, resource tagging.
-
-3. **`docs/validation.md`** — Per-check description of what `validate.sh`/`validate.ps1` assert, how to read hub effective routes and VNet connection status, manual connectivity test procedures (5 test scenarios), Serial Console access instructions.
-
-4. **`docs/troubleshooting.md`** — Eight common issues with root causes and fixes: ER provider slow, firewall 30-45 min, RI routingState not Provisioned, Internet+Basic SKU caveat, spoke VNet connection failed, VM SKU restrictions, no public IP access (Serial Console guidance), Key Vault 403.
-
-5. **`docs/cost-control.md`** — Per-resource cost table, monthly estimates by hub count, per-resource reduction strategy, Options A–E for staged cost reduction, cleanup instructions, prominent production warning for allow-all rule.
-
-### Key Design Choices
-
-**Route Preference = ExpressRoute (not ASPath)**  
-The reference lab `3vhub-er-ri` uses ASPath preference. This lab uses `ExpressRoute` preference. The rationale: `ExpressRoute` preference is simpler and more predictable for single-ER-circuit-per-hub topologies, which is the primary use case for dynamic N-hub labs.
-
-**Explicit Warnings on Allow-All Policy**  
-The allow-all firewall rule appears in `vhub.bicep` comments, `firewall-policy.bicep` header, `README.md` intro, and `cost-control.md`. This redundancy is intentional — labs are forked and copied; isolated warnings get missed. Belt-and-suspenders.
-
-**Script-Driven vs. Bicep Steps**  
-Routing Intent and VNet connections documented as **must-be-script-driven** (not Bicep) due to sequencing constraints that are hard to enforce reliably with Bicep `dependsOn` in multi-hub deployments.
-
-**ER Gateway Demand Model**  
-The demand-driven ER gateway model (no gateway unless a circuit maps to the hub) is the primary ER cost lever.
-
----
-
-## Decision: 3vhub-er-ri Deployment to DMAUSER-FDPO — Phase 7 Complete
-
-**Date:** 2026-05-26  
-**Author:** Naomi (Infra Dev)  
-**Status:** Accepted
-
-### Context
-
-Deployment of the `3vhub-er-ri` lab to subscription `DMAUSER-FDPO` was executed through Phase 7 per Daniel's instructions. Deployment is intentionally paused, waiting for Megaport to provision the ExpressRoute cross-connects.
-
-### What Was Deployed (Phases 0–7)
-
-| Resource | Status | Notes |
-|----------|--------|-------|
-| Resource Group `lab-3vhub-er-ri` (eastus) | ✅ Succeeded | |
-| vWAN `vwan-3vhub-er-ri` (Standard, branch-to-branch) | ✅ Succeeded | |
-| vHub `vhub-eastus` (10.1.0.0/23, ASPath) | ✅ Succeeded | hubRoutingPreference=ASPath confirmed |
-| vHub `vhub-westus` (10.2.0.0/23, ASPath) | ✅ Succeeded | hubRoutingPreference=ASPath confirmed |
-| vHub `vhub-centralus` (10.3.0.0/23, ASPath) | ✅ Succeeded | hubRoutingPreference=ASPath confirmed |
-| VNet `spoke-east` + NSG + subnet | ✅ Succeeded | SSH from 47.187.109.111 allowed |
-| VNet `spoke-west` + NSG + subnet | ✅ Succeeded | SSH from 47.187.109.111 allowed |
-| VNet `spoke-central` + NSG + subnet | ✅ Succeeded | SSH from 47.187.109.111 allowed |
-| VM `vm-spoke-east` | ❌ NOT CREATED | Eastus capacity restriction — ALL sizes blocked |
-| VM `vm-spoke-west` (13.83.148.81) | ✅ Succeeded | Standard_DS1_v2 |
-| VM `vm-spoke-central` (172.173.70.139) | ✅ Succeeded | Standard_DS1_v2 |
-| ER circuit `er-vhub-eastus` (Washington DC, Megaport, 50 Mbps) | ✅ Succeeded | Service Key: 69ce114c-d9c2-4cd1-b61b-f3a9a94815fc |
-| ER circuit `er-vhub-westus` (Silicon Valley, Megaport, 50 Mbps) | ✅ Succeeded | Service Key: 98843cf6-0a74-4472-910e-d672871ce388 |
-
----
-
-## Decision: 3vhub-er-ri Resume Phases 8-15
-
-**Date:** 2026-05-26  
-**Author:** Naomi (Infrastructure Engineer)  
-**Status:** Accepted
-
-### Context
-
-Daniel confirmed both Megaport ExpressRoute circuits were provisioned. The `3vhub-er-ri` lab deployment resumed in subscription `78216abe-8139-4b45-8715-6bab2010101e`, resource group `lab-3vhub-er-ri`.
-
-### What Was Deployed (Phases 8–15)
-
-| Resource | Status | Notes |
-|----------|--------|-------|
-| `vhub-eastus-ergw` | Succeeded | Scale unit 1 |
-| `vhub-westus-ergw` | Succeeded | Scale unit 1 |
-| `conn-er-eastus` | Succeeded | Connected to `er-vhub-eastus/AzurePrivatePeering` |
-| `conn-er-westus` | Succeeded | Connected to `er-vhub-westus/AzurePrivatePeering` |
-| `vhub-eastus-fwpolicy` | Succeeded | Basic SKU, allow-all network rule |
-| `vhub-westus-fwpolicy` | Succeeded | Basic SKU, allow-all network rule |
-| `vhub-centralus-fwpolicy` | Succeeded | Basic SKU, allow-all network rule |
-| `vhub-eastus-azfw` | Succeeded | Basic hub firewall, private IP `10.1.0.132` |
-| `vhub-westus-azfw` | Succeeded | Basic hub firewall, private IP `10.2.0.132` |
-| `vhub-centralus-azfw` | Succeeded | Basic hub firewall, private IP `10.3.0.132` |
-| `vhub-eastus-ri` | Succeeded | PrivateTraffic → firewall |
-| `vhub-westus-ri` | Succeeded | PrivateTraffic → firewall |
-| `vhub-centralus-ri` | Succeeded | PrivateTraffic → firewall |
-
----
-
-## Decision: 3vhub-er-ri Deploy Speedup
-
-**Date:** 2026-05-26T19:51:57-05:00  
-**Author:** Naomi (Infrastructure Engineer)  
-**Status:** Accepted
-
-### Decision
-
-Implement the approved Azure CLI wall-clock speedup by moving ExpressRoute circuit creation to the earliest point after resource group/vWAN creation, printing service keys immediately, and delaying the provider `Provisioned` poll until just before ER gateway creation.
-
-### New Phase Order
-
-1. Keep Phase 0 VM SKU availability pre-flight before deployment resources.
-2. Create the resource group and Virtual WAN.
-3. Create both ExpressRoute circuits in parallel and pause only for Megaport order placement.
-4. Start all three vHubs with `--no-wait`.
-5. Build spoke VNets, NSGs, rules, subnet associations, and VMs while vHubs provision.
-6. Wait for vHub provisioning/routing readiness, then create spoke connections and poll all three together.
-7. Poll Megaport/Azure provider state immediately before ER gateway creation.
-8. Create ER gateways, ER gateway connections, firewall policies, firewalls, and Routing Intent with added parallelization opportunities.
-
-### Rationale
-
-This ordering exposes service keys as soon as possible so Megaport provisioning can run concurrently with vHub, spoke, VM, and connection work. The human handoff remains intact, but the long provider-state poll no longer blocks independent Azure deployment phases.
-
----
-
-## Decision: svh-dynamic-er-ri Initial Architecture
-
-**Date:** 2026-06-15  
-**Author:** Naomi (Infra Dev)  
-**Status:** Accepted
-
-### Bicep Design Decisions
-
-1. **`hubs` array (untyped)** — Maximizes portability across Bicep versions in Cloud Shell; optional per-hub override via `contains(hub, 'vmSize')?` pattern.
-
-2. **vmSize is per-hub** — The reference `3vhub-er-ri` live deployment showed eastus had zero VM capacity. Per-hub vmSize isolates the failure to one region.
-
-3. **adminPassword passed inline** — Passed as `--parameters adminPassword=...` on the CLI. Params file safe to inspect/commit; only secret is protected.
-
-4. **ER gateway creation dual-path** — Bicep creates when `hub.deployErGateway=true`; CLI fallback when circuit mapped at interactive prompt.
-
-5. **Spoke connections NOT in Bicep** — Scripts create after hub `routingState=Provisioned`. Prevents Bicep timing failures on ARM hub router readiness gate.
-
-6. **Routing Intent NOT in Bicep** — CLI creation via `az network vhub routing-intent create` after firewalls `Succeeded`. Scripts poll separately.
-
-7. **Naming contract enforced at main.bicep + script layer** — Scripts compute hub/spoke/fw names locally rather than parsing JSON outputs.
-
-### Impact
-
-- **Amos (validate):** Hub names follow `${labPrefix}-vhub${i}` 1-based; firewall names follow `${hubName}-azfw`; RI names follow `${hubName}-ri`.
-- **Holden (routing/RI):** Routing intent mode is global (same on every hub); nextHop is always the local hub's firewall.
-- **Alex (test):** KV secrets are `vm-admin-username` / `vm-admin-password`; password retrieval via `az keyvault secret show`.
-
----
-
-## Decision: Fix missing `--internet-security true` on spoke VNet connections (internetOnly/both RI modes)
-
-**Date**: 2026-06-15  
-**Author**: Alex (Network Engineer)  
-**Lab**: `svh-dynamic-er-ri`  
-**Severity**: HIGH — silent functional failure
-
-### Problem
-
-`az network vhub connection create` defaults `internetSecurity = false` (Propagate Default Route: disabled).  
-In Azure Virtual WAN, Routing Intent can only inject a `0.0.0.0/0` default route into a spoke VNet if the connection has `enableInternetSecurity = true`.  
-Both `internetOnly` and `both` RI modes were silently broken for the CLI deploy path: internet traffic from Ubuntu VMs bypassed the hub Azure Firewall regardless of the selected RI mode.
-
-The Bicep path (`infra/bicep/modules/spoke-vnet.bicep`) already sets `enableInternetSecurity: true` unconditionally; only the CLI script path was affected.
-
-### Decision
-
-Set `--internet-security true` **conditionally** on `az network vhub connection create` — only when `ri_mode` is `internetOnly` or `both`. For `privateOnly` mode, omit the flag (leave default `false`); private-only deployments do not need a default route injected into spokes and should not receive one.
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `svh-dynamic-er-ri/scripts/deploy.sh` | Added `isec` variable before Phase 9 loop; conditionally adds `--internet-security true` to `az network vhub connection create` based on `$ri_mode`. |
-| `svh-dynamic-er-ri/scripts/deploy.ps1` | Added `$isecArgs` array before Phase 9 loop; splatted into `az network vhub connection create` with `@isecArgs`. |
-| `svh-dynamic-er-ri/scripts/validate.sh` | Added assertion in Section 11: for each hub with Internet RI policy, checks `enableInternetSecurity == true` on every spoke connection. |
-| `svh-dynamic-er-ri/scripts/validate.ps1` | Same assertion in Section 11 (PowerShell). |
-| `svh-dynamic-er-ri/docs/architecture.md` | Added notes on (a) conditional `enableInternetSecurity` flag, (b) double-inspection in multi-hub private RI, (c) Azure Firewall Basic ~250 Mbps throughput caveat. |
-
-### Validation Approach
-
-The assertion uses `az network vhub connection show ... --query enableInternetSecurity` (control-plane check). This is preferred over asserting `0.0.0.0/0` in effective routes because:
-- Control-plane flag is available immediately after connection provisioning
-- Effective route table population can be delayed post-RI activation (timing-dependent in CI)
-- The flag is the root cause; the route is the downstream effect
-
-### Verification
-
-- `bash -n deploy.sh` and `bash -n validate.sh` both pass (WSL, LF-only)
-- PowerShell parser reports 0 errors for `deploy.ps1` and `validate.ps1`
-- No CRLF line endings introduced in `.sh` files
-
----
-
-## Decision: Password-Only VM Authentication
-
-**Date**: 2026-06-15  
-**Author**: Naomi (Infrastructure Engineer)  
-**Requested by**: Daniel Mauser (@dmauser)  
-**Status**: Implemented  
-
-### Context
-
-The svh-dynamic-er-ri lab was requiring an SSH public key at deploy time (either supplied by the user or auto-generated as an ephemeral key). This created unnecessary friction because:
-
-1. Lab VMs have **no public IP** by default — SSH from the internet was never a practical access path.
-2. The only real access paths are **Azure Serial Console** and **VM-to-VM SSH within the lab** — both work with password.
-3. The password was already auto-generated and stored in Key Vault at deploy time; SSH key was redundant.
-4. Ephemeral key generation via `ssh-keygen` required the tool to be present and left private key files on disk.
-
-### Decision
-
-Remove SSH key authentication as a **requirement**. VMs authenticate with **username + auto-generated password** only. The password is stored in Key Vault (implementation was already in place).
-
-SSH public key support is retained as an **optional, unused-by-default** parameter (`sshPublicKey = ''`) so that advanced users can still supply a key if desired, without breaking any existing automation that passes an empty string.
-
-### Changes Made
-
-| File | Change |
-|------|--------|
-| `infra/bicep/modules/ubuntu-vm.bicep` | `sshPublicKey` param default `''`; conditional `linuxConfiguration` omits `ssh.publicKeys` when empty; header comment updated |
-| `infra/bicep/main.bicep` | `sshPublicKey` param default `''` |
-| `scripts/deploy.sh` | Removed SSH key prompt + ephemeral keygen; `ssh_pub_key=""` always; updated deployment summary |
-| `scripts/deploy.ps1` | Removed SSH key prompt + ephemeral keygen; `$SshPubKey = ""` always; updated deployment summary |
-| `README.md` | Removed SSH key prerequisite, `--ssh-public-key` from all examples, updated auth description |
-| `docs/troubleshooting.md` | Updated "No Public IP" section — removed NSG rule update workaround, added KV retrieval for username + password |
-| `docs/architecture.md` | Updated auth description in VM section and Key Vault section |
-| `docs/cost-control.md` | Removed `--ssh-public-key` from deploy examples |
-
-### Authentication Flow (Post-Change)
-
-1. Deploy script generates a random password (`admin_password`).
-2. Bicep stores `vm-admin-username` and `vm-admin-password` as Key Vault secrets.
-3. VMs are provisioned with `adminPassword` and `disablePasswordAuthentication: false`.
-4. To access a VM:
-   ```bash
-   # Get credentials from Key Vault
-   az keyvault secret show --vault-name <kvName> --name vm-admin-username --query value -o tsv
-   az keyvault secret show --vault-name <kvName> --name vm-admin-password --query value -o tsv
-   # Login via Azure Serial Console or VM-to-VM SSH with the password
-   ```
-
-### Verification
-
-- `az bicep build --file main.bicep` → exit 0, no errors (1 pre-existing version upgrade warning)
-- `[System.Management.Automation.Language.Parser]::ParseFile(deploy.ps1)` → 0 errors
-- `bash -n deploy.sh` → PASSED
-- deploy.sh CRLF check → 0 CRLF sequences (LF-only preserved)
-
----
-
-## Decision: routing-intent --vhub fix, poll timeouts, SKU retry, timestamps
-
-**Date:** 2026-06-15  
-**Author:** Naomi (Infrastructure Engineer)  
-**Triggered by:** Live deployment failure of svh-dynamic-er-ri against az CLI 2.83.0 + virtual-wan 1.0.1
-
-### Context
-
-A live deployment of the `svh-dynamic-er-ri` lab exposed three script bugs that caused an infinite hang, incorrect field polling, and a hard failure on VM SKU capacity. These were fixed across all four scripts: `deploy.ps1`, `deploy.sh`, `validate.ps1`, `validate.sh`.
-
-### Decision 1 — `az network vhub routing-intent` uses `--vhub`, NOT `--vhub-name`
-
-**Problem:** Every `routing-intent create/show` call passed `--vhub-name $hub`. The CLI rejects this flag silently (returns a help error), causing infinite polling loops in Phase 12.
-
-**Evidence:** `az network vhub routing-intent create --help` lists `--vhub [Required]` — not `--vhub-name`. The `--vhub-name` parameter belongs to `az network vhub connection create` (a different subcommand family).
-
-**Fix:** Changed all `routing-intent` subcommand invocations to `--vhub` in all 4 files. `vhub connection create` calls are **unchanged** — they correctly use `--vhub-name`.
-
-**Rule going forward:** When writing any CLI call against `az network vhub routing-intent`, always use `--vhub`. When writing against `az network vhub connection`, use `--vhub-name`. These are different subcommand trees with different parameter names.
-
-### Decision 2 — All poll loops must have a bounded max-iteration timeout
-
-**Problem:** Every `do..while` / `while true` poll in both deploy scripts was unbounded. When the `routing-intent show` command errored (due to Bug 1), it returned an empty string which was never `"Succeeded"`, creating an infinite loop (200+ iterations observed).
-
-**Fix:** Added an iteration counter and max-iteration guard to every poll loop in `deploy.ps1` and `deploy.sh`:
-
-| Poll loop | File | Max iters × sleep | Effective timeout |
-|---|---|---|---|
-| Hub provisioningState | both | 40 × 15 s | 10 min |
-| Hub routingState | both | 36 × 10 s | 6 min |
-| Spoke connections | both | 40 × 30 s | 20 min |
-| ER gateway | both | 40 × 15 s | 10 min |
-| ER gateway connection | both | 40 × 30 s | 20 min |
-| Azure Firewall | both | 80 × 15 s | 20 min |
-| Routing Intent | both | 20 × 15 s | 5 min |
-
-On timeout expiry the script logs `WARNING: ... timed out after N iterations` and breaks (does not exit). This allows the operator to inspect and continue rather than killing the process.
-
-**Rule going forward:** No deploy script may contain an unbounded poll loop. Every `while true` / infinite `do..while` must have a documented max-iteration guard with a WARNING on expiry.
-
-### Decision 3 — VM SKU selection must be resilient to Capacity Restrictions
-
-**Problem:** `Pick-VmSku` / `pick_vm_sku` only checked `az vm list-skus .restrictions`. This returned empty for `Standard_B2s` in eastus, but the actual deployment failed with `SkuNotAvailable / Capacity Restrictions`. The pre-flight check gave false confidence.
-
-**Fix:** 
-1. Expanded `$VmSkuCandidates` from 3 to 5 entries: `Standard_B2s`, `Standard_B2ms`, `Standard_D2s_v3`, `Standard_D2as_v5`, `Standard_D2s_v5`.
-2. Wrapped the `az deployment group create` call in a retry loop in both `deploy.ps1` and `deploy.sh`. If the deployment fails with `SkuNotAvailable` or `Capacity` in the error output, the loop advances `$SkuRetryIdx` / `$sku_retry_idx`, regenerates the params file with the next candidate SKU for all hubs, and retries. If all candidates are exhausted the script exits with a clear error listing all tried SKUs.
-3. The pre-flight `Pick-VmSku` / `pick_vm_sku` still runs (for fast-fail on obviously restricted SKUs) but is now a best-effort hint, not a hard guarantee.
-
-**Rule going forward:** Deployment-time SKU failures are expected in subscription types with capacity restrictions. Always wrap bicep deployments that include VMs in a SKU retry loop when the subscription may have eastus capacity limits.
-
-### Decision 4 — All progress output is timestamped
-
-**Problem:** Long-running phases (Azure Firewall ~30 min) and stuck poll loops produced output with no timing information, making it impossible to tell how long a step had been running.
-
-**Fix:** Added a `Log` / `log` helper in all 4 scripts that prefixes every message with `[HH:mm:ss]`. All phase headers and poll-tick lines now go through this helper.
-
-- PS1: `function Log([string]$m){ Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) }`
-- SH: `log(){ printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }`
-
-### Verification
-
-- `az network vhub routing-intent create --help` → `--vhub [Required]` confirmed ✔
-- `grep routing-intent.*--vhub-name` across all 4 scripts → 0 results (comments only) ✔
-- `deploy.ps1` / `validate.ps1`: PowerShell Parser → 0 errors ✔
-- `deploy.sh` / `validate.sh`: `bash -n` → PASSED; 0 CRLF sequences ✔
-
----
-
-## Decision: VM capacity pre-flight probe (Phase 5b)
-
-**Date:** 2026-06-15  
-**Author:** Naomi (Infrastructure Engineer)  
-**Triggered by:** svh-dynamic-er-ri live deployment failure — VM SkuNotAvailable/capacity in eastus, eastus2, centralus, westus2 discovered AFTER 30-min vWAN/vHub/Firewall provisioning completed.
-
-### Problem
-
-`az vm list-skus --query "[?name=='Standard_B2s'].restrictions"` returned an **empty** result in eastus and other regions for the DMAUSER-FDPO subscription, implying no restrictions. But the actual `az deployment group create` failed with `SkuNotAvailable / Capacity Restrictions` when it tried to allocate the VM. The entire 30+ minute firewall provisioning completed before the failure was discovered.
-
-This is a known issue: `az vm list-skus` reports quota/policy restrictions but NOT live allocation capacity. Capacity blocks are invisible to it.
-
-### Decision
-
-**Replace the unreliable `az vm list-skus` pre-flight with a real synchronous allocation probe (`az vm create`) in a throw-away resource group, run BEFORE the main Bicep deployment.**
-
-#### Why synchronous (no `--no-wait`)
-Capacity errors only surface when Azure attempts the allocation. `--no-wait` returns immediately and the error surfaces asynchronously in the background job — by the time you poll it, the main deployment has already started. The probe MUST be synchronous to block on the error.
-
-#### Why a throw-away RG
-The probe VM (and its VNet, NIC, disk) must be isolated from the lab deployment. Using a dedicated `capcheck-<labPrefix>-<region>-<rand>` RG means the cleanup is a single `az group delete` that catches all artifacts including partial ones from failed VM creates.
-
-#### Cleanup guarantee
-- **Bash**: explicit `az group delete ... --no-wait || true` called before every `return` path.
-- **PowerShell**: `try/finally` block ensures `az group delete ... --no-wait` is always called even when the function throws.
-
-### Implementation
-
-#### Functions
-| File | Function name | Location |
-|---|---|---|
-| `deploy.ps1` | `Test-VmCapacity` | Helpers section (after `Build-RiPolicies`) |
-| `deploy.sh` | `preflight_vm_capacity` | Helpers section (after `poll_until`) |
-
-#### Phase placement
-Phase 5b — inserted between Phase 5 (params file written, all hub regions and SKUs known) and Phase 6 (main `az deployment group create`). Only executes when VMs will be deployed (`deploy_vms=true` / `$DeployVms`).
-
-#### Probe VNet CIDR
-`10.250.0.0/24` with subnet `10.250.0.0/27` — chosen to not conflict with any lab hub address spaces (`10.N0.0.0/23`).
-
-#### SKU fallback within probe
-The probe iterates through `VM_SKU_CANDIDATES` / `$VmSkuCandidates` (same ordered list used by the deployment retry). Initial SKU is tried first. If a DIFFERENT SKU succeeds, it is propagated back to the hub configuration so the deployment uses it directly.
-
-#### On total failure (all SKUs capacity-blocked)
-- Timestamped error box printed with region, tried SKUs, raw Azure error line, and suggested alternate regions (`eastus eastus2 westus westus2 westus3 centralus southcentralus`).
-- Script **exits non-zero immediately** (bash: `return 1` → caller `exit 1`; PS1: `throw`).
-- **No vWAN/vHub resources have been deployed at this point** — safe to re-run with a different region.
-
-### Escape Hatch
-
-Bypass the probe when capacity is already known:
-| Method | PS1 | Bash |
-|---|---|---|
-| CLI flag | `-SkipCapacityCheck` | `--skip-capacity-check` |
-| Env var | `$env:LAB_SKIP_CAPACITY_CHECK=1` | `LAB_SKIP_CAPACITY_CHECK=1` |
-
-When bypassed, a `[WARN]` line is printed informing the operator that a capacity error may still surface post-deployment.
-
-### Verification
-
-- `deploy.ps1` PS Parser → 0 errors ✔  
-- `validate.ps1` PS Parser → 0 errors ✔  
-- `deploy.sh` `bash -n` → PASS, 0 CRLF ✔  
-- `validate.sh` `bash -n` → PASS, 0 CRLF ✔  
-
-### Regions confirmed capacity-blocked (DMAUSER-FDPO, 2026-06-15)
-
-Standard_B2s (and all other tested SKUs): eastus, eastus2, centralus, westus2 — all blocked by capacity restrictions. westus, westus3, southcentralus were not tested but are likely candidates to try.
-
----
-
-## Decision: svh-dynamic-er-ri Script Hardening Standards
-
-**Date:** 2026-06-16  
-**Author:** Amos (Tester)  
-**Status:** Accepted (applied to svh-dynamic-er-ri; recommend adopting for all future labs)  
-**Requested by:** Daniel Mauser  
-
-### Context
-
-During live deployment validation of the 4-hub svh-dynamic-er-ri lab against `rg-svhdyn-4hub`, four classes of bugs were found and fixed in `validate.ps1`, `validate.sh`, `deploy.ps1`, and `deploy.sh`. These are general patterns that apply to any future lab using similar validation or deploy scripts.
-
-### Decisions Made
-
-#### 1. PS helper parameters must not shadow PS automatic variables
-
-- **Rule**: Never name a PowerShell function parameter `$Args`, `$Input`, `$PSBoundParameters`, or any other [PS automatic variable](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_automatic_variables). Use `$AzArgs` or any other non-reserved name.
-- **Rationale**: In `pwsh -File` (nested) execution `$Args` silently receives nothing, so `az @Args` runs bare `az` and prints group-help into captured output, corrupting all downstream checks.
-
-#### 2. Az pre-warm block required in all capture-heavy scripts
-
-- **Rule**: All validate/deploy scripts that capture `az` output into variables must include an up-front pre-warm block: install/update required CLI extensions, then call `az account show` to flush the one-time "Welcome to Azure CLI" banner before any query output is captured.
-- **Rationale**: The banner is printed exactly once on first-ever invocation; without pre-warm it lands inside the first `$(az ...)` result and corrupts it.
-
-#### 3. Safe integer parsing for az count queries in PowerShell
-
-- **Rule**: Never cast az query output directly with `[int](...)`. Use a `To-Int` helper that calls `[int]::TryParse` after stripping non-digits, with a guard rejecting strings longer than 9 digits.
-- **Rationale**: When `az` returns unexpected JSON blobs instead of a number (e.g., due to banner pollution), the naive cast throws `Int32 OverflowException` and aborts the script.
-
-#### 4. Correct az CLI property names for vWAN and Firewall Policy
-
-- **Rule (vWAN tier)**: Always use `--query typePropertiesType` (not `--query sku` or `--query type`) to retrieve the vWAN tier ("Standard"/"Basic"). The az CLI remaps ARM `properties.type` to `typePropertiesType`.
-- **Rule (allow-all rule)**: Always use `ruleCollections[?name=='allow-all-network'].rules[] | [?name=='allow-all'] | [0]` (flatten with `[]` before filtering). The pattern `[0][0]` against a projected list-of-lists always returns null in az CLI JMESPath.
-
-#### 5. Non-interactive guard for all blocking prompts in deploy scripts
-
-- **Rule**: Any `Read-Host`/`read` prompt in deploy scripts that waits for operator action (e.g., ER provider provisioning) must be guarded by `$IsNonInteractive` (PowerShell) / `NON_INTERACTIVE=1` env var (Bash). When running non-interactively, print the manual-step guidance and skip the blocking call.
-- **Rationale**: CI/automation pipelines and `pwsh -NonInteractive` invocations hang indefinitely at blocking prompts.
-
-### Impact
-
-- These five rules should be added to `docs/SCRIPT_CONVENTIONS.md` (Holden's domain) as PowerShell/Bash validation script standards.
-- Existing labs are not required to retrofit immediately — apply on next edit (consistent with Documentation Standards decision).
-- New lab validation scripts must follow rules 1–5 from day one.
-
-### Trade-offs
-
-- Pre-warm adds ~5–10 seconds per script run. Acceptable cost to guarantee clean output.
-- `To-Int` is PowerShell-only. Bash's `[[ $n -gt 0 ]]` and `${n:-0}` are already safe.
-
----
-
-## Decision: Canonical Prerequisite Checks in All Local Runner Scripts
-
-**Date:** 2026-06-16  
-**Author:** Coordinator (Naomi, Alex, Amos)  
+**Date:** 2026-07-27  
 **Status:** Accepted  
-**Requested by:** Daniel Mauser
+**Lab:** `nva-spoke-internet`
 
-### Context
+---
 
-During this session, Naomi built the new `gcp-onprem/` Terraform lab with 6 runner scripts. Alex and Amos standardized prerequisite checks across 11 additional runner scripts. The team identified a gap: local runner scripts must explicitly detect missing CLIs and offer guidance before executing.
+## Context
 
-### Decision Made
+The `nva-spoke-internet` lab successfully deployed and validated manually on 2026-07-24. The team needed a repeatable, documented way to:
 
-**All local runner scripts in this repository must begin with a prerequisite check block** that:
+1. **Prove** the Spoke VM → vHub → DMZ connection → ILB → NVA → Public LB → Internet path is functioning correctly (control-plane + data-plane + NVA forwarding + LB metrics).
+2. **Optionally** enable persistent flow logs and LB metric streaming for deeper observability.
 
-1. **Detects required CLIs:** `az` (Azure CLI), `terraform` (Terraform), `gcloud` (Google Cloud CLI), `jq` (JSON processor), `openssl` (OpenSSL), `Az` PowerShell module
-2. **For Bash scripts:** Use function `lab_require_tools` that lists missing tools and offers install guidance
-3. **For PowerShell scripts:** Use cmdlet `Invoke-LabPrereqCheck` with the same semantics
-4. **Fails gracefully:** Exit non-zero if a required tool is missing (operator can install and re-run)
+---
 
-### Scope
+## Decision (a): 4-phase validation approach
 
-**Applies to:**
-- All `.azcli` (bash) runner scripts
-- All `.sh` (bash) runner scripts
-- All `.ps1` (PowerShell) runner scripts
+### Approach
 
-**Excludes:**
-- On-device/appliance scripts (`OPNsense/`, `iptables/`, `linux-router/`, `mesh-sync/`)
-- Internal helper functions
-- ARM template `.json` files
+The `validate-flow.sh` / `validate-flow.ps1` scripts trace the end-to-end breakout across four evidence tiers:
 
-### Standardized Implementations
-
-#### Bash (lab_require_tools)
-```bash
-function lab_require_tools() {
-  local missing=()
-  for cmd in az terraform gcloud jq openssl; do
-    command -v "$cmd" &>/dev/null || missing+=("$cmd")
-  done
-  [ ${#missing[@]} -eq 0 ] && return 0
-  echo "❌ Missing tools: ${missing[*]}"
-  echo "Install from: https://docs.microsoft.com/cli/azure/install-azure-cli"
-  exit 1
-}
-lab_require_tools
-```
-
-#### PowerShell (Invoke-LabPrereqCheck)
-```powershell
-function Invoke-LabPrereqCheck {
-  $missing = @()
-  foreach ($cmd in @('az', 'terraform', 'gcloud', 'jq', 'openssl')) {
-    if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
-      $missing += $cmd
-    }
-  }
-  if ($missing) {
-    Write-Host "❌ Missing tools: $($missing -join ', ')"
-    exit 1
-  }
-}
-Invoke-LabPrereqCheck
-```
+| Phase | Tier | Key commands | What it proves |
+|-------|------|-------------|----------------|
+| 2 | Control-plane | `az network vhub route-table show`, `az network vhub connection show`, `az network nic show-effective-route-table`, `az network vhub get-effective-routes`, `az network watcher show-next-hop`, `az network watcher test-ip-flow`, `az network watcher test-connectivity` | Route programming is correct end-to-end; vHub, connection, and NIC all agree |
+| 3 | Data-plane | `az vm run-command invoke` → `curl https://ifconfig.io` on vm-spoke1 + vm-spoke2 | Actual egress IP matches `pip-lb-public` (SNAT proof) |
+| 4 | NVA forwarding | `iptables -t nat -L POSTROUTING`, `conntrack -L`, concurrent `tcpdump` on nva-dmz-0 | NVA is the active MASQUERADE hop; packet capture confirms forwarding |
+| 5 | LB metrics | `az monitor metrics list` — 7 metrics on lb-public, 3 on lb-ilb | SNAT port consumption, health probe status, byte/packet counters visible |
 
 ### Rationale
 
-- **Reliability:** Catch missing CLIs at script start, not mid-deployment
-- **Developer experience:** Clear error messages and install links reduce operator confusion
-- **Consistency:** All runners follow the same pattern — predictable behavior
-- **Early failure:** Prevents partial deployments or confusing error chains
+- **Control-plane first**: route programming failures (missing static route, wrong next-hop type) surface immediately before any VM traffic is generated.
+- **Data-plane second**: `curl ifconfig.io` from both spoke VMs is the definitive SNAT proof — the returned IP must equal `pip-lb-public`.
+- **NVA evidence third**: iptables + conntrack + tcpdump provide per-hop forensics when the data-plane check fails or is inconclusive.
+- **Metrics last**: metrics confirm sustained activity and SNAT port allocation; they require traffic to have passed through, so they are most useful after phases 2–4 pass.
 
-### Impact
+### Key expected values
 
-- 28 scripts now include canonical prerequisite checks (100% coverage of local runner scripts)
-- Bash syntax validation (`bash -n`) passes on all 6 Bash scripts (gcp-onprem, unified-lab, others)
-- PowerShell parser passes on all applicable PowerShell scripts
-- `.gitignore` added to `gcp-onprem/terraform/` to exclude `.terraform/` directory
-
-### Verification
-
-- Naomi's `gcp-onprem/` scripts: `terraform fmt` and `terraform validate` pass
-- Alex's 8 `svh-dynamic-er-ri` scripts: syntax validation pass
-- Amos's 11 scripts (checkvmsize, misc/hub-reset, etc.): syntax validation pass
-- All scripts committed as f3c1301 (NOT pushed)
+- Spoke NIC effective route: `0.0.0.0/0 → nextHopType = VirtualNetworkGateway` (vHub BGP router at 10.100.x.68). This is documented behaviour for vWAN-connected spoke VNets. Ref: https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub
+- `curl ifconfig.io` from spoke VMs must return the Public LB PIP (`pip-lb-public`, 20.65.77.169 in the live deploy).
+- `iptables -t nat -L POSTROUTING` on each NVA must show a `MASQUERADE` rule (provisioned by cloud-init).
 
 ---
+
+## Decision (b): Use VNet flow logs — NOT NSG flow logs
+
+### Decision
+
+All `enable-monitoring` scripts create **VNet flow logs**, not NSG flow logs.
+
+### Rationale
+
+| Factor | NSG flow logs | VNet flow logs |
+|--------|--------------|----------------|
+| New creation blocked | **After June 30, 2025** | ✅ Still available |
+| Retirement date | **September 30, 2027** | No announced retirement |
+| Scope | Per-NSG | Per-VNet (broader coverage) |
+| Traffic Analytics support | Yes (legacy) | Yes (current) |
+
+NSG flow logs are being retired. After 2025-06-30 new NSG flow logs cannot be created. Using VNet flow logs future-proofs the lab and aligns with Microsoft's current guidance.
+
+**Sources:**
+- https://learn.microsoft.com/azure/network-watcher/nsg-flow-logs-migrate
+- https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-overview
+- https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-manage
+- https://learn.microsoft.com/azure/network-watcher/traffic-analytics
+
+---
+
+## Decision (c): Separate `enable-monitoring` script
+
+### Decision
+
+Monitoring-stack provisioning (`enable-monitoring.sh` / `enable-monitoring.ps1`) is a **separate, optional, standalone script** — not part of `deploy.sh` / `deploy.ps1`.
+
+### Rationale
+
+1. **Cost surprise prevention.** Log Analytics ingestion, Traffic Analytics, and storage for flow logs incur ongoing cost. Including them in the core deploy would create surprise charges for users who just want to spin up the lab topology.
+2. **Validate-flow is read-only.** The validate-flow scripts are deliberately zero-side-effect — they must be safe to run at any time without provisioning resources or incurring cost. Monitoring enablement requires resource creation (workspace, storage account, flow log resources, diagnostic settings) and must be in a separate script with an explicit user opt-in.
+3. **Idempotency boundary.** Each script has a clean idempotency guarantee: `validate-flow` never writes anything; `enable-monitoring` checks-then-creates each resource individually. Mixing them would make the idempotency logic more complex and the cost contract ambiguous.
+4. **Operational lifecycle.** Users may want to enable monitoring mid-session (e.g. to capture a specific traffic pattern) without re-running the full deployment. A standalone script supports this workflow.
+
+### Resources created by `enable-monitoring`
+
+| Resource | Name | Notes |
+|----------|------|-------|
+| Log Analytics workspace | `log-nva-spoke-internet` | 30-day retention |
+| Storage account | `stnvaspk<sub-8-chars>` | Standard_LRS, globally unique |
+| Network Watcher | `NetworkWatcher_<region>` | `NetworkWatcherRG` |
+| VNet flow log | `flow-vnet-dmz` | Traffic Analytics on |
+| VNet flow log | `flow-vnet-spoke1` | Traffic Analytics on |
+| VNet flow log | `flow-vnet-spoke2` | Traffic Analytics on |
+| LB diagnostic settings | `diag-lb-public` | AllMetrics → workspace |
+| LB diagnostic settings | `diag-lb-ilb` | AllMetrics → workspace |
+
+---
+
+## References
+
+- https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub
+- https://learn.microsoft.com/azure/virtual-network/manage-route-table
+- https://learn.microsoft.com/azure/network-watcher/network-watcher-next-hop-overview
+- https://learn.microsoft.com/azure/network-watcher/network-watcher-ip-flow-verify-overview
+- https://learn.microsoft.com/azure/network-watcher/network-watcher-connectivity-overview
+- https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer
+- https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer-reference
+- https://learn.microsoft.com/azure/load-balancer/troubleshoot-outbound-connection
+- https://learn.microsoft.com/azure/network-watcher/nsg-flow-logs-migrate
+- https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-overview
+- https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-manage
+- https://learn.microsoft.com/azure/network-watcher/traffic-analytics
+
+---
+
+# Decision: nva-spoke-internet Diagram Relocated into Lab Folder
+
+**Author:** Holden (Lead Architect)
+**Date:** 2026-07-27
+**Status:** Adopted — supersedes prior decision on root-level media/ for this lab
+
+---
+
+## Context
+
+The `nva-spoke-internet` lab diagram was split across two locations:
+- `media/nva-spoke-internet.excalidraw` — editable source at repo root (created 2026-07-24)
+- `nva-spoke-internet/media/nva-spoke-internet.png` — exported PNG already inside the lab folder
+
+The prior decision (2026-07-24) placed the `.excalidraw` source at repo root on the rationale that a root-level `media/` folder allows cross-lab reuse. That rationale no longer applies — no other lab references this diagram, and keeping the source outside the lab folder creates a confusing split.
+
+---
+
+## Decision
+
+Move all diagram assets into `nva-spoke-internet/media/` and update the README to use `./media/` local paths.
+
+**Files affected:**
+| Before | After |
+|--------|-------|
+| `media/nva-spoke-internet.excalidraw` (repo root) | `nva-spoke-internet/media/nva-spoke-internet.excalidraw` |
+| `nva-spoke-internet/media/nva-spoke-internet.png` | unchanged — already correct |
+
+**Root `media/` folder:** removed (was empty after the move).
+
+---
+
+## README Changes
+
+1. Image embed: `../media/nva-spoke-internet.png` → `./media/nva-spoke-internet.png`
+2. Excalidraw callout (single line) → expanded three-option block with VS Code extension link, excalidraw.com manual open, and direct raw GitHub URL.
+3. Footer source line: `../media/nva-spoke-internet.excalidraw` → `./media/nva-spoke-internet.excalidraw`
+4. Files tree: added `.gitignore`, `bicep/main.json`, and `bicep/cloud-init/` entries to match actual disk contents.
+
+---
+
+## Rationale
+
+- Self-contained lab folder: all assets (Bicep, scripts, cloud-init, diagrams) under one directory tree makes the lab portable and easier to copy or fork.
+- `./media/` paths are simpler and work correctly when the lab folder is opened directly in GitHub or VS Code.
+- The three-option Excalidraw block (VS Code / excalidraw.com / raw URL) gives users clear, actionable instructions for opening the editable source.
+
+---
+
+## Impact on Other Agents
+
+- **Naomi / Alex:** If a future pipeline auto-exports `.excalidraw` → `.png`, the target path is now `nva-spoke-internet/media/nva-spoke-internet.png` (unchanged) and source is `nva-spoke-internet/media/nva-spoke-internet.excalidraw`.
+- **No other labs are affected** — this was a single-lab relocation.

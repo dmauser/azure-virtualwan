@@ -1,156 +1,378 @@
-# LAB: Azure Virtual WAN using NVA on Spoke for Internet
+# Lab — NVA in DMZ Spoke for Internet Egress (Bicep IaC)
 
-### Diagram
+## Overview
 
-![NVA Spoke to Internet](./media/nva-spoke-internet.png)
+This lab deploys a **Standard Azure Virtual WAN hub** (`10.100.0.0/23`) with two spoke VNets and a dedicated **DMZ VNet** that hosts an active/active pair of Ubuntu IPTables NVAs. The NVAs sit behind both an **Internal Load Balancer** (HA-port mode, frontend `10.0.0.68`) and a **Standard Public Load Balancer**. A static default route (`0.0.0.0/0`) on the hub's DMZ connection points to the ILB frontend, so all traffic leaving Spoke1 and Spoke2 egresses to the internet through the NVAs via SNAT on the Public LB. An **optional on-premises block** — a Linux VM plus a strongSwan/FRR NVA running BGP-over-IPsec — can be deployed at prompt time; it terminates a site-to-site VPN into a vHub VPN Gateway and learns Spoke1/Spoke2 routes via BGP. The entire lab is **Bicep IaC** with interactive Bash and PowerShell wrappers that handle hub polling and post-deploy routing steps that Bicep cannot safely sequence.
 
+## Architecture
 
-### Lab steps:
+![NVA DMZ spoke Internet egress topology](./media/nva-spoke-internet.png)
 
-```Bash
-##Parameters (make changes based on your needs)
-rg="vwan-lxnva-lab"
-location="centralus"
-hubname="vhub1"
-username=azureuser
-password=Msft123Msft123
+> 📐 **Editable diagram:** [`./media/nva-spoke-internet.excalidraw`](./media/nva-spoke-internet.excalidraw)
+> - Open in **VS Code** with the [Excalidraw extension](https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor) (edits render inline).
+> - Or go to **[excalidraw.com](https://excalidraw.com)** → *Menu → Open* and select the downloaded `.excalidraw` file.
+> - Direct raw source (after push): [open raw file](https://raw.githubusercontent.com/dmauser/azure-virtualwan/dmauser-musical-guide/nva-spoke-internet/media/nva-spoke-internet.excalidraw)
 
-#Variables
-let "randomIdentifier=$RANDOM*$RANDOM" #used to create unique storage account name.
-nvavnet=Spoke1 #NVA VNET Name
-connname=to-spoke1 #vWAN connection name
-mypip=$(curl -s -4 ifconfig.io)
+## Address Plan
 
-#Resource Group
-az group create --name $rg --location $location -o none
+| Network | CIDR | Subnets |
+|---------|------|---------|
+| vWAN Hub | `10.100.0.0/23` | (managed) |
+| DMZ VNet | `10.0.0.0/24` | `snet-nva` `10.0.0.0/26`, `snet-ilb` `10.0.0.64/26` |
+| Spoke1 VNet | `10.1.0.0/24` | `snet-workload` `10.1.0.0/26` |
+| Spoke2 VNet | `10.2.0.0/24` | `snet-workload` `10.2.0.0/26` |
+| On-prem VNet _(optional)_ | `192.168.100.0/24` | `snet-nva` `192.168.100.0/27`, `snet-workload` `192.168.100.32/27` |
 
-#Create VWAN Hub
-az network vwan create --name VWAN --resource-group $rg --branch-to-branch-traffic true --location $location -o none
-az network vhub create --address-prefix 192.168.0.0/24 --name $hubname --resource-group $rg --vwan VWAN --location $location --sku basic --no-wait
+**Key IPs / ASNs**
 
-#Create Spoke1 and linux-nva
-az network vnet create --resource-group $rg --name Spoke1 --location $location --address-prefixes 10.1.0.0/16 --subnet-name nvasubnet --subnet-prefix 10.1.0.0/24 -o none
+| Resource | Value |
+|----------|-------|
+| ILB frontend (0/0 next-hop) | `10.0.0.68` |
+| Hub VPN Gateway BGP ASN | `65515` |
+| On-prem NVA BGP ASN | `65001` |
 
-#NVA + Config script to enable NAT
-az network public-ip create --name linux-nva-pip --resource-group $rg --idle-timeout 30 --allocation-method Static -o none
-az network nic create --name linux-nva-nic --resource-group $rg --subnet nvasubnet --vnet Spoke1 --public-ip-address linux-nva-pip --ip-forwarding true -o none
-az vm create --resource-group $rg --location $location --name linux-nva --size Standard_B1s --nics linux-nva-nic  --image Ubuntu2204 --admin-username $username --admin-password $password -o none
-#Enable routing and NAT on Linux NVA:
-scripturi="https://raw.githubusercontent.com/dmauser/AzureVM-Router/master/linuxrouter.sh"
-az vm extension set --resource-group $rg --vm-name linux-nva  --name customScript --publisher Microsoft.Azure.Extensions \
---protected-settings "{\"fileUris\": [\"$scripturi\"],\"commandToExecute\": \"./linuxrouter.sh\"}" \
---no-wait
-
-## Create Spoke2 VNET and Spoke2 VM
-az network vnet create --resource-group $rg --name Spoke2 --location $location --address-prefixes 10.2.0.0/16 --subnet-name Spoke2VM --subnet-prefix 10.2.10.0/24 -o none
-az network public-ip create --name Spoke2VMPubIP --resource-group $rg --location $location --allocation-method Dynamic -o none
-az network nic create --resource-group $rg -n Spoke2VMNIC --location $location --subnet Spoke2VM --vnet-name Spoke2 --public-ip-address Spoke2VMPubIP --private-ip-address 10.2.10.4 -o none
-az VM create -n Spoke2VM --resource-group $rg --image Ubuntu2204 --admin-username $username --admin-password $password --nics Spoke2VMNIC --no-wait -o none
-
-#Create NSG to allow SSH from Remote IP and allow RFC1918 (required by NVA)
-az network nsg create --resource-group $rg --name default-nsg --location $location -o none
-az network nsg rule create -g $rg --nsg-name default-nsg -n default-allow-ssh \
-    --direction Inbound \
-    --priority 100 \
-    --source-address-prefixes $mypip/32 \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges 22 \
-    --access Allow \
-    --protocol Tcp \
-    --description "Allow inbound SSH" \
-    --output none
-az network nsg rule create -g $rg --nsg-name default-nsg -n allow-RFC-1918 \
-    --direction Inbound \
-    --priority 110 \
-    --source-address-prefixes 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 \
-    --source-port-ranges '*' \
-    --destination-address-prefixes '*' \
-    --destination-port-ranges '*' \
-    --access Allow \
-    --protocol '*' \
-    --description "Allow-Traffic-RFC-1918" \
-    --output none
-az network vnet subnet update --name nvasubnet --resource-group $rg --vnet-name $nvavnet --network-security-group default-nsg -o none
-az network vnet subnet update --name Spoke2VM --resource-group $rg --vnet-name Spoke2 --network-security-group default-nsg -o none
-
-#Enable boot diagnostics for all VMs in the resource group (Serial console)
-#Create Storage Account (boot diagnostics + serial console)
-az storage account create -n sc$randomIdentifier -g $rg -l $location --sku Standard_LRS -o none
-#Enable boot diagnostics
-stguri=$(az storage account show -n sc$randomIdentifier -g $rg --query primaryEndpoints.blob -o tsv)
-az vm boot-diagnostics enable --storage $stguri --ids $(az vm list -g $rg --query "[].id" -o tsv) -o none
-
-#UDRs
-### UDR to force NVA go out the Internet (it does not get affected by 0/0 propagated by vHUB)
-az network route-table create --name linux-nva-RT --resource-group $rg --location $location -o none
-az network route-table route create --resource-group $rg --name to-Internet --route-table-name linux-nva-RT --address-prefix 0.0.0.0/0 --next-hop-type Internet -o none
-az network vnet subnet update --name nvasubnet --vnet-name Spoke1 --resource-group $rg --route-table linux-nva-RT -o none
-
-### Make exception to remote SSH Spoke2VM from Home Public IP
-az network route-table create --name Spoke2VM-RT --resource-group $rg --location $location -o none
-az network route-table route create --resource-group $rg --name to-HomePIP --route-table-name Spoke2VM-RT --address-prefix $mypip/32 --next-hop-type Internet -o none
-az network vnet subnet update --name Spoke2VM --vnet-name Spoke2 --resource-group $rg --route-table Spoke2VM-RT -o none
-
-## Waiting vHUB Hub and routing state to Provisioned before proceeding with the next steps.
-
-prState=''
-rtState=''
-start_time=`date +%s`
-while [[ $prState != 'Succeeded' ]];
-do
-    prState=$(az network vhub show -g $rg -n $hubname --query 'provisioningState' -o tsv)
-    echo "$hubname provisioningState="$prState
-    sleep 5
-done
-run_time=$(expr `date +%s` - $start_time)
-((minutes=${run_time}/60))
-((seconds=${run_time}%60))
-echo "vWAN Hub $hubname provisioning state is $prState, wait time $minutes minutes and $seconds seconds"
-
-start_time=`date +%s`
-while [[ $rtState != 'Provisioned' ]];
-do
-    rtState=$(az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv)
-    echo "$hubname routingState="$rtState
-    sleep 5
-done
-run_time=$(expr `date +%s` - $start_time)
-((minutes=${run_time}/60))
-((seconds=${run_time}%60))
-echo "vWAN Hub $hubname routing state is $prState, wait time $minutes minutes and $seconds seconds"
-
-# az network vhub connection create --name to-Spoke1 --resource-group $rg --remote-vnet Spoke1 --vhub-name $hubname
-lxnvaip=$(az network nic show -n linux-nva-nic -g $rg --query "ipConfigurations[].privateIPAddress" -o tsv)
-az network vhub connection create --name to-Spoke2 --resource-group $rg --remote-vnet Spoke2 --vhub-name $hubname -o none
-vnetid=$(az network vnet show -g $rg -n Spoke1 --query id --out tsv)
-az network vhub connection create --name to-Spoke1 --resource-group $rg --remote-vnet $vnetid --vhub-name $hubname --route-name default --address-prefixes "0.0.0.0/0" --next-hop "$lxnvaip" -o none
-connid=$(az network vhub connection show -g $rg -n to-Spoke1 --vhub-name $hubname --query id -o tsv)
-az network vhub route-table route add --name defaultRouteTable --vhub-name $hubname --resource-group $rg --route-name default --destination-type CIDR --destinations "0.0.0.0/0" --next-hop-type ResourceID --next-hop $connid -o none
+## How the Default Route Works
 
 ```
+Spoke1 / Spoke2 VM
+   |
+   |  0.0.0.0/0 learned from hub defaultRouteTable
+   v
+vWAN Hub  --(static route 0/0 -> 10.0.0.68)-->  DMZ VNet connection
+                                                       |
+                                                       v
+                                         Internal LB (HA ports, VIP 10.0.0.68)
+                                                  |           |
+                                                  v           v
+                                               NVA-0       NVA-1   (active/active)
+                                                  |           |
+                                                  +-----+-----+
+                                                        |
+                                                        v
+                                              Public Load Balancer
+                                                        |
+                                                        v  SNAT
+                                                    Internet
+```
+
+**Route programming details:**
+
+1. The hub `defaultRouteTable` contains a static route: `0.0.0.0/0` → next-hop type `ResourceID` → DMZ connection resource ID.
+2. The DMZ VNet connection has a static route: `0.0.0.0/0` → next-hop IP `10.0.0.68` (ILB frontend).
+3. Both Spoke1 and Spoke2 hub connections associate and propagate to `defaultRouteTable`, so they automatically learn the `0/0`.
+4. The NVA subnet carries a UDR with `0.0.0.0/0 → Internet` so NVAs break out directly and are not caught by their own propagated default.
+5. Cloud-init enables `ip_forward` and configures iptables `MASQUERADE` on each NVA NIC at first boot.
+
+> ⚠️ **Hub routing sequencing**: Hub VNet connections and route-table programming are performed by the deploy script **after** `routingState = Provisioned`, not in Bicep. This is intentional — the Azure control plane rejects connection/route operations while the hub is still initialising.
+
+## Optional On-Premises Connectivity
+
+When you answer **y** at the `deployOnPrem?` prompt, the script additionally:
+
+1. Deploys `bicep/modules/onprem.bicep` — an on-prem simulation VNet (`192.168.100.0/24`) containing a strongSwan/FRR NVA (with a Public IP) and a Linux workload VM. IP forwarding is enabled on the NVA NIC.
+2. Deploys a **vHub VPN Gateway** (scale unit 1) inside the Virtual WAN Hub.
+3. Creates a VPN site and connection (BGP, auto-generated PSK) between the hub GW and the on-prem NVA.
+4. Runs `scripts/configure-onprem.sh` via `az vm run-command` to render and apply `ipsec.conf` + `frr.conf` on the on-prem NVA, using the hub GW public IPs, BGP peers, and PSK fetched from the deployment outputs.
+5. Applies a UDR on `snet-workload` in the on-prem VNet so that traffic destined for Spoke1 (`10.1.0.0/24`), Spoke2 (`10.2.0.0/24`), and the hub prefix (`10.100.0.0/23`) is sent through the on-prem NVA.
+
+After the tunnel comes up, the on-prem workload VM can reach Spoke1 and Spoke2 workload VMs over the BGP-over-IPsec path.
+
+> 💡 **Cost note**: The VPN Gateway adds approximately **$0.19/hr** (scale unit 1). It is only deployed when you choose on-prem. Destroy the resource group when done.
+
+## Prerequisites
+
+| Tool | Minimum version | Install |
+|------|----------------|---------|
+| Azure CLI | 2.57 | [docs](https://learn.microsoft.com/cli/azure/install-azure-cli) |
+| Bicep CLI | 0.26 | `az bicep install` |
+| `jq` | 1.6 | `apt install jq` / `brew install jq` |
+| `openssl` | 3.x | pre-installed on most Linux/macOS |
+| PowerShell | 7.4+ _(PS wrapper only)_ | [docs](https://learn.microsoft.com/powershell/scripting/install/installing-powershell) |
+
+A Bash shell (Linux, macOS, WSL2, or Azure Cloud Shell) is recommended. PowerShell 7+ on Windows is fully supported via `deploy.ps1`.
+
+Ensure you have `Contributor` (or `Owner`) access on the target subscription and sufficient quota for:
+- 1 Standard Virtual WAN hub + optional VPN Gateway (scale unit 1)
+- 4 VMs minimum (2 NVAs + 2 spoke workload VMs); up to 6 VMs with on-prem option
+- Standard Load Balancer (Public + Internal)
+
+## Deployment
+
+### Bash
 
 ```bash
-### VALIDATIONS ####
-
-##1) Display Linux NVA Public IP (linux-nva)
-az network public-ip show --name linux-nva-pip --resource-group $rg --query ipAddress -o tsv
-##2) SpokeVM2 Effective Route table - You should see 0/0 next hop VirtualNetwork Gateway which is the Route Service in vWAN.
-az network nic show-effective-route-table --resource-group $rg -n Spoke2VMNIC -o table
-##3) SSH to the VM and test the tools are present (traceroute and others)
-pip=$(az network public-ip show --name Spoke2VMPubIP --resource-group $rg --query ipAddress -o tsv)
-ssh $username@$pip
-## Note: if you have trouble over SSH for NSG restriction you can access Spoke2VM over Serial Console
-
-# 1) Check if you can ping a remote IP:
-Ping 8.8.8.8
-# 2) Run curl localhost and you should see your VM name.
-curl ifconfig.io
-# Expected output is Linux NVA Public IP (1 as shown above).
-
-#### Misc/Troubleshooting - Remove stale route tables based on error code: DuplicateRouteNames:
-az network vhub route-table route remove --name defaultRouteTable --vhub-name $hubname --resource-group $rg --index 1
-
-### Clean up
-az group delete -g $rg --no-wait 
+cd nva-spoke-internet
+./scripts/deploy.sh
 ```
+
+The script prompts interactively:
+
+| Prompt | Description | Default |
+|--------|-------------|---------|
+| `region` | Azure region for all resources | `eastus` |
+| `adminUsername` | VM admin username | (required) |
+| `adminPassword` | VM admin password (hidden input) | (required) |
+| `deployOnPrem? [y/N]` | Deploy on-prem simulation block | `N` |
+
+Before deploying, the script runs `pick_vm_sku` to find an available B-series VM size in the target region (`Standard_B2s` → `Standard_B2ms` → `Standard_D2s_v5` fallback) and exits cleanly if none are available. All VMs are deployed with **managed boot diagnostics** (no storage account) so Serial Console is available in the Azure portal immediately.
+
+### PowerShell
+
+```powershell
+cd nva-spoke-internet
+.\scripts\deploy.ps1
+```
+
+The PowerShell wrapper uses the same prompts and logic as the Bash script.
+
+## Validation
+
+### 1 — Check hub effective routes
+
+After deployment, confirm the hub has programmed the default route correctly:
+
+```bash
+rg="rg-nva-spoke-internet"   # adjust if you changed the default
+hubname="hub-nva-si"
+
+az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv
+# Expected: Provisioned
+
+az network vhub route-table show \
+  --resource-group $rg \
+  --vhub-name $hubname \
+  --name defaultRouteTable \
+  --query 'routes[].{prefix:destinations,nextHop:nextHop}' -o table
+# Expected: 0.0.0.0/0 entry with next-hop = DMZ connection resource ID
+```
+
+### 2 — Spoke VM internet egress
+
+Connect to a spoke workload VM via **Serial Console** (Azure portal → VM → Serial Console) or SSH, then verify internet egress exits via the Public LB:
+
+```bash
+# From spoke workload VM
+curl -s ifconfig.io
+# Should return the Public LB frontend IP, not the VM's private IP
+```
+
+### 3 — Spoke VM effective routes
+
+```bash
+# Replace NIC name with actual value from deployment output
+az network nic show-effective-route-table \
+  --resource-group $rg \
+  --name <spoke-vm-nic-name> -o table
+# Look for: 0.0.0.0/0 | VirtualNetworkGateway (next-hop type from hub)
+```
+
+### 4 — On-prem to spoke reachability _(if on-prem deployed)_
+
+```bash
+# Verify tunnel state
+az network vpn-connection show \
+  --resource-group $rg \
+  --name <vpn-connection-name> \
+  --query 'connectionStatus' -o tsv
+# Expected: Connected
+
+# From on-prem workload VM (Serial Console)
+ping 10.1.0.4   # Spoke1 workload VM
+ping 10.2.0.4   # Spoke2 workload VM
+```
+
+> 📺 **Serial Console**: Boot diagnostics (managed, no storage account) are enabled on every VM at deploy time. Serial Console is available in the Azure portal for all VMs immediately after deployment.
+
+### 5 — Trace the Internet breakout (end-to-end)
+
+Use the **read-only** `validate-flow` scripts to gather all evidence that the Spoke VM → vHub → DMZ connection → ILB → NVA → Public LB → Internet path is wired correctly. The scripts never create or modify resources.
+
+```bash
+cd nva-spoke-internet
+./scripts/validate-flow.sh               # Bash (Linux/macOS/WSL2/Cloud Shell)
+```
+
+```powershell
+cd nva-spoke-internet
+.\scripts\validate-flow.ps1              # PowerShell 7+
+```
+
+Both scripts accept `RESOURCE_GROUP` (env/param, default `rg-nva-spoke-internet`) and a hub name parameter (default `hub-nva-si`).
+
+> 📋 See **[EXPECTED-RESULTS.md](./EXPECTED-RESULTS.md)** for the canonical healthy baseline output (PASS 12 / FAIL 0 / WARN 2 against the live DMAUSER-FDPO deployment, captured 2026-07-27).
+
+#### What the scripts check
+
+| Phase | Check | Evidence | Pass criterion |
+|-------|-------|----------|---------------|
+| 1 — Pre-checks | Hub `routingState` | `az network vhub show` | `Provisioned` |
+| 2a — Control-plane | `defaultRouteTable` 0.0.0.0/0 route | `az network vhub route-table show` | Row with `0.0.0.0/0` present |
+| 2b | `conn-dmz` static route | `az network vhub connection show` | `0.0.0.0/0 → 10.0.0.68` |
+| 2c–2d | Spoke NIC effective routes | `az network nic show-effective-route-table` | `nextHopType = VirtualNetworkGateway` |
+| 2e | vHub effective routes | `az network vhub get-effective-routes` | Command succeeds |
+| 2f | NW next-hop | `az network watcher show-next-hop` | `VirtualHub` or `VirtualNetworkGateway` (both valid for vWAN spoke) |
+| 2g | NW IP flow verify | `az network watcher test-ip-flow` | `Allow` |
+| 2h | NW connectivity test | `az network watcher test-connectivity` | `Reachable` |
+| 3 — Data-plane | `curl https://ifconfig.io` from vm-spoke1 + vm-spoke2 | `az vm run-command invoke` | Returned IP = Public LB PIP (`pip-lb-public`) |
+| 4 — NVA evidence | iptables MASQUERADE hit counters | `run-command` → `iptables -t nat -L POSTROUTING` | Rule present |
+| 4 | conntrack / ss | `conntrack -L \| head` | Non-fatal; printed for inspection |
+| 4 | tcpdump (5 s, concurrent with spoke curl) | `tcpdump -ni any` on nva-dmz-0 | Captures packets |
+| 5 — LB metrics | `UsedSnatPorts`, `AllocatedSnatPorts`, `SnatConnectionCount`, `ByteCount`, `PacketCount`, `DipAvailability`, `VipAvailability` on `lb-public`; `DipAvailability` on `lb-ilb` (ByteCount/PacketCount are zero by design for UDR-forwarded traffic) | `az monitor metrics list` | Printed for inspection; `DipAvailability`/`VipAvailability` = 100 confirms healthy path |
+
+> ℹ️  When a spoke VNet is connected to a Virtual WAN hub, the spoke VM's `0.0.0.0/0` effective route shows `nextHopType = VirtualNetworkGateway` (the vHub BGP router). This is expected behaviour — the vHub router address (`10.100.x.68`) is the actual next-hop IP.
+> Ref: [Effective routes in a virtual hub](https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub) · [Manage route tables](https://learn.microsoft.com/azure/virtual-network/manage-route-table)
+
+> ℹ️  **Network Watcher** checks (next-hop, IP flow verify, connectivity) require the regional Network Watcher to be enabled. The scripts flag these as WARN (not FAIL) when the watcher is absent.
+> Ref: [Next hop overview](https://learn.microsoft.com/azure/network-watcher/network-watcher-next-hop-overview) · [IP flow verify](https://learn.microsoft.com/azure/network-watcher/network-watcher-ip-flow-verify-overview) · [Connectivity test](https://learn.microsoft.com/azure/network-watcher/network-watcher-connectivity-overview)
+
+## Cleanup
+
+### Bash
+
+```bash
+cd nva-spoke-internet
+./scripts/cleanup.sh
+```
+
+### PowerShell
+
+```powershell
+cd nva-spoke-internet
+.\scripts\cleanup.ps1
+```
+
+Both scripts delete the resource group and all contained resources. The cleanup is idempotent — re-running when the group is already gone exits cleanly.
+
+## Monitoring & Logging
+
+The core `validate-flow` scripts read existing Azure data with no side effects. If you need **persistent flow logs, Traffic Analytics, and LB metric streaming**, run the separate, optional `enable-monitoring` scripts. These provision extra resources that cost money — run them only when you need deeper observability, and delete the lab promptly when done.
+
+### Run
+
+```bash
+cd nva-spoke-internet
+./scripts/enable-monitoring.sh           # Bash
+```
+
+```powershell
+cd nva-spoke-internet
+.\scripts\enable-monitoring.ps1          # PowerShell 7+
+```
+
+Both accept `RESOURCE_GROUP` (env/param, default `rg-nva-spoke-internet`). They are **idempotent** — resources that already exist are skipped.
+
+### What it creates
+
+| Resource | Name | Notes |
+|----------|------|-------|
+| Log Analytics workspace | `log-nva-spoke-internet` | 30-day retention, same RG/region as lab |
+| Storage account | `stnvaspk<sub-8-chars>` | Standard_LRS; stores raw flow log blobs |
+| Network Watcher | `NetworkWatcher_<region>` | In `NetworkWatcherRG`; created if absent |
+| VNet flow log | `flow-vnet-dmz` → `vnet-dmz` | Traffic Analytics enabled |
+| VNet flow log | `flow-vnet-spoke1` → `vnet-spoke1` | Traffic Analytics enabled |
+| VNet flow log | `flow-vnet-spoke2` → `vnet-spoke2` | Traffic Analytics enabled |
+| LB diagnostic settings | `diag-lb-public` → workspace | AllMetrics for `lb-public` |
+| LB diagnostic settings | `diag-lb-ilb` → workspace | AllMetrics for `lb-ilb` |
+
+> ⚠️ **VNet flow logs, not NSG flow logs.** NSG flow logs are being **retired on September 30, 2027**. After **June 30, 2025** you cannot create **new** NSG flow logs. These scripts use VNet flow logs throughout.
+> Ref: [Migrate from NSG flow logs](https://learn.microsoft.com/azure/network-watcher/nsg-flow-logs-migrate) · [VNet flow logs overview](https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-overview) · [Manage VNet flow logs](https://learn.microsoft.com/azure/network-watcher/vnet-flow-logs-manage)
+
+> Ref: [Traffic Analytics](https://learn.microsoft.com/azure/network-watcher/traffic-analytics) · [Monitor Load Balancer](https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer)
+
+Data appears in Log Analytics **~10–20 minutes** after first traffic.
+
+### KQL quickstart
+
+Run these in **Azure portal → Log Analytics → Logs** (`log-nva-spoke-internet` workspace).
+
+**Top internet-bound flows through NVAs** (Traffic Analytics — `AzureNetworkAnalytics_CL`):
+
+```kql
+AzureNetworkAnalytics_CL
+| where TimeGenerated > ago(1h)
+| where FlowType_s == "ExternalPublic"
+| summarize TotalBytes=sum(todouble(BytesSentFromPublicIP_d)+todouble(BytesSentToPublicIP_d))
+    by SrcIP_s, DestIP_s, DestPort_d
+| top 20 by TotalBytes
+```
+
+**Public LB SNAT port usage** (LB diagnostic settings — `AzureMetrics`):
+
+```kql
+AzureMetrics
+| where ResourceProvider == "MICROSOFT.NETWORK"
+| where ResourceId has "lb-public"
+| where MetricName in ("UsedSnatPorts","AllocatedSnatPorts","SnatConnectionCount")
+| summarize avg(Average) by MetricName, bin(TimeGenerated, 1m)
+| render timechart
+```
+
+Validated metric names (Standard LB, namespace `Microsoft.Network/loadBalancers`):
+`UsedSnatPorts`, `AllocatedSnatPorts`, `SnatConnectionCount`, `ByteCount`, `PacketCount`, `DipAvailability`, `VipAvailability`
+Ref: [LB metric reference](https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer-reference) · [Troubleshoot outbound connections](https://learn.microsoft.com/azure/load-balancer/troubleshoot-outbound-connection)
+
+### Cost note
+
+| Component | Approximate cost |
+|-----------|-----------------|
+| Log Analytics ingestion | ~$2.76/GB (Pay-As-You-Go, 30-day retention) |
+| Storage account (flow log blobs) | ~$0.018/GB/month |
+| Traffic Analytics | ~$0.10 per 1,000 flows (beyond free tier) |
+
+Keep the lab short-lived. To **disable Traffic Analytics only** (cheaper than deleting flow logs):
+
+```bash
+# Bash
+for FL in flow-vnet-dmz flow-vnet-spoke1 flow-vnet-spoke2; do
+  az network watcher flow-log update -n $FL -g NetworkWatcherRG \
+    --traffic-analytics false --output none
+done
+```
+
+```powershell
+# PowerShell
+@("flow-vnet-dmz","flow-vnet-spoke1","flow-vnet-spoke2") | ForEach-Object {
+    az network watcher flow-log update -n $_ -g NetworkWatcherRG --traffic-analytics false --output none
+}
+```
+
+To delete **all** lab resources (including monitoring): run `cleanup.sh` / `cleanup.ps1`.
+
+## Files
+
+```
+nva-spoke-internet/
+├── README.md                      # this file
+├── EXPECTED-RESULTS.md            # canonical healthy baseline (PASS 12/FAIL 0/WARN 2)
+├── .gitignore                     # ignores secrets (.deploy-pw) + deploy logs
+├── bicep/
+│   ├── main.bicep                 # RG-scoped orchestrator; wires all modules
+│   ├── main.bicepparam            # sample parameter file
+│   ├── main.json                  # compiled ARM template (Bicep output)
+│   ├── cloud-init/
+│   │   ├── nva.yaml               # NVA cloud-init: ip_forward, iptables MASQUERADE
+│   │   ├── onprem-nva.yaml        # On-prem NVA cloud-init: strongSwan + FRR
+│   │   └── workload.yaml          # Workload VM cloud-init: basic tooling
+│   └── modules/
+│       ├── vwan-hub.bicep         # Virtual WAN + hub; optional VPN Gateway (gated by deployOnPrem)
+│       ├── dmz.bicep              # DMZ VNet + subnets (snet-nva, snet-ilb) + NSG
+│       ├── nva.bicep              # 2x Ubuntu IPTables NVAs: NICs, cloud-init, IP forwarding
+│       ├── public-lb.bicep        # Standard Public LB (outbound SNAT rule + optional inbound)
+│       ├── internal-lb.bicep      # Standard Internal LB — HA port rule, frontend 10.0.0.68
+│       ├── spoke.bicep            # Spoke VNet + workload VM + UDR (instantiated twice)
+│       ├── vm.bicep               # Generic Ubuntu VM: managed boot diagnostics, Serial Console
+│       └── onprem.bicep           # On-prem VNet + strongSwan/FRR NVA + workload VM + UDR
+└── scripts/
+    ├── functions.sh               # pick_vm_sku, preflight_vm_capacity, poll_until, logging helpers
+    ├── deploy.sh                  # Bash: prompt -> preflight -> deploy -> hub poll -> routing -> on-prem
+    ├── deploy.ps1                 # PowerShell: identical flow to deploy.sh
+    ├── configure-onprem.sh        # Renders ipsec.conf + frr.conf; starts strongSwan + FRR via run-command
+    ├── validate-flow.sh           # Bash: READ-ONLY 5-phase traffic-breakout validation
+    ├── validate-flow.ps1          # PowerShell: parity with validate-flow.sh
+    ├── enable-monitoring.sh       # Bash: OPTIONAL monitoring stack (LA + VNet flow logs + LB diags)
+    ├── enable-monitoring.ps1      # PowerShell: parity with enable-monitoring.sh
+    ├── cleanup.sh                 # Bash: idempotent resource-group deletion
+    └── cleanup.ps1                # PowerShell: idempotent resource-group deletion
+```
+
+> 📐 Topology diagram source: [`./media/nva-spoke-internet.excalidraw`](./media/nva-spoke-internet.excalidraw)
