@@ -133,7 +133,7 @@ After deployment, confirm the hub has programmed the default route correctly:
 
 ```bash
 rg="rg-nva-spoke-internet"   # adjust if you changed the default
-hubname="vhub-nva-spoke"
+hubname="hub-nva-si"
 
 az network vhub show -g $rg -n $hubname --query 'routingState' -o tsv
 # Expected: Provisioned
@@ -197,7 +197,9 @@ cd nva-spoke-internet
 .\scripts\validate-flow.ps1              # PowerShell 7+
 ```
 
-Both scripts accept `RESOURCE_GROUP` (env/param, default `rg-nva-spoke-internet`) and a hub name parameter (default `vhub-nva-spoke`).
+Both scripts accept `RESOURCE_GROUP` (env/param, default `rg-nva-spoke-internet`) and a hub name parameter (default `hub-nva-si`).
+
+> 📋 See **[EXPECTED-RESULTS.md](./EXPECTED-RESULTS.md)** for the canonical healthy baseline output (PASS 12 / FAIL 0 / WARN 2 against the live DMAUSER-FDPO deployment, captured 2026-07-27).
 
 #### What the scripts check
 
@@ -208,14 +210,14 @@ Both scripts accept `RESOURCE_GROUP` (env/param, default `rg-nva-spoke-internet`
 | 2b | `conn-dmz` static route | `az network vhub connection show` | `0.0.0.0/0 → 10.0.0.68` |
 | 2c–2d | Spoke NIC effective routes | `az network nic show-effective-route-table` | `nextHopType = VirtualNetworkGateway` |
 | 2e | vHub effective routes | `az network vhub get-effective-routes` | Command succeeds |
-| 2f | NW next-hop | `az network watcher show-next-hop` | `VirtualNetworkGateway` |
+| 2f | NW next-hop | `az network watcher show-next-hop` | `VirtualHub` or `VirtualNetworkGateway` (both valid for vWAN spoke) |
 | 2g | NW IP flow verify | `az network watcher test-ip-flow` | `Allow` |
 | 2h | NW connectivity test | `az network watcher test-connectivity` | `Reachable` |
 | 3 — Data-plane | `curl https://ifconfig.io` from vm-spoke1 + vm-spoke2 | `az vm run-command invoke` | Returned IP = Public LB PIP (`pip-lb-public`) |
 | 4 — NVA evidence | iptables MASQUERADE hit counters | `run-command` → `iptables -t nat -L POSTROUTING` | Rule present |
 | 4 | conntrack / ss | `conntrack -L \| head` | Non-fatal; printed for inspection |
 | 4 | tcpdump (5 s, concurrent with spoke curl) | `tcpdump -ni any` on nva-dmz-0 | Captures packets |
-| 5 — LB metrics | `UsedSNATPorts`, `AllocatedSNATPorts`, `SnatConnectionCount`, `ByteCount`, `PacketCount`, `DipAvailability`, `VipAvailability` on `lb-public`; `DipAvailability`, `ByteCount`, `PacketCount` on `lb-ilb` | `az monitor metrics list` | Printed for inspection (non-zero when lab has traffic) |
+| 5 — LB metrics | `UsedSnatPorts`, `AllocatedSnatPorts`, `SnatConnectionCount`, `ByteCount`, `PacketCount`, `DipAvailability`, `VipAvailability` on `lb-public`; `DipAvailability` on `lb-ilb` (ByteCount/PacketCount are zero by design for UDR-forwarded traffic) | `az monitor metrics list` | Printed for inspection; `DipAvailability`/`VipAvailability` = 100 confirms healthy path |
 
 > ℹ️  When a spoke VNet is connected to a Virtual WAN hub, the spoke VM's `0.0.0.0/0` effective route shows `nextHopType = VirtualNetworkGateway` (the vHub BGP router). This is expected behaviour — the vHub router address (`10.100.x.68`) is the actual next-hop IP.
 > Ref: [Effective routes in a virtual hub](https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub) · [Manage route tables](https://learn.microsoft.com/azure/virtual-network/manage-route-table)
@@ -300,13 +302,13 @@ AzureNetworkAnalytics_CL
 AzureMetrics
 | where ResourceProvider == "MICROSOFT.NETWORK"
 | where ResourceId has "lb-public"
-| where MetricName in ("UsedSNATPorts","AllocatedSNATPorts","SnatConnectionCount")
+| where MetricName in ("UsedSnatPorts","AllocatedSnatPorts","SnatConnectionCount")
 | summarize avg(Average) by MetricName, bin(TimeGenerated, 1m)
 | render timechart
 ```
 
 Validated metric names (Standard LB, namespace `Microsoft.Network/loadBalancers`):
-`UsedSNATPorts`, `AllocatedSNATPorts`, `SnatConnectionCount`, `ByteCount`, `PacketCount`, `DipAvailability`, `VipAvailability`
+`UsedSnatPorts`, `AllocatedSnatPorts`, `SnatConnectionCount`, `ByteCount`, `PacketCount`, `DipAvailability`, `VipAvailability`
 Ref: [LB metric reference](https://learn.microsoft.com/azure/load-balancer/monitor-load-balancer-reference) · [Troubleshoot outbound connections](https://learn.microsoft.com/azure/load-balancer/troubleshoot-outbound-connection)
 
 ### Cost note
@@ -341,6 +343,7 @@ To delete **all** lab resources (including monitoring): run `cleanup.sh` / `clea
 ```
 nva-spoke-internet/
 ├── README.md                      # this file
+├── EXPECTED-RESULTS.md            # canonical healthy baseline (PASS 12/FAIL 0/WARN 2)
 ├── .gitignore                     # ignores secrets (.deploy-pw) + deploy logs
 ├── bicep/
 │   ├── main.bicep                 # RG-scoped orchestrator; wires all modules
