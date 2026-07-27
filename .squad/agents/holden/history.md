@@ -49,98 +49,10 @@ Consistency at scale requires clear templates and conventions. Flexible adoption
   - `any-to-any.bicepparam` — full mesh (2+ hubs, 2+ spokes, bidirectional routing)
   - `secured-vhub.bicepparam` — secured hub variant (Azure Firewall, policy routing)
 
-## Session: svh-dynamic-er-ri Lab Delivery (2026-06-15)
 
-### Lab Delivered
-**svh-dynamic-er-ri** — Dynamic 1–4 secured vHub lab with full documentation suite. Authored README, architecture.md, validation.md, troubleshooting.md, cost-control.md. Matches repo voice and structure from 3vhub-er-ri reference.
+## [ARCHIVED: Early learnings from 2026-05 — 2026-06-15]
+See git history for full context.
 
-### Work Completed
-- **README.md**: Dynamic N-hub Mermaid diagram, address plan table, per-hub component table, Considerations (ExpressRoute preference, allow-all rule, Basic SKU caveat), Parameters table, 7 deployment scenario examples, validate/cleanup steps, cost estimates
-- **architecture.md**: Bicep module mapping, address plan formula, routing design (ExpressRoute rationale, RI modes, Bicep-vs-script sequencing), demand-driven ER gateway model, KV secret handling, resource tagging, divergence from 3vhub-er-ri
-- **validation.md**: Per-check descriptions (hub states, ER, firewall, RI, connectivity), effective routes reading, VNet connection status, 5 manual test scenarios, Serial Console access
-- **troubleshooting.md**: 8 common issues (ER provider slow, firewall 30-45 min, RI not Provisioned, Internet+Basic caveat, spoke connection failed, VM SKU restrictions, no public IP, KV 403)
-- **cost-control.md**: Per-resource cost breakdown, monthly estimates (1-hub $750–800, 3-hub $2000–2200), reduction strategy, 5 staged options (A-E), cleanup instructions, allow-all production warning
-
-### Key Design Choices Documented
-1. **ExpressRoute preference (not ASPath)**: Simpler for single-ER-per-hub; documented divergence from 3vhub-er-ri
-2. **Explicit allow-all warnings**: Belt-and-suspenders redundancy (README intro, architecture.md, troubleshooting.md, cost-control.md) — labs forked/copied; isolated warnings miss
-3. **Script-driven RI/connections**: Sequencing constraints that Bicep `dependsOn` cannot reliably enforce in multi-hub
-4. **ER gateway demand model**: Prominent cost lever in README Considerations, architecture.md, cost-control.md
-5. **Production caveat on Basic SKU**: Internet inspection limitations clearly labeled
-
-### Integration Points
-- Naomi: deploy scripts implement all documented parameters and sequencing
-- Alex: routing design documented with RI JSON examples matching routing-intent.bicep
-- Amos: validate scripts implement all documented checks and procedures
-- Daniel: 7 scenario examples and cost breakdown enable quick deployment decision-making
-- Authored comprehensive `README.md` with:
-  - Decision tree for topology selection (how to choose preset)
-  - Setup instructions (prerequisites, deployment sequence)
-  - Testing/validation procedures
-  - Roadmap for Phase 2 enhancements
-- Implemented cross-platform deployment automation:
-  - `deploy.sh` (Bash) + `deploy.ps1` (PowerShell) — parallel scripts with identical logic
-  - `cleanup.sh` (Bash) + `cleanup.ps1` (PowerShell) — idempotent resource teardown
-- Designed scripts to accept preset via command-line parameter, enabling one-liner deployments
-
-### Key Insight
-Parameter files (.bicepparam) reduce preset-to-preset duplication while maintaining readability. Cross-platform scripts (Bash/PowerShell with shared logic) maximize team adoption across Windows/Unix workflows. Decision tree in README acts as CMS for preset selection, reducing support overhead. Cleanup scripts with explicit resource group deletion enable safe lab resets for classroom/sandbox environments.
-
-## Learnings
-
-- `hubRoutingPreference = ExpressRoute` is a hard lab-wide constraint in `svh-dynamic-er-ri` (set in `vhub.bicep`); validation scripts assert it. Never silently change to ASPath/VpnGateway.
-- Azure Firewall Basic + Routing Intent Internet mode has documented limitations in Secured Hub topology. Always flag this in README and troubleshooting for any lab combining Basic SKU + `internetOnly`/`both` RI mode.
-- Routing Intent must be created **after** the hub firewall reaches `Succeeded` state (~30-45 min). In multi-hub Bicep deployments, this sequencing risk is best handled by script-driven RI creation (post-firewall poll), not Bicep `dependsOn`.
-- Spoke VNet hub connections should also be script-driven (after hub `routingState = Provisioned`) rather than in Bicep, for the same sequencing reliability.
-- ER gateways are the most impactful optional cost lever in this lab — document demand-driven model prominently.
-- Key Vault soft-delete (7-day retention) can block redeployments with the same vault name; document the `az keyvault purge` mitigation prominently.
-- All five docs (README, architecture.md, validation.md, troubleshooting.md, cost-control.md) for `svh-dynamic-er-ri` authored in session 2026-06-15.
-
-## Session: nva-spoke-internet Bicep Lab Documentation (2026-07-24)
-
-### Work Completed
-- Rewrote `nva-spoke-internet/README.md` — full Bicep-era lab documentation replacing the old azcli script dump.
-- Created `media/nva-spoke-internet.excalidraw` at repo root — valid Excalidraw v2 JSON (45 elements: 16 rectangles/ellipses, 16 text labels, 11 arrows, 2 annotation notes).
-
-### Lab Architecture Documented
-- **vWAN hub** `10.100.0.0/23` — Standard tier, single scale unit.
-- **DMZ VNet** `10.0.0.0/24`: `snet-nva` `10.0.0.0/26` (2× Ubuntu IPTables NVAs) + `snet-ilb` `10.0.0.64/26` (ILB frontend `10.0.0.68`).
-- **Spoke1** `10.1.0.0/24`, **Spoke2** `10.2.0.0/24` — workload VMs, default route from hub.
-- **On-prem simulation** (optional) `192.168.100.0/24`: strongSwan/FRR NVA (BGP ASN 65001) + workload VM, connected via BGP-over-IPsec to vHub VPN Gateway (BGP ASN 65515).
-- **Traffic path**: Spoke VM → hub defaultRouteTable (0/0 → DMZ connection) → ILB (HA-port, VIP 10.0.0.68) → NVA-0 or NVA-1 (iptables MASQUERADE) → Public LB (SNAT out) → Internet.
-- NVA subnet carries UDR `0/0 → Internet` to prevent NVAs from being caught by their own propagated default.
-
-### Doc Structure Decisions
-- Followed `svh-dynamic-er-ri/README.md` style: `##` sections, callout boxes with emojis, address plan tables, ASCII traffic-flow diagram.
-- Section order: Overview → Architecture → Address Plan → How Default Route Works → Optional On-Prem → Prerequisites → Deploy (Bash + PS) → Validation → Cleanup → Files.
-- Image reference `../media/nva-spoke-internet.png` (root-level media/; export from excalidraw) + source link to `.excalidraw`.
-- Hub routing sequencing warning called out explicitly — connections/routes are script-driven post-`routingState=Provisioned`.
-
-### Diagram Layout Decisions
-- Traffic flows **upward** in Y-axis: Internet (top) → PLB → NVA-0/1 → ILB → Hub (center) → Spoke1/Spoke2 (sides) → On-prem (bottom, dashed).
-- Color coding: blue=hub, amber/yellow=DMZ, green=spokes, purple=internet, red-dashed=on-prem optional, blue-dashed=VPN GW optional.
-- Root-level `media/` folder (not inside lab subfolder) — README uses `../media/` reference; matches task instructions.
-- 45 elements total: roughness=0 throughout for clean look; no element binding (startBinding/endBinding: null) for simplicity.
-
-## Learnings
-
-- `nva-spoke-internet` uses **active/active** NVA pair — not active/passive — behind an ILB with HA-port rule. Both NVAs handle traffic simultaneously; no failover quorum needed.
-- The ILB `0/0 → 10.0.0.68` static route lives on the **DMZ VNet connection** (not on the hub route table). The hub defaultRouteTable points to the DMZ connection resource ID. Two-hop static route design.
-- UDR `0/0 → Internet` on `snet-nva` is critical and easily forgotten — without it, NVAs would try to egress via the ILB they themselves back, creating a routing loop.
-- Hub VNet connections and route-table programming must be script-driven **after** `routingState = Provisioned`. Consistent pattern across all complex labs.
-- Excalidraw v2 arrows with `points` arrays and no element binding are the most portable format — avoids broken arrow rendering when IDs drift.
-- Root-level `media/` folder at repo root (not inside lab subfolder) is the right pattern for diagrams that may be referenced from multiple README files.
-
-## Session: nva-spoke-internet Diagram Relocation (2026-07-27)
-
-### Work Completed
-- Moved `media/nva-spoke-internet.excalidraw` from repo root into `nva-spoke-internet/media/` so the full diagram set (`.png` + `.excalidraw`) now lives together inside the lab folder.
-- Removed the now-empty root-level `media/` directory.
-- Updated all three `../media/` references in `nva-spoke-internet/README.md` to `./media/` (image embed line 9, excalidraw callout, footer source line).
-- Replaced the single-line Excalidraw callout with a three-option block (VS Code extension, excalidraw.com manual open, and direct raw GitHub URL after push).
-- Added `.gitignore`, `bicep/main.json`, and `bicep/cloud-init/` (nva.yaml, onprem-nva.yaml, workload.yaml) to the `## Files` tree to match actual disk contents.
-
-### Learnings
 
 - The diagram (`.png` + `.excalidraw`) now lives inside `nva-spoke-internet/media/`; README uses `./media/` local paths throughout. Prior decision to use root-level `media/` is superseded.
 - The Excalidraw open-instructions block (VS Code extension + excalidraw.com + raw GitHub URL) is the correct pattern for labs that ship `.excalidraw` source inside their folder.
@@ -163,4 +75,131 @@ The team successfully rebuilt the nva-spoke-internet lab infrastructure as code.
 
 Lab is ready for end-to-end testing.
 
+---
+
+## Session: PA Diagram Creation — 2026-07-27
+
+**Task:** Produce flow-first architecture diagrams for the Palo Alto VM-Series NVA lab.
+
+**Files created:**
+- `nva-spoke-internet-paloalto/media/nva-spoke-internet-paloalto.svg` (16,360 bytes — hand-authored, self-contained, 1400×720 viewBox)
+- `nva-spoke-internet-paloalto/media/nva-spoke-internet-paloalto.excalidraw` (76,557 bytes — 108 elements, Excalidraw v2 JSON)
+
+### Learnings
+
+**Layout choices matching Linux diagram:**
+- Identical canvas (1400×720), same background (#f8fafc), same container color vocabulary (hub=blue, dmz=amber, spokes=green, internet=blue, on-prem=slate dashed).
+- Same numbered-hop badge style (double-circle: white outer r=13, colored inner r=10, white bold numeral).
+- Same footer legend bar across bottom.
+- Arrow weight/style conventions preserved: data path stroke-width=3 (main), 2.5 (secondary), purple dashed for route advertisement, brown dashed bidirectional for IPsec.
+
+**PA-specific differences from Linux diagram:**
+- 7 hops (vs 5 in Linux) — added Internal LB (hop 4) and Public LB (hop 6) explicitly as distinct hops.
+- PA-FW-1 / PA-FW-2 replace Ubuntu NVA-1 / NVA-2; boxes include 3-tier NIC callout (mgmt · untrust · trust) and trust→untrust SNAT label.
+- ILB explicitly labeled "HA Ports · trust side" with frontend IP 10.0.0.68 (same as Linux; ILB is what the hub's 0/0 points at in both labs).
+- Public LB labeled with SNAT outbound + pip-lb-pa-public placeholder (no live public IP in diagram).
+- On-prem block is visually identical to Linux diagram (same Linux IPsec NVA + vm-onprem + UDR note) — the on-prem portion does not change between Linux and PA variants.
+
+**Windows write gotcha:**
+- PowerShell heredoc (`@'...'@`) piped to `Out-File` fails with OS error 206 for JSON >~8KB on Windows.
+- Solution: write via `python -c` inline script using `json.dump()`, which handles any content size reliably.
+
 **2026-07-24 — DEPLOYMENT STATUS:** lab is LIVE in DMAUSER-FDPO (eastus2, B2s), 7/7 validation PASS — Alex
+
+---
+
+## Session: PA Lab Documentation — 2026-07-27
+
+**Task:** Author `nva-spoke-internet-paloalto/README.md` and `nva-spoke-internet-paloalto/EXPECTED-RESULTS.md` for the Palo Alto VM-Series lab.
+
+**Files created:**
+- `nva-spoke-internet-paloalto/README.md` (~29,125 chars) — full lab README mirroring Linux lab structure exactly
+- `nva-spoke-internet-paloalto/EXPECTED-RESULTS.md` (~20,525 chars) — expected validation baseline, Phase 1–5
+
+### Learnings
+
+**NVA_NAMES default mismatch (critical gotcha for any PA lab user):**
+- `validate-flow.sh` defaults to `NVA_NAMES="pa-nva-0 pa-nva-1"`
+- Bicep `palo-alto.bicep` names VMs `pa-fw-0` and `pa-fw-1`
+- User must run: `NVA_NAMES="pa-fw-0 pa-fw-1" ./scripts/validate-flow.sh`
+- Documented prominently in README Validation section and in EXPECTED-RESULTS Phase 4 preamble.
+- Flagged also in Alex's bootstrap decision drop as a low-severity residual risk.
+
+**Phase 4 WARN-only design (architectural rationale documented):**
+- PAN-OS session tables and NAT counters are only accessible via management plane (HTTPS/SSH).
+- `az vm run-command` cannot execute PAN-OS CLI commands — credentials not provisioned.
+- Phase 3 `curl` data-plane result is the authoritative PASS/FAIL signal.
+- Phase 4 = WARN × 2 (one per firewall) regardless of actual firewall state; this is correct and expected.
+- Expected final score: PASS 12 / FAIL 0 / WARN 4.
+
+**ILB inside snet-trust (not a dedicated snet-ilb):**
+- Linux lab used a separate `snet-ilb` (/26) for the ILB frontend.
+- PA lab places the ILB frontend (`10.0.0.68`) directly inside `snet-trust` (10.0.0.64/27).
+- Hub routing contract is unchanged: `conn-dmz` static route `0/0 → 10.0.0.68` is identical.
+- Documented in Address Plan table and How Default Route Works section.
+
+**snet-trust has NO UDR (by design — must be clearly explained):**
+- `snet-mgmt` and `snet-untrust` carry UDR `0/0 → Internet`.
+- `snet-trust` deliberately has NO UDR — adding `0/0 → Internet` on the trust subnet would black-hole return traffic from the Internet (traffic arriving from the Public LB needs to reach the PA trust NIC directly, not be re-routed).
+- This asymmetric UDR design is not obvious to first-time readers; explanation added to Address Plan section.
+
+**BYOL eval mode table in README:**
+- Explicitly documented what works unlicensed vs. what requires a license.
+- UNLICENSED (eval): routing, NAT, security policy, HA — the full lab validation passes.
+- LICENSED only: Threat Prevention, URL Filtering, WildFire.
+- Added to both README (Palo Alto VM-Series Details section) and EXPECTED-RESULTS Summary.
+
+**Bootstrap graceful degradation:**
+- If the storage account or bootstrap files are absent at VM boot, PA boots in minimal DHCP mode.
+- The deploy script warns but continues — the VM will be reachable but unconfigured (no NAT policy, no security zones from bootstrap.xml).
+- Documented in README bootstrap flow section.
+
+**Double-SNAT explanation (needed for log correlation):**
+- Spoke source IP → PA NAT (to untrust NIC IP) → Azure Public LB SNAT (to pip-lb-public).
+- PAN-OS session logs show spoke IP; Azure LB logs show PA untrust IP. Need both to correlate.
+- Documented in EXPECTED-RESULTS Phase 3 and README How Default Route Works.
+
+**16-output contract preserved:**
+- All output names match the Linux lab exactly — same keys, same semantics.
+- `nvaNames` array output now contains `['pa-fw-0', 'pa-fw-1']` instead of the Linux NVA names.
+
+---
+
+## Session: PA Doc Corrections — 2026-07-27T20:35:00Z
+
+**Task:** Review and correct `nva-spoke-internet-paloalto/README.md` and `EXPECTED-RESULTS.md` ahead of review gate.
+
+### Corrections Applied
+
+**Excalidraw link — exact form required (task contract):**
+- Prior session wrote: `> 🖉 **[▶ Open this diagram in Excalidraw](...)**` with `🖉` emoji and bold-linked text.
+- Task contract specifies: `> 📐 [Open the editable diagram in Excalidraw](...)` with `📐` emoji and plain link text.
+- Corrected line 13 of README.md to the exact specified form. Removed the secondary multi-line Excalidraw options block (VS Code extension, manual open, raw URL) which conflicted with the single-line format.
+- **Pattern for future labs:** Always use `> 📐 [Open the editable diagram in Excalidraw](<excalidraw.com URL>)` immediately under the SVG embed, no further Excalidraw text on adjacent lines.
+
+**PASS count inconsistency corrected:**
+- Prior session noted "Expected final score: PASS 12 / FAIL 0 / WARN 4" — this was copied from the Linux lab header without adjusting for the PA differences.
+- Actual check count without Network Watcher: PASS 10 (Phase 1 + 2a–2f + 3a–3b + Phase 5 LB) / WARN 4 (2g + 2h NW checks + Phase 4 pa-fw-0 + pa-fw-1) / FAIL 0.
+- With Network Watcher enabled: PASS 12 / WARN 2 / FAIL 0.
+- The Linux lab could reach PASS 12 without NW because Phase 4 was fully scriptable (iptables counters + tcpdump evidence = 2 PASSes). For PA, Phase 4 is always WARN × 2. Subtracting those 2 from 12 gives 10.
+- Corrected in: EXPECTED-RESULTS.md header line, EXPECTED-RESULTS.md Summary code block, README.md EXPECTED-RESULTS reference, README.md Files tree comment.
+
+**RESOURCE_GROUP mismatch between deploy.sh and validate-flow.sh:**
+- `deploy.sh` creates resource group `rg-nva-spoke-internet-pa` (default).
+- `validate-flow.sh` defaults to `rg-nva-spoke-internet-paloalto` (stale name from earlier script iteration).
+- Prior README documented the validate-flow.sh default correctly but only showed `NVA_NAMES=` in the example command, not `RESOURCE_GROUP=`.
+- Corrected: example commands now show `RESOURCE_GROUP=rg-nva-spoke-internet-pa NVA_NAMES="pa-fw-0 pa-fw-1"` in Bash, `-ResourceGroup rg-nva-spoke-internet-pa -NvaNames "pa-fw-0,pa-fw-1"` in PowerShell, with a dedicated 2-item override callout box.
+
+**Residual Risks section added to EXPECTED-RESULTS.md:**
+- Task required: "a residual-risks/caveats note (BYOL unlicensed eval, PAN-OS config version 10.1.0 conservative — validate Marketplace SKU before first deploy)".
+- Prior session embedded BYOL info inline at the end of the Summary table but did not create a formal Residual Risks section.
+- Added 6-item risks table covering: BYOL eval mode, bootstrap.xml config version conservatism, SSH-on-untrust lab exposure, double-SNAT visibility, NVA_NAMES/RESOURCE_GROUP mismatch, and snet-trust no-UDR design rationale.
+
+### Learnings
+
+- When copying PASS scores from a source-lab template, always recount from the actual check types in the PA-specific validate script. PA's Phase 4 WARN-only design removes 2 PASSes compared to the Linux lab.
+- RESOURCE_GROUP is as important as NVA_NAMES to override — always show both in the "quick start" validate command.
+- Residual Risks sections belong in EXPECTED-RESULTS (not just README) so reviewers see them at the canonical baseline validation step.
+- `📐` (U+1F4D0 "triangular ruler") is the correct Excalidraw callout emoji for this repo. `🖉` is the pencil-alt; do not use it for diagram links.
+**2026-07-27:** PA lab (nva-spoke-internet-paloalto) passed review gate — Amos PASS verdict, live deploy ready (separate opt-in).
+

@@ -1,0 +1,307 @@
+<?xml version="1.0"?>
+<!--
+  =============================================================================
+  PAN-OS bootstrap.xml — Day-0 candidate configuration for Azure VM-Series (BYOL)
+  Lab:  nva-spoke-internet-paloalto  (azure-virtualwan project)
+  Date: 2026-07-27
+
+  TRAFFIC PATH (mirrors Linux iptables MASQUERADE lab):
+    Spoke VM -> vHub -> conn-dmz -> ILB 10.0.0.68 (HA-ports)
+      -> PA ethernet1/2 (trust) -> security policy + NAT MASQUERADE
+      -> PA ethernet1/1 (untrust) -> Public LB outbound SNAT -> Internet
+
+  VERIFIED AGAINST (Palo Alto official documentation):
+    [1] Bootstrap overview:
+        https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall
+    [2] Bootstrap configuration files (init-cfg.txt + bootstrap.xml schema):
+        https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/bootstrap-configuration-files
+    [3] Create bootstrap configuration files:
+        https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/create-bootstrap-configuration-files
+
+  XML SCHEMA SCOPE (PAN-OS 10.1 / 11.x VM-Series):
+    config/devices/entry[@name='localhost.localdomain']/
+      deviceconfig/system                              system + DNS/NTP
+      deviceconfig/setting/session/tcp                 non-SYN TCP (HA-ports ILB)
+      network/profiles/interface-management-profile    SSH + ping for LB health probes
+      network/interface/ethernet                       eth1/1 + eth1/2 DHCP-client L3
+      network/virtual-router/entry[@name='default']    static routes: 0/0 + 10/8
+      vsys/entry[@name='vsys1']/zone                   untrust (eth1/1) trust (eth1/2)
+      vsys/entry[@name='vsys1']/rulebase/nat           trust->untrust MASQUERADE
+      vsys/entry[@name='vsys1']/rulebase/security      permit trust->untrust (lab)
+
+  NETWORK LAYOUT (fixed contract):
+    snet-mgmt    10.0.0.0/27  gw 10.0.0.1  -> Azure eth0 -> PAN-OS mgmt (init-cfg swap)
+    snet-untrust 10.0.0.32/27 gw 10.0.0.33 -> Azure eth1 -> ethernet1/1 (untrust zone)
+    snet-trust   10.0.0.64/27 gw 10.0.0.65 -> Azure eth2 -> ethernet1/2 (trust zone)
+    ILB frontend 10.0.0.68    HA-ports -> ethernet1/2 backend (health probe TCP/22)
+    Public LB                  outbound SNAT -> ethernet1/1 backend (health probe TCP/22)
+
+  BYOL EVAL NOTE:
+    VM-Series on Azure BYOL operates in full-feature eval mode for approximately
+    30 days after first boot without a license key applied. During this eval
+    period the complete dataplane is active: L3 forwarding, NAT, and security
+    policy all function normally. This bootstrap.xml relies on that eval-period
+    dataplane to forward spoke egress traffic immediately after first boot, without
+    requiring Panorama connectivity or license activation. Apply a valid license
+    before any production use.
+
+  LB HEALTH PROBE NOTE:
+    Both the Public LB (untrust side, TCP/22) and the ILB (trust side, TCP/22)
+    probe the PA data interfaces. The 'allow-ssh-ping' interface management
+    profile on ethernet1/1 and ethernet1/2 causes PAN-OS to respond to these
+    TCP/22 probes directly on the data interfaces — no SSH server on the VMs
+    is required. This is the PAN-OS equivalent of the Linux firewall rule:
+      iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+  =============================================================================
+-->
+<config version="10.1.0" urldb="paloaltonetworks">
+  <devices>
+    <entry name="localhost.localdomain">
+
+      <!-- ================================================================= -->
+      <!-- DEVICE CONFIG: system identity, DNS, NTP, session settings        -->
+      <!-- ================================================================= -->
+      <deviceconfig>
+        <system>
+          <hostname>pan-dmz-nva</hostname>
+          <timezone>UTC</timezone>
+          <update-server>updates.paloaltonetworks.com</update-server>
+          <!-- Public DNS resolvers — override with Azure DNS 168.63.129.16 if needed -->
+          <dns-setting>
+            <servers>
+              <primary>8.8.8.8</primary>
+              <secondary>8.8.4.4</secondary>
+            </servers>
+          </dns-setting>
+          <ntp-servers>
+            <primary-ntp-server>
+              <ntp-server-address>pool.ntp.org</ntp-server-address>
+            </primary-ntp-server>
+          </ntp-servers>
+          <login-banner>Azure vWAN DMZ Lab - PAN-OS VM-Series NVA (BYOL eval)</login-banner>
+        </system>
+        <setting>
+          <!-- Allow TCP packets that are not SYN (FIN/RST mid-flow).        -->
+          <!-- Required for Azure ILB HA-ports mode: the LB may forward      -->
+          <!-- in-progress connections to this instance after failover.       -->
+          <session>
+            <tcp>
+              <non-syn-tcp>yes</non-syn-tcp>
+            </tcp>
+          </session>
+        </setting>
+      </deviceconfig>
+
+      <!-- ================================================================= -->
+      <!-- NETWORK: interface management profile, data interfaces, VR        -->
+      <!-- ================================================================= -->
+      <network>
+
+        <!-- ── Interface management profile ──────────────────────────────── -->
+        <!-- Permits PAN-OS management services (SSH + ICMP) on data         -->
+        <!-- interfaces so that Azure LB health probes (TCP/22) succeed.     -->
+        <!-- Equivalent to: iptables -A INPUT -p tcp --dport 22 -j ACCEPT    -->
+        <profiles>
+          <interface-management-profile>
+            <entry name="allow-ssh-ping">
+              <ssh>yes</ssh>
+              <ping>yes</ping>
+              <!-- HTTP/HTTPS intentionally omitted on data interfaces (lab hygiene) -->
+            </entry>
+          </interface-management-profile>
+        </profiles>
+
+        <!-- ── Data interfaces (DHCP; no IP pre-configured) ─────────────── -->
+        <interface>
+          <ethernet>
+
+            <!-- ethernet1/1: UNTRUST interface                              -->
+            <!--   Azure NIC: eth1  |  Subnet: snet-untrust 10.0.0.32/27    -->
+            <!--   Role: Public LB backend; internet egress; health probe TCP/22 -->
+            <!--   DHCP note: create-default-route=no because 0.0.0.0/0 is  -->
+            <!--   managed explicitly in the virtual router below.           -->
+            <entry name="ethernet1/1">
+              <comment>untrust - Azure eth1 - snet-untrust 10.0.0.32/27 - Public LB backend</comment>
+              <layer3>
+                <interface-management-profile>allow-ssh-ping</interface-management-profile>
+                <dhcp-client>
+                  <enable>yes</enable>
+                  <!-- Suppress DHCP-injected default route; we use a static 0/0 below -->
+                  <create-default-route>no</create-default-route>
+                  <send-hostname>
+                    <enable>yes</enable>
+                  </send-hostname>
+                </dhcp-client>
+              </layer3>
+            </entry>
+
+            <!-- ethernet1/2: TRUST interface                                -->
+            <!--   Azure NIC: eth2  |  Subnet: snet-trust 10.0.0.64/27      -->
+            <!--   Role: ILB HA-ports backend; spoke ingress; health probe TCP/22 -->
+            <entry name="ethernet1/2">
+              <comment>trust - Azure eth2 - snet-trust 10.0.0.64/27 - ILB HA-ports backend</comment>
+              <layer3>
+                <interface-management-profile>allow-ssh-ping</interface-management-profile>
+                <dhcp-client>
+                  <enable>yes</enable>
+                  <create-default-route>no</create-default-route>
+                  <send-hostname>
+                    <enable>yes</enable>
+                  </send-hostname>
+                </dhcp-client>
+              </layer3>
+            </entry>
+
+          </ethernet>
+        </interface>
+
+        <!-- ── Virtual router: static routes for internet breakout ──────── -->
+        <!--                                                                  -->
+        <!-- Route 1: Default route — all internet-bound traffic exits       -->
+        <!--   via ethernet1/1 to the untrust subnet gateway (10.0.0.33).   -->
+        <!--   The Public LB outbound rule then SNATs the PA untrust IP to   -->
+        <!--   the Public LB PIP (pip-lb-public).                            -->
+        <!--                                                                  -->
+        <!-- Route 2: RFC1918 10/8 return path — spoke reply traffic uses    -->
+        <!--   ethernet1/2 (trust) to reach the trust subnet gateway        -->
+        <!--   (10.0.0.65), which routes back through the vHub to spokes.    -->
+        <!--   Covers: spoke1 10.1.0.0/16, spoke2 10.2.0.0/16, DMZ 10.0.0.0/24. -->
+        <virtual-router>
+          <entry name="default">
+            <interface>
+              <member>ethernet1/1</member>
+              <member>ethernet1/2</member>
+            </interface>
+            <routing-table>
+              <ip>
+                <static-route>
+
+                  <!-- 0.0.0.0/0 via untrust gateway 10.0.0.33 (snet-untrust gw) -->
+                  <entry name="default-via-untrust">
+                    <destination>0.0.0.0/0</destination>
+                    <nexthop>
+                      <ip-address>10.0.0.33</ip-address>
+                    </nexthop>
+                    <interface>ethernet1/1</interface>
+                    <metric>10</metric>
+                  </entry>
+
+                  <!-- 10.0.0.0/8 via trust gateway 10.0.0.65 (snet-trust gw)   -->
+                  <!-- Return path: spoke replies -> hub -> ILB -> PA trust NIC  -->
+                  <entry name="rfc1918-10-via-trust">
+                    <destination>10.0.0.0/8</destination>
+                    <nexthop>
+                      <ip-address>10.0.0.65</ip-address>
+                    </nexthop>
+                    <interface>ethernet1/2</interface>
+                    <metric>10</metric>
+                  </entry>
+
+                </static-route>
+              </ip>
+            </routing-table>
+          </entry>
+        </virtual-router>
+
+      </network>
+      <!-- ── /network ────────────────────────────────────────────────────── -->
+
+      <!-- ================================================================= -->
+      <!-- VSYS1: zones, NAT policy, security policy                         -->
+      <!-- ================================================================= -->
+      <vsys>
+        <entry name="vsys1">
+
+          <!-- ── Zone definitions ─────────────────────────────────────────── -->
+          <zone>
+            <!-- untrust zone: maps to ethernet1/1 (Azure eth1, snet-untrust) -->
+            <entry name="untrust">
+              <network>
+                <layer3>
+                  <member>ethernet1/1</member>
+                </layer3>
+              </network>
+            </entry>
+            <!-- trust zone: maps to ethernet1/2 (Azure eth2, snet-trust)    -->
+            <!-- Traffic from the vHub ILB arrives in this zone.             -->
+            <entry name="trust">
+              <network>
+                <layer3>
+                  <member>ethernet1/2</member>
+                </layer3>
+              </network>
+            </entry>
+          </zone>
+
+          <!-- ── Rulebase: NAT first, then Security ───────────────────────── -->
+          <rulebase>
+
+            <!-- ── NAT policy ────────────────────────────────────────────── -->
+            <!--                                                               -->
+            <!-- Source NAT: dynamic-ip-and-port (MASQUERADE equivalent)      -->
+            <!-- Translates the spoke source IP to the PA untrust interface   -->
+            <!-- IP (DHCP-assigned, snet-untrust 10.0.0.32/27).               -->
+            <!-- The Public LB outbound SNAT rule then re-translates the PA   -->
+            <!-- untrust IP to the Public LB PIP (pip-lb-public).            -->
+            <!--                                                               -->
+            <!-- Linux equivalent: iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE -->
+            <nat>
+              <rules>
+                <entry name="trust-to-untrust-masquerade">
+                  <from><member>trust</member></from>
+                  <to><member>untrust</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>any</member></destination>
+                  <service>any</service>
+                  <source-translation>
+                    <!-- dynamic-ip-and-port + interface-address = MASQUERADE -->
+                    <!-- Uses the DHCP IP on ethernet1/1 as translated source  -->
+                    <dynamic-ip-and-port>
+                      <interface-address>
+                        <interface>ethernet1/1</interface>
+                      </interface-address>
+                    </dynamic-ip-and-port>
+                  </source-translation>
+                </entry>
+              </rules>
+            </nat>
+
+            <!-- ── Security policy ───────────────────────────────────────── -->
+            <!--                                                               -->
+            <!-- LAB-ONLY: permit any/any trust -> untrust.                   -->
+            <!-- In production, restrict to specific applications/services.   -->
+            <!-- PAN-OS evaluates security AFTER NAT (post-NAT policy).       -->
+            <security>
+              <rules>
+                <entry name="permit-trust-to-untrust">
+                  <from><member>trust</member></from>
+                  <to><member>untrust</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>any</member></destination>
+                  <source-user><member>any</member></source-user>
+                  <category><member>any</member></category>
+                  <application><member>any</member></application>
+                  <service><member>any</member></service>
+                  <hip-profiles><member>any</member></hip-profiles>
+                  <action>allow</action>
+                  <!-- Log at session end only (local log; no forwarding profile) -->
+                  <log-start>no</log-start>
+                  <log-end>yes</log-end>
+                  <description>LAB ONLY — permit all trust to untrust for internet egress</description>
+                </entry>
+              </rules>
+            </security>
+            <!--                                                               -->
+            <!-- NOTE: PAN-OS implicit rules (not shown, always present):     -->
+            <!--   intrazone-default: allow (traffic within same zone OK)     -->
+            <!--   interzone-default: deny  (other inter-zone traffic denied) -->
+
+          </rulebase>
+
+        </entry>
+      </vsys>
+      <!-- ── /vsys ────────────────────────────────────────────────────────── -->
+
+    </entry>
+  </devices>
+</config>

@@ -109,3 +109,52 @@ va-spoke-internet/media/nva-spoke-internet.png via git rm.
 - README line 9 updated from .png to .svg.
 - Commit: 9f83356.
 - PowerShell # parsing issue with hex colors → workaround: write Python to .py file and run it, never python -c "..." with hex colors.
+
+## Learnings
+
+### 2026-07-27 — PAN-OS VM-Series Azure Bootstrap (nva-spoke-internet-paloalto)
+
+**Lab context:** Translated the Linux iptables MASQUERADE NVA into a Palo Alto VM-Series BYOL day-0 bootstrap package (`nva-spoke-internet-paloalto/bicep/bootstrap/`).
+
+#### init-cfg.txt key facts
+- `type=dhcp-client` with all IP fields blank → Azure DHCP assigns the management IP
+- `op-command-modes=mgmt-interface-swap` is **REQUIRED** for 3-NIC Azure VM-Series deployments
+  - Without it: PAN-OS expects a dedicated OOB management port (not present in Azure)
+  - With it: Azure eth0 (first NIC) → PAN-OS management; Azure eth1 → ethernet1/1; Azure eth2 → ethernet1/2
+- `vm-auth-key=` blank = BYOL standalone (no Panorama); `panorama-server=` blank
+- PAN-OS init-cfg.txt parser treats `#` lines as comments — safe to include header blocks
+- Docs verified: https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/bootstrap-configuration-files
+
+#### bootstrap.xml PAN-OS 10.1+ schema structure
+- Root: `<config version="10.1.0"><devices><entry name="localhost.localdomain">`
+- Interface management profiles under `network/profiles/interface-management-profile` — **not** under vsys
+- Zones under `vsys/entry[@name='vsys1']/zone` — **not** under `network/`; zone-to-interface binding inside `<network><layer3><member>`
+- DHCP-client interfaces require `<create-default-route>no</create-default-route>` or Azure DHCP will inject a default route that conflicts with the explicit static 0/0
+- Static routes under `network/virtual-router/entry[@name='default']/routing-table/ip/static-route`
+- NAT rules under `vsys/entry/rulebase/nat/rules` — `<service>` element is plain text (`any`), NOT a member list
+- Security rules under `vsys/entry/rulebase/security/rules` — `<service><member>any</member></service>` IS a member list
+- `deviceconfig/setting/session/tcp/non-syn-tcp=yes` required for HA-ports ILB (mid-flow connections forwarded on failover)
+
+#### LB health probe contract
+- Both LBs probe TCP/22 on data interfaces (trust + untrust NICs)
+- Interface management profile `allow-ssh-ping` (ssh=yes, ping=yes) on each data interface makes PAN-OS respond to the probe — no OS-level SSH server required
+- Equivalent to Linux: `iptables -A INPUT -p tcp --dport 22 -j ACCEPT`
+
+#### BYOL eval-forwards fact
+- VM-Series BYOL boots into ~30-day full-feature eval period with no license applied
+- During eval: complete dataplane active — L3 routing, NAT, security policy all work
+- After eval: basic operation continues; advanced features (threat/URL) degrade
+- For lab use: eval period sufficient; no license activation needed for internet-breakout testing
+
+#### NAT policy = iptables MASQUERADE equivalent
+- `dynamic-ip-and-port` source-translation with `<interface-address><interface>ethernet1/1</interface></interface-address>` translates spoke source IP to the untrust DHCP IP
+- Public LB outbound SNAT rule then re-translates to the Public LB PIP — double-SNAT design identical to Linux NVA lab
+
+#### Validator adaptation pattern for PA
+- Phases 1/2/3/5 are NVA-agnostic — copied verbatim from Linux validator
+- Phase 4 replaces iptables/conntrack/tcpdump with: mgmt IP discovery via az CLI chain (vm show → nic show → public-ip show), print HTTPS GUI URL + PAN-OS CLI command hints, emit `check_warn` not `check_fail`
+- Phase 3 curl remains the authoritative pass/fail signal (data-plane truth)
+- Default RG changed to `rg-nva-spoke-internet-paloalto`; NVA names `pa-nva-0`/`pa-nva-1`
+- validate-flow.sh inlines `log()` function (no functions.sh dependency in PA lab)
+
+**2026-07-27:** PA lab (nva-spoke-internet-paloalto) passed review gate — Amos PASS verdict, live deploy ready (separate opt-in).

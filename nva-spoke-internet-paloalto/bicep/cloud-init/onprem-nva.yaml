@@ -1,0 +1,29 @@
+#cloud-config
+# On-prem NVA: install strongSwan (IPsec) + FRR (BGP) + enable IP forwarding
+# Per-tunnel/BGP config is rendered post-deploy by Alex's configure-onprem.sh
+# via az vm run-command once VPN Gateway public IPs + PSK are known.
+package_update: true
+packages:
+  - strongswan
+  - strongswan-pki
+  - frr
+  - iptables-persistent
+  - net-tools
+
+write_files:
+  - path: /etc/sysctl.d/99-ip-forward.conf
+    content: |
+      net.ipv4.ip_forward = 1
+    owner: root:root
+    permissions: '0644'
+
+runcmd:
+  - sysctl -w net.ipv4.ip_forward=1
+  # Enable BGP daemon in FRR
+  - sed -i 's/^bgpd=no/bgpd=yes/' /etc/frr/daemons
+  # Enable services
+  - systemctl enable strongswan-starter
+  - systemctl enable frr
+  # Persist IP tables (allow forwarding)
+  - iptables -A FORWARD -j ACCEPT
+  - netfilter-persistent save

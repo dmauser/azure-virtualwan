@@ -487,3 +487,610 @@ Move all diagram assets into `nva-spoke-internet/media/` and update the README t
 
 - **Naomi / Alex:** If a future pipeline auto-exports `.excalidraw` → `.png`, the target path is now `nva-spoke-internet/media/nva-spoke-internet.png` (unchanged) and source is `nva-spoke-internet/media/nva-spoke-internet.excalidraw`.
 - **No other labs are affected** — this was a single-lab relocation.
+
+
+---
+
+
+# Decision: PAN-OS VM-Series Day-0 Bootstrap Design
+
+**Author:** Alex (Network Eng)  
+**Date:** 2026-07-27  
+**Lab:** nva-spoke-internet-paloalto  
+**Status:** Draft — pending Naomi (Bicep deploy) and Amos (connectivity validation)
+
+---
+
+## Context
+
+The `nva-spoke-internet-paloalto` lab replaces the Linux iptables MASQUERADE NVAs with Palo Alto VM-Series BYOL firewalls in the same DMZ VNet topology. The two PA firewalls must forward spoke egress traffic to the internet purely from their day-0 bootstrap config — no manual post-boot configuration, no Panorama.
+
+**Traffic path (identical to Linux NVA lab):**
+```
+Spoke VM -> vHub defaultRouteTable (0/0 -> conn-dmz)
+  -> conn-dmz static route (0/0 -> 10.0.0.68)
+  -> ILB 10.0.0.68 (HA-ports, probes TCP/22 on trust NIC)
+  -> PA ethernet1/2 (trust zone, Azure eth2, snet-trust 10.0.0.64/27)
+  -> PAN-OS security policy (permit trust->untrust) + NAT (MASQUERADE)
+  -> PA ethernet1/1 (untrust zone, Azure eth1, snet-untrust 10.0.0.32/27)
+  -> Public LB outbound SNAT rule (probes TCP/22 on untrust NIC)
+  -> pip-lb-public -> Internet
+```
+
+---
+
+## Decisions
+
+### D1: `op-command-modes=mgmt-interface-swap` in init-cfg.txt
+
+**Decision:** Required in all Azure 3-NIC VM-Series deployments.
+
+**Rationale:** PAN-OS expects a dedicated OOB management port that does not exist in Azure VMs. Without the swap, the management plane cannot be reached and the firewall boots into a broken state. With the swap: Azure eth0 (first NIC, snet-mgmt) maps to PAN-OS management; Azure eth1 → ethernet1/1 (untrust); Azure eth2 → ethernet1/2 (trust).
+
+**Source:** Palo Alto bootstrap-configuration-files documentation (https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/bootstrap-configuration-files)
+
+### D2: `create-default-route=no` on DHCP-client data interfaces
+
+**Decision:** Set `<create-default-route>no</create-default-route>` on both ethernet1/1 and ethernet1/2.
+
+**Rationale:** Azure DHCP will otherwise inject a 0.0.0.0/0 default route learned via DHCP option 3 on each interface, conflicting with the explicitly managed static route `0.0.0.0/0 → 10.0.0.33` in the virtual router. Only one default route is valid; the static route must win.
+
+### D3: Interface management profile `allow-ssh-ping` on both data interfaces
+
+**Decision:** Apply `allow-ssh-ping` (ssh=yes, ping=yes) to ethernet1/1 (untrust) and ethernet1/2 (trust).
+
+**Rationale:** Both the Public LB (untrust side) and ILB (trust side) health probe TCP/22. The management profile causes PAN-OS to respond to these probes from the data interfaces without requiring a host SSH server. This is the PAN-OS equivalent of `iptables -A INPUT -p tcp --dport 22 -j ACCEPT` from the Linux NVA. Without this, both LBs mark both NVAs unhealthy and the traffic path breaks entirely.
+
+**Risk:** SSH exposed on the untrust (internet-facing) interface. Acceptable for a lab. Mitigate in production with restricted source-IP management profiles or a dedicated management VNet.
+
+### D4: NAT policy uses `dynamic-ip-and-port` with `interface-address ethernet1/1`
+
+**Decision:** Source NAT rule `trust-to-untrust-masquerade` translates spoke source IPs to the DHCP-assigned IP on ethernet1/1 (untrust).
+
+**Rationale:** Direct equivalent of `iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE`. The DHCP IP on ethernet1/1 is in snet-untrust (10.0.0.32/27). The Public LB outbound SNAT rule then re-translates this to the Public LB PIP — double-SNAT design. This matches the Linux NVA lab exactly.
+
+**Alternative considered:** Translate to a static NAT IP address pool. Rejected because the untrust IP is DHCP-assigned and not known at bootstrap time.
+
+### D5: `non-syn-tcp=yes` in deviceconfig session settings
+
+**Decision:** Enable `<non-syn-tcp>yes</non-syn-tcp>` under `deviceconfig/setting/session/tcp`.
+
+**Rationale:** Azure ILB in HA-ports mode may forward mid-flow TCP connections to the firewall after a failover or initial load-distribution. Without this setting, PAN-OS drops non-SYN TCP packets (FIN, RST, data packets for sessions not yet in the session table), breaking TCP connections for flows that arrive mid-session.
+
+### D6: Static route covering all RFC1918 10/8 as return path via trust
+
+**Decision:** Single static route `10.0.0.0/8 → 10.0.0.65 (trust gateway) via ethernet1/2`.
+
+**Rationale:** Covers spoke1 (10.1.0.0/16), spoke2 (10.2.0.0/16), and DMZ (10.0.0.0/24) in a single entry. Reply traffic from the internet-destined sessions never needs to return via the trust side (the NAT handles it), but this route ensures health probe response traffic and any east-west flows exit the correct interface. The trust gateway (10.0.0.65) routes back through the vHub to spokes.
+
+**Alternative considered:** Two specific /16 routes. Rejected as unnecessarily granular for a lab; the 10/8 supernet is simpler and forward-compatible if more spokes are added.
+
+### D7: BYOL eval-period reliance
+
+**Decision:** The bootstrap.xml relies on the VM-Series BYOL 30-day eval dataplane.
+
+**Rationale:** Lab environments do not require production licensing. During the eval period the full dataplane is active: routing, NAT, security policy all function normally. No license activation step is needed for internet-breakout testing.
+
+**Risk:** Eval period expires in ~30 days. If the lab runs beyond that, basic operation continues but threat prevention and URL filtering may degrade. For a routing/NVA lab, this is acceptable. Apply a real license before any production use.
+
+### D8: Security policy is any/any trust→untrust (lab only)
+
+**Decision:** Single security rule permitting all traffic from trust to untrust zones.
+
+**Rationale:** This is a lab focused on routing and NAT behavior, not threat policy. Any/any simplifies troubleshooting. In production: restrict to specific applications (web-browsing, ssl) with App-ID, add threat prevention profiles, and enable URL filtering.
+
+---
+
+## Deliverables Created
+
+| File | Status |
+|---|---|
+| `nva-spoke-internet-paloalto/bicep/bootstrap/init-cfg.txt` | ✅ Created 2026-07-27 |
+| `nva-spoke-internet-paloalto/bicep/bootstrap/bootstrap.xml` | ✅ Created 2026-07-27 |
+| `nva-spoke-internet-paloalto/scripts/validate-flow.sh` | ✅ Created 2026-07-27 |
+| `nva-spoke-internet-paloalto/scripts/validate-flow.ps1` | ✅ Created 2026-07-27 |
+
+**Not created (Naomi's responsibility):** Bicep modules for VM-Series NVA, storage account for bootstrap package, LB bicep adaptations, deploy scripts.
+
+---
+
+## Residual Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| Azure Marketplace image version for PA VM-Series | Medium | bootstrap.xml uses config version="10.1.0" which is forward-compatible with 10.2/11.x; test against the actual Marketplace SKU version |
+| `#` comments in init-cfg.txt | Low | Parser tolerates them in practice (treats as blank lines); if bootstrap fails, remove comment lines as first debug step |
+| PA NVA VM names (pa-nva-0, pa-nva-1) | Low | Assumed defaults; Naomi must use these names in Bicep or set NVA_NAMES env var in validator |
+| BYOL eval expiry | Low | ~30 days; acceptable for lab; document in README |
+| SSH on untrust interface (management profile) | Medium | Lab-only acceptable; production requires restricted source-IP or Panorama-managed profiles |
+| Double-SNAT visibility | Low | Logs at PA level show spoke source IP; logs at Azure Public LB level show PA untrust IP — need both to correlate end-to-end flows |
+| Phase 4 PA API evidence is manual | Low | Phase 3 curl (data plane) is the authoritative pass/fail; Phase 4 warns but does not block the validator |
+
+---
+
+## Verification Sources
+
+All PAN-OS constructs were verified against:
+1. https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall
+2. https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/bootstrap-configuration-files
+3. https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/create-bootstrap-configuration-files
+
+XML schema verified against:
+- PAN-OS 10.1 VM-Series configuration guide (widely documented community reference for `config/devices/entry/vsys/entry` nesting)
+- Known-good patterns: interface-management-profile location, zone-to-interface binding, NAT `<service>` as plain text vs Security `<service><member>` list
+
+
+---
+
+# QA Review: nva-spoke-internet-paloalto
+
+**Reviewer:** Amos (Tester / QA)  
+**Date:** 2026-07-27  
+**Scope:** Static technical-correctness review — read-only + trivial safe fixes  
+**az bicep build:** `az bicep build --file nva-spoke-internet-paloalto/bicep/main.bicep` → **exit 0** (one version-upgrade advisory WARNING only)  
+**nva-spoke-internet/ unmodified:** `git status --porcelain nva-spoke-internet` → **empty** ✅
+
+---
+
+## Overall Verdict: ✅ PASS (after 6 trivial fixes applied by reviewer)
+
+Six RG default-name mismatches were found across scripts and fixed in-place during this review (all single-string changes, clearly safe). Bicep and bootstrap artifacts are fully correct. One prior caution (C2, NVA_NAMES) is resolved in the actual code.
+
+---
+
+## Fixes Applied by Reviewer
+
+| File | Change | Reason |
+|------|--------|--------|
+| `scripts/validate-flow.sh` line 45 | `rg-nva-spoke-internet-paloalto` → `rg-nva-spoke-internet-pa` | Align with deploy.sh canonical RG default |
+| `scripts/validate-flow.ps1` line 42 | `rg-nva-spoke-internet-paloalto` → `rg-nva-spoke-internet-pa` | Same |
+| `scripts/cleanup.sh` lines 25–26 | `rg-nva-spoke-internet` → `rg-nva-spoke-internet-pa` | Was pointing at Linux lab RG — blocking if used as-is |
+| `scripts/cleanup.ps1` lines 20–21 | `rg-nva-spoke-internet` → `rg-nva-spoke-internet-pa` | Same |
+| `scripts/enable-monitoring.sh` line 38 | `rg-nva-spoke-internet` → `rg-nva-spoke-internet-pa` | Was pointing at Linux lab RG |
+| `scripts/enable-monitoring.ps1` line 34 | `rg-nva-spoke-internet` → `rg-nva-spoke-internet-pa` | Same |
+
+**Bicep re-compiled after edits:** exit 0 ✅
+
+---
+
+## Findings Table
+
+| # | Item | File | Status | Note |
+|---|------|------|--------|------|
+| 1 | `plan` block present (byol/paloaltonetworks/vmseries-flex) | palo-alto.bicep | ✅ | Lines 149-153. Both `plan` and `imageReference` present — Marketplace BYOL requirement met. |
+| 2 | `imageReference` correct (paloaltonetworks/vmseries-flex/byol/latest) | palo-alto.bicep | ✅ | Lines 161-165. |
+| 3 | 3 NICs: eth0 mgmt PRIMARY in snet-mgmt | palo-alto.bicep | ✅ | NIC index 0 has `primary: true` in networkProfile. enableIPForwarding=false. |
+| 4 | 3 NICs: eth1 untrust in snet-untrust, IP forwarding enabled | palo-alto.bicep | ✅ | Lines 98-117. enableIPForwarding=true. |
+| 5 | 3 NICs: eth2 trust in snet-trust, IP forwarding enabled | palo-alto.bicep | ✅ | Lines 119-139. enableIPForwarding=true. |
+| 6 | eth1 → PublicLB backend; eth2 → ILB backend | palo-alto.bicep | ✅ | publicLbBackendPoolId on untrust NIC; ilbBackendPoolId on trust NIC. |
+| 7 | customData: all 6 bootstrap fields present; key is @secure() | palo-alto.bicep | ✅ | Line 183. type/op-command-modes/storage-account/access-key/file-share/share-directory. `bootstrapStorageKey` is `@secure()` param (line 54) — not hardcoded. |
+| 8 | bootDiagnostics enabled, no storageUri | palo-alto.bicep | ✅ | Lines 207-210. Managed boot diagnostics (Serial Console works). |
+| 9 | VM size default Standard_DS3_v2 | palo-alto.bicep | ✅ | Line 45. |
+| 10 | eth1/1 DHCP-client L3, create-default-route=no | bootstrap.xml | ✅ | Lines 123-136. DHCP-injected 0/0 suppressed; explicit static route wins. |
+| 11 | eth1/2 DHCP-client L3, create-default-route=no | bootstrap.xml | ✅ | Lines 141-153. |
+| 12 | Zones: untrust→eth1/1, trust→eth1/2 | bootstrap.xml | ✅ | Lines 218-234. Layer3 binding correct. |
+| 13 | Interface mgmt-profile allow-ssh-ping on both data interfaces | bootstrap.xml | ✅ | Lines 106-111. SSH+ping enabled. LB TCP/22 probes will succeed on both eth1/1 and eth1/2. |
+| 14 | VR default: 0/0→10.0.0.33 via eth1/1 | bootstrap.xml | ✅ | Lines 180-187. Untrust subnet GW. |
+| 15 | VR default: 10.0.0.0/8→10.0.0.65 via eth1/2 | bootstrap.xml | ✅ | Lines 191-198. Trust subnet GW. Covers spoke1(10.1/16), spoke2(10.2/16), DMZ(10.0/24). |
+| 16 | Source NAT: dynamic-ip-and-port + interface-address eth1/1 | bootstrap.xml | ✅ | Lines 257-265. MASQUERADE equivalent. Double-SNAT with Public LB outbound rule is by design. |
+| 17 | Security policy: permit trust→untrust | bootstrap.xml | ✅ | Lines 276-293. Lab-only any/any. Logged at session-end. |
+| 18 | non-syn-tcp=yes (HA-ports ILB requirement) | bootstrap.xml | ✅ | Lines 88-90. Required for ILB failover — mid-flow TCP packets arrive without SYN. |
+| 19 | Well-formed XML | bootstrap.xml | ✅ | All elements correctly opened and closed. Nesting matches PAN-OS `config/devices/entry` schema. |
+| 20 | config version="10.1.0" | bootstrap.xml | ⚠️ | If `vmseries-flex:byol:latest` resolves to PAN-OS ≥11.x at deploy time, PAN-OS performs automatic config migration. Generally safe; documented as residual risk in alex-panos-bootstrap.md. |
+| 21 | type=dhcp-client present | init-cfg.txt | ✅ | Line 31. |
+| 22 | op-command-modes=mgmt-interface-swap present | init-cfg.txt | ✅ | Line 42. REQUIRED for 3-NIC Azure deployment. |
+| 23 | Hostname sane, no dead/contradictory keys | init-cfg.txt | ✅ | hostname=pan-dmz-nva. panorama-server and vm-auth-key intentionally blank. No static IP keys set (DHCP mode). |
+| 24 | VNet 10.0.0.0/24, 3 subnets correct | dmz.bicep | ✅ | Lines 103-140. snet-mgmt 0/27, snet-untrust 32/27, snet-trust 64/27. |
+| 25 | UDR 0/0→Internet on snet-mgmt AND snet-untrust | dmz.bicep | ✅ | Lines 113-126. Both subnets attach udrInternet. |
+| 26 | NO UDR on snet-trust | dmz.bicep | ✅ | Lines 127-137. Correct — trust return traffic must reach hub via vWAN-learned routes. |
+| 27 | disableBgpRoutePropagation=true on UDR | dmz.bicep | ✅ | Line 27. More defensive than Linux lab (which had false). Prevents hub-propagated routes from conflicting with explicit 0/0→Internet. |
+| 28 | ILB Standard, static frontend 10.0.0.68, snet-trust | internal-lb.bicep | ✅ | Lines 27, 36-44. |
+| 29 | HA-ports rule (protocol=All, port=0, enableFloatingIP=true) | internal-lb.bicep | ✅ | Lines 62-81. Floating IP required for HA-ports; preserves destination IP through NVA. |
+| 30 | ILB TCP/22 health probe | internal-lb.bicep | ✅ | Lines 50-58. |
+| 31 | Public LB Standard, static PIP | public-lb.bicep | ✅ | Lines 26-32, 35-39. |
+| 32 | Public LB TCP/22 health probe | public-lb.bicep | ✅ | Lines 51-59. |
+| 33 | Outbound SNAT-all rule (protocol=All); disableOutboundSnat=true on inbound rule | public-lb.bicep | ✅ | Lines 84-103 (outbound rule). Line 80 (disableOutboundSnat=true on inbound LB rule). No conflict between inbound and outbound SNAT rules. |
+| 34 | palo-alto module wired in place of nva; bootstrap params passed | main.bicep | ✅ | Lines 102-120. All 4 bootstrap params (SA, key, share, dir) correctly threaded through. |
+| 35 | 16-output contract intact (exact names, correct sources) | main.bicep | ✅ | Lines 174-219. All 16 outputs match .squad/decisions.md contract. `nvaNames` maps to `paloAlto.outputs.paNames`. |
+| 36 | ILB 10.0.0.68 output contract preserved | main.bicep | ✅ | Line 195: `output ilbFrontendIp string = ilb.outputs.frontendIpAddress` → '10.0.0.68'. Hub 0/0 next-hop intact. |
+| 37 | deploy.sh region default westus3 | deploy.sh | ✅ | Line 66: `ask_default LOCATION "Azure region" "westus3"`. |
+| 38 | Image terms accept BEFORE VM create (Phase 1b before Phase 6) | deploy.sh | ✅ | Lines 49-53. Phase 1b runs immediately after login check. |
+| 39 | Bootstrap SA + share + 4 dirs created (Phase 5b) | deploy.sh | ✅ | Lines 130-165. SA creation, share creation, 4 dirs (config/content/license/software), file uploads to config/. |
+| 40 | init-cfg.txt + bootstrap.xml uploaded to config/ | deploy.sh | ✅ | Lines 168-184. Loop over both files; graceful warning if missing. |
+| 41 | SA name + key passed to main.bicep | deploy.sh | ✅ | Lines 197-212. bootstrapStorageAccount, bootstrapStorageKey, bootstrapFileShare, bootstrapShareDirectory all passed. |
+| 42 | SKU preflight for Standard_DS3_v2 | deploy.sh | ✅ | Lines 100-107. pick_vm_sku + preflight_vm_capacity (Phase 3). |
+| 43 | conn-dmz 0/0→10.0.0.68 AFTER routingState=Provisioned | deploy.sh | ✅ | Phase 8 polls routingState; Phase 9 creates conn-dmz with static route. |
+| 44 | defaultRouteTable 0/0→conn-dmz programmed post-connections | deploy.sh | ✅ | Lines 333-345. DEFAULT_RT_ID derived from HUB_ID output (no dead variable — this lab fixed the D1 defect from the Linux lab). |
+| 45 | On-prem prompt intact | deploy.sh | ✅ | Line 85: ask_default DEPLOY_ONPREM. Phase 12 conditional block intact. |
+| 46 | All consumed output names correct | deploy.sh | ✅ | Lines 228-244. 14 get_output calls match contract names. nvaNames and onpremVnetId not consumed — by design (post-deploy inspection). |
+| 47 | validate-flow.sh default NVA_NAMES | validate-flow.sh | ✅ | Line 48: `NVA_NAMES="${NVA_NAMES:-pa-fw-0 pa-fw-1}"` — already correct. Prior caution (C2) was written against a draft; the final code has the right VM names. |
+| 48 | validate-flow.sh default RG name | validate-flow.sh | ✅ FIXED | Line 45 had `rg-nva-spoke-internet-paloalto` (wrong suffix) — fixed to `rg-nva-spoke-internet-pa` by reviewer. |
+| 49 | validate-flow.ps1 default RG name | validate-flow.ps1 | ✅ FIXED | Line 42 same mismatch — fixed to `rg-nva-spoke-internet-pa` by reviewer. |
+| 50 | cleanup.sh default RG name | cleanup.sh | ✅ FIXED | Lines 25–26 had `rg-nva-spoke-internet` (Linux lab RG, blocking) — fixed to `rg-nva-spoke-internet-pa`. |
+| 51 | cleanup.ps1 default RG name | cleanup.ps1 | ✅ FIXED | Lines 20–21 same Linux-lab RG — fixed to `rg-nva-spoke-internet-pa`. |
+| 52 | enable-monitoring.sh default RG name | enable-monitoring.sh | ✅ FIXED | Line 38 had `rg-nva-spoke-internet` (Linux lab RG) — fixed to `rg-nva-spoke-internet-pa`. |
+| 53 | enable-monitoring.ps1 default RG name | enable-monitoring.ps1 | ✅ FIXED | Line 34 same — fixed to `rg-nva-spoke-internet-pa`. |
+| 54 | nva-spoke-internet/ unmodified | git | ✅ | `git status --porcelain nva-spoke-internet` → empty. |
+| 55 | az bicep build exit 0 (post-fixes) | CLI | ✅ | Exit 0. One advisory: "A new Bicep release is available: v0.45.15." Not an error. |
+
+---
+
+## Blocking Issues Found (now fixed)
+
+Six scripts had wrong RG defaults — two categories:
+
+1. **`cleanup.sh` / `cleanup.ps1`** defaulted to `rg-nva-spoke-internet` (the Linux lab's RG). Running cleanup with the default would silently target the wrong resource group or fail with "not found", leaving PA lab resources undeleted.  
+2. **`validate-flow.sh` / `validate-flow.ps1`** defaulted to `rg-nva-spoke-internet-paloalto` (wrong `-paloalto` suffix vs canonical `-pa`). Copy-paste validation from README would fail at Phase 1 pre-check.  
+3. **`enable-monitoring.sh` / `enable-monitoring.ps1`** defaulted to `rg-nva-spoke-internet` (Linux lab's RG). Monitoring setup would target wrong/absent RG.
+
+All 6 were single-string fixes aligned to the `deploy.sh` canonical default `rg-nva-spoke-internet-pa`. Fixed by reviewer.
+
+---
+
+## Non-Blocking Cautions (⚠️)
+
+### ⚠️ C1 — bootstrap.xml config version="10.1.0" vs `latest` image
+
+**File:** `nva-spoke-internet-paloalto/bicep/bootstrap/bootstrap.xml`, attribute on `<config>` element (line 57)  
+**Risk:** If Azure's `vmseries-flex:byol:latest` resolves to PAN-OS 11.1 or later at deploy time, PAN-OS performs an automatic XML config migration. The migration is generally safe for the constructs in this file (interfaces, VR, zones, NAT, security policy are stable across 10.1/11.x). However, if the version skew is large (e.g., bootstrap was written for 10.1, image ships 11.2), unexpected migration behaviour is possible.  
+**Recommended action:** Before first production run, pin `version` in `imageReference` to the specific PAN-OS build you validated against (e.g., `10.1.14`) instead of `latest`. For the current lab this is acceptable — already documented as residual risk by Alex in `alex-panos-bootstrap.md`.  
+**Severity:** ⚠️ Non-blocking — noted and acknowledged by author.
+
+---
+
+## Prior Caution C2 — RESOLVED
+
+**Prior C2** (validate-flow.sh NVA_NAMES stale `pa-nva-0 pa-nva-1`) is **no longer applicable**. The actual file at line 48 already contains the correct default:
+
+```bash
+NVA_NAMES="${NVA_NAMES:-pa-fw-0 pa-fw-1}"
+```
+
+The prior caution was written against an intermediate draft. The final code is correct.
+
+---
+
+## Summary
+
+| Category | Count |
+|----------|-------|
+| ✅ PASS  | 49 |
+| ✅ FIXED (trivial RG default) | 6 |
+| ⚠️ Caution (C1, version pin) | 1 |
+| ❌ Blocking (unfixed) | 0 |
+
+The Palo Alto lab is **ready to deploy**. The six RG default mismatches were fixed in-place during this review. The single remaining caution (C1, bootstrap.xml config version vs latest image) is risk-acknowledged and non-blocking for the lab scenario.
+
+
+---
+
+# Decision Drop: PA Diagram Scope & Style Parity
+
+**Date:** 2026-07-27  
+**Agent:** holden  
+**Scope:** `nva-spoke-internet-paloalto/media/`
+
+---
+
+## Decision
+
+Produce the flow-first architecture diagram for the Palo Alto VM-Series NVA lab as two files:
+- `nva-spoke-internet-paloalto.excalidraw` — Excalidraw v2 JSON (editable source)
+- `nva-spoke-internet-paloalto.svg` — hand-authored SVG (embeddable in README)
+
+---
+
+## Style Parity Decision
+
+The PA diagram **exactly mirrors** the Linux NVA diagram (`nva-spoke-internet/media/`) in:
+- Canvas size (1400×720), background, font family, container color vocabulary.
+- Numbered-hop badge style (double-circle with colored fill).
+- Arrow weights, styles, and marker types.
+- Footer legend bar layout.
+- On-prem optional block (Linux IPsec NVA — unchanged between Linux and PA variants).
+
+Deviation from Linux diagram is **content-only**, not style:
+- NVA boxes: PA-FW-1 / PA-FW-2 (Palo Alto VM-Series) replace Ubuntu NVA-1 / NVA-2.
+- Added ILB hop (HA ports, trust side) and Public LB hop explicitly — 7 hops vs 5.
+- ILB frontend IP (10.0.0.68) = hub's 0/0 next hop (same functional role as in Linux lab).
+- PLB labeled with SNAT outbound + pip-lb-pa-public placeholder.
+- NIC tier callout on each PA-FW box: mgmt · untrust · trust.
+
+---
+
+## Rationale
+
+Maintaining visual style parity between the two lab diagrams ensures:
+1. Readers moving between labs immediately recognize the same architectural pattern.
+2. Both SVGs can be embedded in README files with identical styling without extra CSS.
+3. The Excalidraw sources are structurally similar, making future edits predictable.
+
+
+---
+
+# Decision: PA Lab README & EXPECTED-RESULTS Documentation
+
+**Author:** Holden (Lead Architect)  
+**Date:** 2026-07-27  
+**Status:** Accepted  
+
+---
+
+## What Was Documented
+
+Two documentation files were authored for the `nva-spoke-internet-paloalto` lab:
+
+1. **`nva-spoke-internet-paloalto/README.md`** (~29 KB)
+2. **`nva-spoke-internet-paloalto/EXPECTED-RESULTS.md`** (~21 KB)
+
+Both mirror the structure and tone of the completed Linux NVA lab docs at `nva-spoke-internet/` while accurately reflecting all Palo Alto VM-Series–specific differences.
+
+---
+
+## Structural Rationale
+
+### README heading structure matches Linux lab exactly
+
+Every heading from the Linux README is preserved in the same order:
+Overview → Architecture → Address Plan → How Default Route Works → Optional On-Premises Connectivity → Prerequisites → Deployment → Validation → Cleanup → Monitoring & Logging → Files
+
+This is intentional: users familiar with the Linux lab can navigate the PA doc without relearning the structure. The only addition is a **"Palo Alto VM-Series Details"** section inserted after Architecture.
+
+### EXPECTED-RESULTS phase structure matches Linux lab exactly
+
+Phase 1 (pre-flight) → Phase 2 (control plane, checks 2a–2h) → Phase 3 (data plane) → Phase 4 (NVA forwarding evidence) → Phase 5 (LB metrics) → Summary → Cited References
+
+Phase 4 is the only phase with substantive PA-specific divergence (see below).
+
+---
+
+## Key PA-Specific Adaptations
+
+### 1. Phase 4 is always WARN (not PASS)
+
+PAN-OS session tables and NAT counters require management-plane access (HTTPS GUI or SSH). The lab automation does not provision PA API credentials, so `az vm run-command` cannot execute PAN-OS CLI. Phase 4 = WARN × 2 (one per firewall, `pa-fw-0` and `pa-fw-1`) regardless of actual firewall state.
+
+**The data-plane Phase 3 `curl` check is the authoritative pass/fail signal for PA traffic forwarding.**
+
+Expected final score: **PASS 10 / FAIL 0 / WARN 4** (without NW) or **PASS 12 / FAIL 0 / WARN 2** (with NW enabled).
+
+### 2. NVA_NAMES default mismatch — documented prominently
+
+`validate-flow.sh` defaults to `NVA_NAMES="pa-nva-0 pa-nva-1"`.  
+Bicep (`palo-alto.bicep`) names VMs `pa-fw-0` and `pa-fw-1`.  
+Users must run: `NVA_NAMES="pa-fw-0 pa-fw-1" ./scripts/validate-flow.sh`  
+Documented in README Validation section and EXPECTED-RESULTS Phase 4 preamble.
+
+### 3. snet-trust has NO UDR (asymmetric UDR design)
+
+`snet-mgmt` and `snet-untrust` carry `UDR 0/0 → Internet`. `snet-trust` intentionally has no UDR — adding `0/0 → Internet` on the trust subnet would black-hole return traffic arriving from the Public LB. This asymmetric design is counter-intuitive to first-time readers; explanation added to Address Plan section.
+
+### 4. ILB frontend inside snet-trust (not a dedicated subnet)
+
+Unlike the Linux lab (which used a dedicated `snet-ilb` /26), the PA lab places the ILB frontend (`10.0.0.68`) directly inside `snet-trust` (10.0.0.64/27). The hub routing contract is unchanged: `conn-dmz` static route `0/0 → 10.0.0.68` is identical in both labs.
+
+### 5. BYOL eval mode table
+
+README includes an explicit table:
+- **Unlicensed (eval):** routing, NAT, basic security policy, HA — lab validation fully passes
+- **Licensed:** Threat Prevention, URL Filtering, WildFire
+
+EXPECTED-RESULTS Summary reiterates: firewalls will show "Unlicensed" banners; this is expected.
+
+### 6. Auto-bootstrap flow documented
+
+README includes a numbered bootstrap sequence (deploy script → SA creation → file upload → VM customData → PAN-OS auto-import) and notes graceful degradation (if bootstrap files absent, PA boots minimal DHCP mode — unconfigured but reachable). EXPECTED-RESULTS Phase 4c covers how to verify bootstrap succeeded via PA GUI.
+
+### 7. Double-SNAT explained
+
+Spoke → PA trust NIC → PAN-OS NAT (to untrust NIC IP) → Public LB SNAT (to pip-lb-public).  
+PAN-OS session logs show spoke IP; Azure LB logs show PA untrust IP. Documentation notes both are needed for end-to-end flow correlation.
+
+### 8. 13-phase deploy table
+
+README Deployment section includes a complete 13-phase table including the PA-unique phases:  
+- Phase 1b: `az vm image terms accept` (marketplace BYOL terms, subscription-level, one-time)  
+- Phase 5b: Bootstrap storage account creation + file upload
+
+---
+
+## Output Contract Preservation
+
+All 16 output names match the Linux lab exactly. `nvaNames` array contains `['pa-fw-0', 'pa-fw-1']`.
+No Linux lab files were modified.
+
+---
+
+## Cross-References
+
+- Naomi's Bicep decision: `.squad/decisions/inbox/naomi-paloalto-bicep.md`
+- Alex's bootstrap design: `.squad/decisions/inbox/alex-panos-bootstrap.md`
+- Source Linux docs (not modified): `nva-spoke-internet/README.md`, `nva-spoke-internet/EXPECTED-RESULTS.md`
+
+---
+
+## Corrections Applied (Review Pass — 2026-07-27T20:35:00Z)
+
+Four gaps found and corrected during review:
+
+1. **Excalidraw link format:** Changed `🖉 **[▶ Open this diagram...]**` to exact required form `📐 [Open the editable diagram in Excalidraw](...)` immediately under the SVG embed.
+
+2. **PASS count corrected:** Both docs erroneously claimed PASS 12 / WARN 4 (impossible — 16 checks total, but only 14 exist). Corrected to PASS 10 / WARN 4 (without NW) / PASS 12 / WARN 2 (with NW). Root cause: score was copied from Linux lab without adjusting for PA Phase 4 being WARN-only.
+
+3. **RESOURCE_GROUP override added to validate commands:** `deploy.sh` creates `rg-nva-spoke-internet-pa`; `validate-flow.sh` defaults to `rg-nva-spoke-internet-paloalto`. README example commands now show both `RESOURCE_GROUP` and `NVA_NAMES` overrides in a dedicated callout box.
+
+4. **Residual Risks section added to EXPECTED-RESULTS.md:** Formal 6-row table added before Cited References covering: BYOL eval, bootstrap.xml PAN-OS version conservatism (Medium — validate Marketplace SKU), SSH-on-untrust, double-SNAT visibility, script defaults mismatch, snet-trust no-UDR design.
+
+### Open Items for Alex (scripts)
+
+- Fix `validate-flow.sh` default `NVA_NAMES` to `pa-fw-0 pa-fw-1` and default `RESOURCE_GROUP` to `rg-nva-spoke-internet-pa` so plain `./scripts/validate-flow.sh` runs correctly.
+- Consider pinning `paloaltonetworks:vmseries-flex:byol:latest` image version or adding a PAN-OS version compatibility check in deploy Phase 1b.
+
+
+---
+
+# Decision: Palo Alto VM-Series Bicep Module Design + Bootstrap-in-Script
+
+**Date:** 2026-07-27  
+**Author:** Naomi (Infra Dev)  
+**Lab:** `nva-spoke-internet-paloalto/`  
+**Status:** Implemented
+
+---
+
+## Summary
+
+The `nva-spoke-internet-paloalto` lab replaces the 2 Linux IPTables NVAs from the
+`nva-spoke-internet` lab with 2 Palo Alto VM-Series (vmseries-flex, BYOL) firewalls.
+This decision record documents the key design choices in `palo-alto.bicep` and the
+bootstrap-in-script pattern used by `deploy.sh` / `deploy.ps1`.
+
+---
+
+## PA Module Design (`palo-alto.bicep`)
+
+### Plan Block (marketplace requirement)
+
+All Palo Alto marketplace images require an explicit `plan` block on the VM resource:
+
+```bicep
+plan: {
+  name: 'byol'
+  publisher: 'paloaltonetworks'
+  product: 'vmseries-flex'
+}
+```
+
+This must accompany the `imageReference` block and is distinct from the image terms
+acceptance step (`az vm image terms accept`). Both are required: terms must be accepted
+once per subscription; the plan block must appear in every VM resource deployment.
+
+### 3-NIC Design with `mgmt-interface-swap`
+
+Each PA firewall has 3 NICs:
+
+| NIC | Azure primary? | Subnet | IP Forwarding | Purpose |
+|-----|---------------|--------|---------------|---------|
+| eth0 | ✓ (index 0) | snet-mgmt | No | Management, HTTPS GUI, licensing |
+| eth1 | No (index 1) | snet-untrust | Yes | Untrust zone, Public LB backend |
+| eth2 | No (index 2) | snet-trust | Yes | Trust zone, ILB HA-ports backend |
+
+PAN-OS `mgmt-interface-swap` mode (set via `customData`) maps the Azure primary NIC
+(eth0) to the PAN-OS management interface.  Without this, PAN-OS would use the
+secondary NIC as management, causing confusion with the IP addressing.
+
+### `@secure()` in `base64()` — Direct-Only Pattern
+
+The bootstrap storage account access key is passed as `@secure() param bootstrapStorageKey`.
+Bicep prohibits assigning `@secure()` params to plain `var` bindings (they would appear
+in ARM state/outputs in plaintext).  The solution is to use the param **directly** inside
+the `base64()` call within the resource property:
+
+```bicep
+customData: base64('type=dhcp-client\nop-command-modes=mgmt-interface-swap\naccess-key=${bootstrapStorageKey}\n...')
+```
+
+This keeps the key in ARM's secure parameter handling chain end-to-end.
+
+### Conditional Mgmt Public IPs (BCP318 suppression)
+
+Management PIPs are conditionally created per-VM (`enableMgmtPublicIp` param, default `true`).
+Conditional resources in a `for` loop require the non-null assertion `!` when referenced
+in a ternary, to suppress BCP318:
+
+```bicep
+publicIPAddress: enableMgmtPublicIp ? { id: pipMgmt[i]!.id } : null
+```
+
+---
+
+## DMZ 3-Subnet Layout
+
+The Linux lab used a 2-subnet DMZ (`snet-nva` + `snet-ilb`).  PA requires 3 subnets:
+
+| Subnet | CIDR | Notes |
+|--------|------|-------|
+| snet-mgmt | 10.0.0.0/27 | UDR: 0/0→Internet.  PA mgmt, GUI access. |
+| snet-untrust | 10.0.0.32/27 | UDR: 0/0→Internet.  Public LB backend (SNAT). |
+| snet-trust | 10.0.0.64/27 | **NO UDR.**  ILB backend (HA-ports). |
+
+**snet-trust has no 0/0 UDR by design.**  Return traffic from the PA trust NIC must
+reach spoke and hub destinations via vWAN-learned routes.  Adding a 0/0→Internet UDR
+on snet-trust would black-hole asymmetric return paths (spoke→hub→PA trust→UDR→Internet
+instead of PA trust→spoke via vWAN).
+
+**ILB frontend 10.0.0.68 is inside snet-trust (10.0.0.64/27).**  This preserves the
+hub `0.0.0.0/0` next-hop contract from the Linux variant unchanged: `conn-dmz` static
+route still points to 10.0.0.68, and the spoke `defaultRouteTable` still propagates
+0/0 via conn-dmz.
+
+---
+
+## Bootstrap-in-Script Rationale
+
+PA VM-Series day-0 configuration is delivered via an Azure Files bootstrap package
+referenced in VM `customData`.  The bootstrap package must exist **before** the VMs
+deploy.  Two approaches were considered:
+
+**Option A — Bicep-managed storage (rejected):**  A `storageAccount` Bicep module would
+create the SA and share, then the `palo-alto` module would reference it.  Problem:
+the bootstrap files (`init-cfg.txt`, `bootstrap.xml`) are authored separately (by Alex)
+and are not available at Bicep compile time.  ARM cannot upload files; it can only
+create the SA/share containers.
+
+**Option B — Script-managed storage (chosen):**  `deploy.sh`/`deploy.ps1` Phase 5b:
+1. Create SA (`pabstrap<hex4>`) + share (`bootstrap`) + 4 subdirs (config/, content/, license/, software/)
+2. Upload `bicep/bootstrap/init-cfg.txt` and `bicep/bootstrap/bootstrap.xml` → `config/`
+3. Capture SA name + key
+4. Pass as `--parameters bootstrapStorageAccount=... bootstrapStorageKey=...` to `az deployment group create`
+
+This cleanly separates concerns: script handles file I/O; Bicep handles VM+NIC resources.
+The `@secure()` param ensures the key is never exposed in ARM outputs or logs.
+
+**Graceful degradation:** If the bootstrap files are not yet present (Alex hasn't committed
+them), the script emits a warning and continues.  PA will boot in minimal DHCP mode and
+be accessible via the mgmt PIP for manual configuration.
+
+---
+
+## Output Contract Preservation
+
+All 16 outputs from the Linux `main.bicep` are preserved with identical names.
+The `nvaNames` output value changes (PA names instead of Linux NVA names) but the
+key name is unchanged, ensuring `get_output nvaNames` in Alex's deploy scripts
+continues to work without modification.
+
+---
+
+## Files Authored
+
+```
+nva-spoke-internet-paloalto/
+  bicep/main.bicep                     NEW  (PA orchestrator, 16 outputs)
+  bicep/main.bicepparam                NEW  (westus3, DS3_v2)
+  bicep/modules/dmz.bicep              NEW  (3-subnet DMZ)
+  bicep/modules/palo-alto.bicep        NEW  (PA VM module)
+  bicep/modules/internal-lb.bicep      ADAPTED  (snet-trust comments)
+  bicep/modules/public-lb.bicep        ADAPTED  (PA untrust NIC comments)
+  bicep/modules/vwan-hub.bicep         COPY
+  bicep/modules/vm.bicep               COPY
+  bicep/modules/spoke.bicep            COPY
+  bicep/modules/onprem.bicep           COPY
+  bicep/cloud-init/workload.yaml       COPY
+  bicep/cloud-init/onprem-nva.yaml     COPY
+  scripts/deploy.sh                    NEW  (13 phases + 1b + 5b)
+  scripts/deploy.ps1                   NEW  (PowerShell equiv)
+  scripts/functions.sh                 ADAPTED  (DS3_v2 SKU candidates)
+  scripts/cleanup.sh                   COPY
+  scripts/cleanup.ps1                  COPY
+  scripts/configure-onprem.sh          COPY
+  scripts/enable-monitoring.sh         COPY
+  scripts/enable-monitoring.ps1        COPY
+  .gitignore                           COPY
+```
+
+**NOT created (owner-gated):**
+- `bicep/bootstrap/init-cfg.txt` — Alex
+- `bicep/bootstrap/bootstrap.xml` — Alex
+- `media/` diagrams — Holden
+

@@ -98,6 +98,38 @@
 - Alex: RI mode detection validates mode set by CLI in deploy scripts
 - Holden: docs/validation.md documents expected check outputs and manual procedures
 
+### 2026-07-27 — nva-spoke-internet-paloalto static review (UPDATED — full script audit)
+
+**Scope:** Full technical-correctness review of the PA-based lab (`nva-spoke-internet-paloalto/`) including ALL scripts (deploy, validate, cleanup, enable-monitoring, bash+PowerShell parity).
+
+**Methodology:**
+- Read all Bicep modules (palo-alto.bicep, dmz.bicep, internal-lb.bicep, public-lb.bicep, main.bicep)
+- Read bootstrap files (bootstrap.xml, init-cfg.txt)
+- Read ALL scripts: deploy.sh, deploy.ps1, validate-flow.sh, validate-flow.ps1, cleanup.sh, cleanup.ps1, enable-monitoring.sh, enable-monitoring.ps1, functions.sh
+- Grep scan for RG/HUB/NVA_NAMES defaults across all scripts
+- Applied 6 trivial RG default fixes; `az bicep build` → exit 0 ✅
+- `git status --porcelain nva-spoke-internet` → empty (original lab untouched) ✅
+
+**Result:** PASS after 6 trivial RG default fixes applied in-place.
+
+**NEW finding: Copy-paste script default mismatches (RG names)**
+
+The canonical RG default from `deploy.sh:67` is `rg-nva-spoke-internet-pa`. Six scripts had wrong defaults that would break the copy-paste validate/cleanup/monitoring workflow:
+
+| Script | Wrong Default | Risk |
+|--------|--------------|------|
+| validate-flow.sh, validate-flow.ps1 | `rg-nva-spoke-internet-paloalto` | Phase 1 pre-check fails silently |
+| cleanup.sh, cleanup.ps1 | `rg-nva-spoke-internet` | **BLOCKING** — Linux lab RG, wrong resources targeted |
+| enable-monitoring.sh, enable-monitoring.ps1 | `rg-nva-spoke-internet` | Monitoring setup targets wrong/absent RG |
+
+All 6 fixed as trivial safe edits (single string literal). Bicep re-compiled clean.
+
+**LESSON: Always grep for ALL script RG/HUB defaults — not just the primary deploy script.** Stale defaults from the source lab can survive copy-paste into a new lab's scripts without triggering a compile error. The cleanup.sh Linux-lab default is the most dangerous: it would silently target the wrong resource group on deletion. Always verify every script that takes `--rg`/`$Rg` against the deploy.sh canonical default.
+
+**Correction: Prior C2 (NVA_NAMES) is already resolved.** The prior 2026-07-27 entry reported `NVA_NAMES="pa-nva-0 pa-nva-1"` as wrong, but the actual file at `validate-flow.sh:48` already has the correct value `pa-fw-0 pa-fw-1`. The caution was written against an intermediate draft. Both validate-flow.sh and validate-flow.ps1 have the correct NVA names in their defaults.
+
+**Verdict written to:** `.squad/decisions/inbox/amos-pa-review.md`
+
 ---
 
 ## Team Update: 2026-07-24
@@ -113,3 +145,4 @@ The team successfully rebuilt the nva-spoke-internet lab infrastructure as code.
 Lab is ready for end-to-end testing.
 
 **2026-07-24 — DEPLOYMENT STATUS:** lab is LIVE in DMAUSER-FDPO (eastus2, B2s), 7/7 validation PASS — Alex
+**2026-07-27:** PA lab (nva-spoke-internet-paloalto) passed review gate — Amos PASS verdict, live deploy ready (separate opt-in).

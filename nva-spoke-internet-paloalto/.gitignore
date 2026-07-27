@@ -1,0 +1,5 @@
+# Secrets & scratch artifacts from deploy scripts — never commit
+.deploy-pw
+*.deploy-pw
+deploy-*.log
+*.log
