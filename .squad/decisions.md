@@ -2023,3 +2023,87 @@ This document is the authoritative source for all LB + PAN-OS config decisions m
 
 This file is the living reference for troubleshooting Palo Alto deployments in Azure with dual LBs (internal + public). Future labs or productions deployments should reference PALO-ALTO-CONFIG.md for the proven pattern.
 
+
+# Decision: az network watcher flow-log is location-based — never use -g
+
+**Date:** 2026-07-28  
+**Author:** Naomi (Infra Dev)  
+**Status:** Applied
+
+## Context
+
+Live run of `enable-monitoring.ps1` passed Phases 1–4 but failed at Phase 5 (flow-log commands) and Phase 6 (diagnostic-settings). Three root causes were identified and verified against `az --help` and live CLI.
+
+## Decisions
+
+### 1. flow-log existence check must use `flow-log list --location`
+`az network watcher flow-log show -n <name> -g <rg>` is **invalid** in modern az CLI. The `flow-log` group is location-scoped, not resource-group-scoped. Authoritative existence check:
+```
+az network watcher flow-log list --location <region> --query "[?name=='<name>'].name | [0]" -o tsv
+```
+
+### 2. flow-log create must NOT pass `-g`
+`az network watcher flow-log create` requires `--name --location --vnet --storage-account --workspace --traffic-analytics true`. Passing `-g $NW_RG` causes a CLI error. The `-g` flag has been removed from the create call.
+
+### 3. Capture pattern required for all az calls under EAP=Stop
+Bare uncaptured `az ... 2>$null` statements halt the entire script under `$ErrorActionPreference='Stop'` when az writes to stderr (warnings, deprecation notices). The proven-safe pattern already used in Phases 2–4 of this script is:
+- Existence check: `$x = "$(az ... 2>$null)".Trim()`
+- Write/create call: `$out = az ... 2>&1`
+
+This pattern was applied to both Phase 5 (flow-log) and Phase 6 (diagnostic-settings) in both files.
+
+## Files Changed
+
+- `nva-spoke-internet-paloalto/scripts/enable-monitoring.ps1` — Phase 5 + Phase 6
+- `nva-spoke-internet/scripts/enable-monitoring.ps1` — Phase 5 + Phase 6 (parity)
+
+## Verification
+
+Both files parse with 0 errors:
+```
+[System.Management.Automation.Language.Parser]::ParseFile(...) → 0 errors
+```
+
+---
+
+# Decision: vHub effective-routes NextHops → short-name display
+
+**Date:** 2026-07-28  
+**Author:** Amos (Tester/validation-script owner)  
+**Status:** Deployed  
+**File:** `nva-spoke-internet-paloalto/scripts/validate-flow.ps1`  
+**Branch:** `'VHub'` in `Show-RouteTable`, line 150
+
+## What changed
+
+The `[2e] vHub effective routes for defaultRouteTable` table previously printed the full Azure resource ID in the **NextHops** column, e.g.:
+
+```
+/subscriptions/xxx/resourceGroups/rg-nva-spoke-internet-pa/providers/Microsoft.Network/virtualHubs/hub-nva-si/hubVirtualNetworkConnections/conn-dmz
+```
+
+Now displays only the trailing connection name:
+
+```
+conn-dmz
+conn-spoke1
+conn-spoke2
+```
+
+## How
+
+Applied the same last-segment trim already used at line 116 for the `'Hub'` branch:
+```powershell
+($_.ToString().TrimEnd('/') -split '/')[-1]
+```
+
+Three cases handled: array of IDs, single string ID, empty/null.
+
+## Scope
+
+**Display-only.** No az commands changed. No logic changed. Parse: 0 errors. UTF-8 with BOM (EF BB BF) preserved to maintain Windows PowerShell 5.1 compatibility.
+
+## Team relevance
+
+If the `nva-spoke-internet` (non-PA) lab's `validate-flow.ps1` has a `'VHub'` branch with the same pattern, apply the identical fix there for consistency.
+

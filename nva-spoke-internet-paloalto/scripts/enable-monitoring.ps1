@@ -13,10 +13,12 @@
 #   1. Log Analytics workspace  (log-nva-spoke-internet)
 #   2. Storage account          (stnvaspk<sub-8-chars>, Standard_LRS)
 #   3. Network Watcher          (NetworkWatcher_<region>, in NetworkWatcherRG)
-#   4. VNet flow logs           (flow-vnet-dmz, flow-vnet-spoke1, flow-vnet-spoke2)
+#   4. NetworkWatcherAgentLinux (vm-spoke1, vm-spoke2) -- free, required for
+#      az network watcher test-connectivity (validate-flow.ps1 check [2h])
+#   5. VNet flow logs           (flow-vnet-dmz, flow-vnet-spoke1, flow-vnet-spoke2)
 #      -- VNet flow logs, NOT NSG flow logs (NSG flow logs retire 2027-09-30;
 #         new NSG flow logs blocked after 2025-06-30)
-#   5. LB diagnostic settings   (diag-lb-public, diag-lb-ilb -> workspace AllMetrics)
+#   6. LB diagnostic settings   (diag-lb-public, diag-lb-ilb -> workspace AllMetrics)
 #
 # Usage:
 #   .\scripts\enable-monitoring.ps1
@@ -168,6 +170,40 @@ if (-not [string]::IsNullOrWhiteSpace($NwId)) {
 }
 
 # =============================================================================
+# Phase 4b -- NetworkWatcherAgentLinux extension on spoke VMs
+# Required for: az network watcher test-connectivity (validate-flow.ps1 [2h])
+# The extension is FREE -- no Azure charge.
+# Ref: https://learn.microsoft.com/azure/network-watcher/network-watcher-agent-update
+# Ref: https://learn.microsoft.com/azure/network-watcher/network-watcher-connectivity-overview
+# =============================================================================
+Log ""
+Log "=== Phase 4b: Network Watcher Agent extension (spoke VMs) ==="
+Log "  The NetworkWatcherAgent extension is required for connectivity checks (test-connectivity)."
+Log "  The extension itself is free -- no Azure charge."
+foreach ($VmName in @("vm-spoke1","vm-spoke2")) {
+    # skip cleanly if the VM does not exist
+    $VmId = "$(az vm show -g $Rg -n $VmName --query id -o tsv 2>$null)".Trim()
+    if ([string]::IsNullOrWhiteSpace($VmId)) { Log "  VM '$VmName' not found in '$Rg' -- skipping." ; continue }
+    # idempotency check -- use list (exit 0 + empty string when absent) not show (exit 1 + ResourceNotFound error)
+    $ExtState = "$(az vm extension list -g $Rg --vm-name $VmName --query "[?name=='NetworkWatcherAgentLinux'].provisioningState | [0]" -o tsv 2>$null)".Trim()
+    if ($ExtState -eq "Succeeded") { Log "  '$VmName': NetworkWatcherAgentLinux already installed -- skipping." ; continue }
+    Log "  '$VmName': installing NetworkWatcherAgentLinux ..."
+    $ExtOut = az vm extension set `
+        --resource-group $Rg `
+        --vm-name $VmName `
+        --name NetworkWatcherAgentLinux `
+        --publisher Microsoft.Azure.NetworkWatcher `
+        --version 1.4 `
+        --enable-auto-upgrade true `
+        --output none 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Log "  WARNING: NetworkWatcherAgentLinux install on '$VmName' failed (exit $LASTEXITCODE): $(($ExtOut | Out-String).Trim())"
+        continue
+    }
+    Log "  '$VmName': NetworkWatcherAgentLinux installed."
+}
+
+# =============================================================================
 # Phase 5 -- VNet flow logs (DMZ + Spoke1 + Spoke2)
 # NOTE: Using VNet flow logs, NOT NSG flow logs.
 #   NSG flow logs retire 2027-09-30; new NSG flow logs blocked after 2025-06-30.
@@ -271,6 +307,9 @@ Log "  Flow logs (VNet-level, Traffic Analytics enabled):"
 Log "    flow-vnet-dmz    -> vnet-dmz"
 Log "    flow-vnet-spoke1 -> vnet-spoke1"
 Log "    flow-vnet-spoke2 -> vnet-spoke2"
+Log ""
+Log "  NW Agent ext (vm-spoke1, vm-spoke2): NetworkWatcherAgentLinux installed"
+Log "    -- free; enables az network watcher test-connectivity (validate-flow.ps1 [2h])"
 Log ""
 Log "  Data takes ~10-20 minutes to appear in Log Analytics after first traffic."
 Log ""
