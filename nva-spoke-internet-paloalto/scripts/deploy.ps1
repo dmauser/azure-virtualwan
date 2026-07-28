@@ -570,12 +570,15 @@ Log "  ✔ Hub is Provisioned."
 Log "=== Phase 9: Creating hub VNet connections ==="
 
 Log "  Creating conn-dmz (with static 0/0 → $IlbFrontendIp) ..."
+# --internet-security false: the DMZ ORIGINATES the default route (via its NVA);
+# it must NOT receive 0/0 back from the hub, or it would black-hole its own egress.
 az network vhub connection create `
     -g $Rg --vhub-name $HubName -n "conn-dmz" `
     --remote-vnet $DmzVnetId `
     --associated-route-table $DefaultRtId `
     --propagated-route-tables $DefaultRtId `
     --labels "default" `
+    --internet-security false `
     --route-name "default-via-ilb" `
     --address-prefixes "0.0.0.0/0" `
     --next-hop $IlbFrontendIp `
@@ -587,12 +590,15 @@ Poll-Until -Label "conn-dmz provisioningState" -Target "Succeeded" -SleepSec 15 
 }
 
 Log "  Creating conn-spoke1 ..."
+# --internet-security true: "Propagate Default Route" — spoke LEARNS 0/0 from the
+# hub defaultRouteTable so its VMs egress through the DMZ NVA.
 az network vhub connection create `
     -g $Rg --vhub-name $HubName -n "conn-spoke1" `
     --remote-vnet $Spoke1VnetId `
     --associated-route-table $DefaultRtId `
     --propagated-route-tables $DefaultRtId `
     --labels "default" `
+    --internet-security true `
     --output none
 
 Poll-Until -Label "conn-spoke1 provisioningState" -Target "Succeeded" -SleepSec 15 -MaxIter 40 -Command {
@@ -601,12 +607,15 @@ Poll-Until -Label "conn-spoke1 provisioningState" -Target "Succeeded" -SleepSec 
 }
 
 Log "  Creating conn-spoke2 ..."
+# --internet-security true: "Propagate Default Route" — spoke LEARNS 0/0 from the
+# hub defaultRouteTable so its VMs egress through the DMZ NVA.
 az network vhub connection create `
     -g $Rg --vhub-name $HubName -n "conn-spoke2" `
     --remote-vnet $Spoke2VnetId `
     --associated-route-table $DefaultRtId `
     --propagated-route-tables $DefaultRtId `
     --labels "default" `
+    --internet-security true `
     --output none
 
 Poll-Until -Label "conn-spoke2 provisioningState" -Target "Succeeded" -SleepSec 15 -MaxIter 40 -Command {
