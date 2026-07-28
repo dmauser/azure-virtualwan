@@ -52,6 +52,7 @@ $ErrorActionPreference = "Continue"
 $script:Pass       = 0
 $script:Fail       = 0
 $script:Warn       = 0
+$script:Skip       = 0
 $script:OrigExtDir = $null  # set in Phase 1 extension-ensure block; restored in finally
 $CleanExtDir       = ""     # set in Phase 1 extension-ensure block
 
@@ -70,6 +71,10 @@ function CheckFail([string]$label) {
 function CheckWarn([string]$label) {
     Write-Host ("[{0:HH:mm:ss}]   [WARN] {1}" -f (Get-Date), $label) -ForegroundColor Yellow
     $script:Warn++
+}
+function CheckSkip([string]$label) {
+    Write-Host ("[{0:HH:mm:ss}]   [SKIP] {1}" -f (Get-Date), $label) -ForegroundColor DarkGray
+    $script:Skip++
 }
 
 # Extract first IPv4 address from a string
@@ -445,7 +450,7 @@ $ifvJson = az network watcher test-ip-flow `
     --local 10.1.0.4:0 `
     --remote 8.8.8.8:443 `
     --nic nic-vm-spoke1 `
-    -o json 2>$null
+    -o json 2>&1
 if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ifvJson)) {
     $ifvObj    = $ifvJson | ConvertFrom-Json
     $ifvAccess = $ifvObj.access
@@ -457,31 +462,50 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ifvJson)) {
         CheckFail "NW IP flow verify: access = '$ifvAccess' (expected Allow) -- check NSG rules"
     }
 } else {
-    CheckWarn "NW IP flow verify failed (Network Watcher may not be enabled) — run enable-monitoring.ps1 to enable Network Watcher"
+    $rawErr = ($ifvJson | ForEach-Object { "$_" }) -join " "
+    Log "       $rawErr"
+    if ($rawErr -match 'NsgsNotAppliedOnNic') {
+        CheckSkip "NW IP flow verify N/A -- nic-vm-spoke1 has no NSG (this lab governs traffic via vHub routing + the Palo Alto firewall, not NSGs; IP flow verify only evaluates NSG rules)"
+    } else {
+        CheckWarn "NW IP flow verify could not be evaluated -- see raw error above"
+    }
 }
 
 # 2h. Network Watcher connectivity test
 # Ref: https://learn.microsoft.com/azure/network-watcher/network-watcher-connectivity-overview
 Log ""
 Log "  [2h] NW connectivity test: vm-spoke1 -> ifconfig.io:80"
-$ctJson = az network watcher test-connectivity `
+$ctRaw  = az network watcher test-connectivity `
     -g $Rg `
     --source-resource vm-spoke1 `
     --dest-address ifconfig.io `
     --dest-port 80 `
-    -o json 2>$null
-if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ctJson)) {
-    $ctObj     = $ctJson | ConvertFrom-Json
-    $ctStatus  = $ctObj.connectionStatus
-    $ctLatency = $ctObj.avgLatencyInMs
-    Log "       connectionStatus: $ctStatus   avgLatencyInMs: $ctLatency"
-    if ($ctStatus -eq "Reachable") {
-        CheckPass "NW connectivity: vm-spoke1 -> ifconfig.io:80 = Reachable"
-    } else {
-        CheckFail "NW connectivity: '$ctStatus' (expected Reachable)"
-    }
+    --only-show-errors -o json 2>&1
+$ctErr  = ($ctRaw | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) -join "`n"
+$ctJson = ($ctRaw | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] }) -join "`n"
+if ($ctErr -match 'NetworkWatcherVmExtensionNotInstalled') {
+    Log "       $ctErr"
+    CheckWarn "NW connectivity test needs the NetworkWatcherAgent VM extension on vm-spoke1 -- run enable-monitoring.ps1 (it installs the free agent), then re-run this check"
+} elseif ([string]::IsNullOrWhiteSpace($ctJson)) {
+    if ($ctErr) { Log "       $ctErr" }
+    CheckWarn "NW connectivity test could not be evaluated -- no JSON returned (Network Watcher may not be enabled; run enable-monitoring.ps1)"
 } else {
-    CheckWarn "NW connectivity test failed (Network Watcher may not be enabled) — run enable-monitoring.ps1 to enable Network Watcher"
+    $ctObj = $null
+    try {
+        $ctObj = $ctJson | ConvertFrom-Json
+    } catch {
+        CheckWarn "NW connectivity test response could not be parsed -- $_"
+    }
+    if ($null -ne $ctObj) {
+        $ctStatus  = if ($ctObj.PSObject.Properties.Name -contains 'connectionStatus') { $ctObj.connectionStatus } else { '' }
+        $ctLatency = if ($ctObj.PSObject.Properties.Name -contains 'avgLatencyInMs')   { $ctObj.avgLatencyInMs }   else { '' }
+        Log "       connectionStatus: $ctStatus   avgLatencyInMs: $ctLatency"
+        if ($ctStatus -eq 'Reachable') {
+            CheckPass "NW connectivity: vm-spoke1 -> ifconfig.io:80 = Reachable"
+        } else {
+            CheckWarn "NW connectivity: '$ctStatus' (expected Reachable)"
+        }
+    }
 }
 
 # =============================================================================
@@ -708,7 +732,9 @@ Write-Host "   FAIL: " -NoNewline -ForegroundColor Magenta
 $failColor = if ($script:Fail -gt 0) { "Red" } else { "Green" }
 Write-Host "$($script:Fail)" -NoNewline -ForegroundColor $failColor
 Write-Host "   WARN: " -NoNewline -ForegroundColor Magenta
-Write-Host "$($script:Warn)" -ForegroundColor Yellow
+Write-Host "$($script:Warn)" -NoNewline -ForegroundColor Yellow
+Write-Host "   SKIP: " -NoNewline -ForegroundColor Magenta
+Write-Host "$($script:Skip)" -ForegroundColor DarkGray
 Banner "======================================================================"
 
 if ($script:Fail -gt 0) {
