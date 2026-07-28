@@ -27,3 +27,17 @@ va-spoke-internet-paloalto/PALO-ALTO-CONFIG.md (14,168 chars). This document is 
 
 **Note for future agents:** This document is the living reference. Troubleshoot Palo Alto Azure deployments using this canonical config, not earlier scattered notes.
 
+---
+
+## 2026-07-28 — README Professional Polish (Coordinator lightweight session)
+
+**Status:** Merged to main (commit 27e1704, PR #11)
+
+Coordinator applied professional formatting to nva-spoke-internet-paloalto/README.md:
+- Added shields.io badges (build, status, license)
+- Variant callout box (Palo Alto VM-Series focus)
+- Horizontal rules for visual section breaks
+- Table of Contents with anchor links
+
+Technical content unchanged; README now serves as public-facing entry point coordinating with PALO-ALTO-CONFIG.md (canonical technical reference).
+
