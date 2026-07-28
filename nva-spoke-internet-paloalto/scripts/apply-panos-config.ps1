@@ -15,11 +15,22 @@
 #
 # BEHAVIOR:
 #   1. Poll each mgmt IP until the PAN-OS XML API (keygen) responds.
-#   2. Import bootstrap.xml to the device as a named candidate config.
-#   3. Load the imported file as the active candidate config.
-#   4. Commit and poll the commit job to completion.
-#   5. Verify: ethernet1/1 + ethernet1/2 up, 0.0.0.0/0 route present.
+#   2. Build the day-0 config PIECEWISE via type=config&action=set subtree calls
+#      (interfaces, VRs, zones, NAT, security, etc.) that MERGE into the running
+#      candidate, preserving all factory-default nodes.
+#   3. Commit and poll the commit job to completion.
+#   4. Verify: ethernet1/1 + ethernet1/2 up, 0.0.0.0/0 route present.
 #   Idempotent: safe to re-run; re-applying the same config is a no-op commit.
+#
+# WHY action=set (NOT import + load config):
+#   'load config from <file>' REPLACES the entire candidate with the uploaded
+#   XML.  A partial bootstrap.xml lacks PAN-OS's required predefined/default
+#   nodes, so the subsequent commit fails validation with EMPTY error detail on
+#   PAN-OS 12.1.x (confirmed live on DMAUSER-FDPO).  Issuing the same config as
+#   discrete action=set subtrees MERGES each fragment into the running candidate
+#   without disturbing factory defaults, and the commit succeeds cleanly
+#   ("Configuration committed successfully").  The subtree fragments below are a
+#   1:1 mapping of bicep/bootstrap/bootstrap.xml.
 #
 # INTERFACE CONTRACT (called by deploy.ps1 — do not change param names):
 #   -MgmtIps        <string[]>  one or more PA management public IPs / PIPs
@@ -127,8 +138,22 @@ function Invoke-PanPost([string]$Uri) {
 # type/category/key are already encoded in the $Uri query string.
 function Invoke-PanUpload([string]$Uri, [string]$FilePath) {
     if ($PsVer -ge 6) {
-        $form = @{ file = Get-Item -LiteralPath $FilePath }
-        (Invoke-WebRequest -Method POST -Uri $Uri -Form $form `
+        # Some PAN-OS builds reject PowerShell's -Form multipart encoding with
+        # "No file uploaded" (400). Build the multipart/form-data body manually,
+        # which every tested PAN-OS build accepts. Field name MUST be "file".
+        $boundary = [System.Guid]::NewGuid().ToString()
+        $bytes    = [System.IO.File]::ReadAllBytes($FilePath)
+        $enc      = [System.Text.Encoding]::GetEncoding('iso-8859-1')  # byte-preserving
+        $fileName = [System.IO.Path]::GetFileName($FilePath)
+        $LF       = "`r`n"
+        $body =
+            "--$boundary$LF" +
+            "Content-Disposition: form-data; name=`"file`"; filename=`"$fileName`"$LF" +
+            "Content-Type: application/octet-stream$LF$LF" +
+            $enc.GetString($bytes) + $LF +
+            "--$boundary--$LF"
+        (Invoke-WebRequest -Method POST -Uri $Uri -Body $body `
+            -ContentType "multipart/form-data; boundary=$boundary" `
             -SkipCertificateCheck -TimeoutSec 120 -UseBasicParsing `
             -ErrorAction Stop).Content
     } else {
@@ -147,7 +172,59 @@ function Get-XmlValue([string]$Xml, [string]$Tag) {
 }
 
 function Test-PanSuccess([string]$Xml) {
-    return ($Xml -match "status='success'" -or $Xml -match 'status="success"')
+    # PAN-OS XML API returns the outer attribute in varying forms across versions:
+    #   status="success"  |  status='success'  |  status = 'success'  (spaces around =)
+    # Match all quote styles and tolerate optional whitespace around the equals sign.
+    return ($Xml -match "status\s*=\s*'success'" -or $Xml -match 'status\s*=\s*"success"')
+}
+
+# ── PAN-OS candidate-config builder (type=config, action=set) ─────────────────
+# Device entry name is always "localhost.localdomain" on a factory VM-Series.
+$DeviceBase = "/config/devices/entry[@name='localhost.localdomain']"
+
+# Ordered list of config subtrees. Each is merged (action=set) into the running
+# candidate at $DeviceBase + Xpath.  1:1 with bicep/bootstrap/bootstrap.xml.
+# Order matters: interfaces/profiles/VRs before the vsys blocks that reference them.
+$PanConfigSubtrees = @(
+    @{ Label = 'setting/session tcp-reject-non-syn=no'
+       Xpath = '/deviceconfig/setting'
+       Element = '<session><tcp-reject-non-syn>no</tcp-reject-non-syn></session>' },
+
+    @{ Label = 'interface-management-profile allow-ssh-ping'
+       Xpath = '/network/profiles/interface-management-profile'
+       Element = '<entry name="allow-ssh-ping"><ssh>yes</ssh><ping>yes</ping></entry>' },
+
+    @{ Label = 'data interfaces ethernet1/1 (untrust) + ethernet1/2 (trust)'
+       Xpath = '/network/interface/ethernet'
+       Element = '<entry name="ethernet1/1"><comment>untrust - snet-untrust 10.0.0.32/27 - Public LB backend</comment><layer3><interface-management-profile>allow-ssh-ping</interface-management-profile><dhcp-client><enable>yes</enable><create-default-route>no</create-default-route><send-hostname><enable>yes</enable></send-hostname></dhcp-client></layer3></entry><entry name="ethernet1/2"><comment>trust - snet-trust 10.0.0.64/27 - ILB HA-ports backend</comment><layer3><interface-management-profile>allow-ssh-ping</interface-management-profile><dhcp-client><enable>yes</enable><create-default-route>no</create-default-route><send-hostname><enable>yes</enable></send-hostname></dhcp-client></layer3></entry>' },
+
+    @{ Label = 'dual virtual-routers VR-Untrust + VR-Trust'
+       Xpath = '/network/virtual-router'
+       Element = '<entry name="VR-Untrust"><interface><member>ethernet1/1</member></interface><routing-table><ip><static-route><entry name="default-via-untrust"><destination>0.0.0.0/0</destination><nexthop><ip-address>10.0.0.33</ip-address></nexthop><interface>ethernet1/1</interface><metric>10</metric></entry><entry name="rfc1918-10-to-vr-trust"><destination>10.0.0.0/8</destination><nexthop><next-vr>VR-Trust</next-vr></nexthop><metric>20</metric></entry></static-route></ip></routing-table></entry><entry name="VR-Trust"><interface><member>ethernet1/2</member></interface><routing-table><ip><static-route><entry name="azure-probe-via-trust"><destination>168.63.129.16/32</destination><nexthop><ip-address>10.0.0.65</ip-address></nexthop><interface>ethernet1/2</interface><metric>10</metric></entry><entry name="rfc1918-10-via-trust"><destination>10.0.0.0/8</destination><nexthop><ip-address>10.0.0.65</ip-address></nexthop><interface>ethernet1/2</interface><metric>10</metric></entry><entry name="default-to-vr-untrust"><destination>0.0.0.0/0</destination><nexthop><next-vr>VR-Untrust</next-vr></nexthop><metric>10</metric></entry></static-route></ip></routing-table></entry>' },
+
+    @{ Label = 'vsys1 interface import (eth1/1 + eth1/2)'
+       Xpath = "/vsys/entry[@name='vsys1']/import"
+       Element = '<network><interface><member>ethernet1/1</member><member>ethernet1/2</member></interface></network>' },
+
+    @{ Label = 'vsys1 zones untrust + trust'
+       Xpath = "/vsys/entry[@name='vsys1']/zone"
+       Element = '<entry name="untrust"><network><layer3><member>ethernet1/1</member></layer3></network></entry><entry name="trust"><network><layer3><member>ethernet1/2</member></layer3></network></entry>' },
+
+    @{ Label = 'vsys1 NAT trust->untrust dynamic-ip-and-port (MASQUERADE)'
+       Xpath = "/vsys/entry[@name='vsys1']/rulebase/nat/rules"
+       Element = '<entry name="trust-to-untrust-masquerade"><from><member>trust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>any</member></destination><service>any</service><source-translation><dynamic-ip-and-port><interface-address><interface>ethernet1/1</interface></interface-address></dynamic-ip-and-port></source-translation></entry>' },
+
+    @{ Label = 'vsys1 security permit trust->untrust (lab-only)'
+       Xpath = "/vsys/entry[@name='vsys1']/rulebase/security/rules"
+       Element = '<entry name="permit-trust-to-untrust"><from><member>trust</member></from><to><member>untrust</member></to><source><member>any</member></source><destination><member>any</member></destination><source-user><member>any</member></source-user><category><member>any</member></category><application><member>any</member></application><service><member>any</member></service><action>allow</action><log-start>no</log-start><log-end>yes</log-end><description>LAB ONLY - permit all trust to untrust for internet egress</description></entry>' }
+)
+
+# Issue a single action=set call: merge $Element into the candidate at $DeviceBase+$Xpath.
+function Set-PanNode([string]$BaseUrl, [string]$KeyEnc, [string]$Xpath, [string]$Element) {
+    $xpEnc  = [uri]::EscapeDataString($DeviceBase + $Xpath)
+    $elEnc  = [uri]::EscapeDataString($Element)
+    $setUri = "${BaseUrl}/api/?type=config&action=set&key=${KeyEnc}&xpath=${xpEnc}&element=${elEnc}"
+    return Invoke-PanPost $setUri
 }
 
 # ── Per-firewall configuration logic ─────────────────────────────────────────
@@ -193,39 +270,27 @@ function Configure-Firewall([string]$Ip) {
 
     $keyEnc = [uri]::EscapeDataString($apiKey)
 
-    # ── Step 2: Import bootstrap.xml as a named configuration file ────────────
-    Log "[$Ip] Importing bootstrap.xml to device configuration store ..."
-    try {
-        $importUri = "${baseUrl}/api/?type=import&category=configuration&key=${keyEnc}"
-        $importResp = Invoke-PanUpload -Uri $importUri -FilePath $BootstrapXml
-        if (-not (Test-PanSuccess $importResp)) {
-            LogErr "[$Ip] Import API call failed: $importResp"
+    # ── Step 2: Build the candidate config PIECEWISE (action=set subtrees) ─────
+    # Each subtree MERGES into the running candidate without disturbing factory
+    # defaults, so the commit passes validation (unlike import + load config).
+    Log "[$Ip] Building day-0 candidate config via $($PanConfigSubtrees.Count) action=set subtrees ..."
+    $setIndex = 0
+    foreach ($node in $PanConfigSubtrees) {
+        $setIndex++
+        try {
+            $setResp = Set-PanNode -BaseUrl $baseUrl -KeyEnc $keyEnc `
+                -Xpath $node.Xpath -Element $node.Element
+            if (-not (Test-PanSuccess $setResp)) {
+                LogErr "[$Ip] set subtree ${setIndex}/$($PanConfigSubtrees.Count) FAILED ($($node.Label)): $setResp"
+                return $false
+            }
+            LogDot "[$Ip] set ${setIndex}/$($PanConfigSubtrees.Count) OK — $($node.Label)"
+        } catch {
+            LogErr "[$Ip] set subtree ${setIndex} exception ($($node.Label)): $_"
             return $false
         }
-        LogOk "[$Ip] bootstrap.xml imported successfully."
-    } catch {
-        LogErr "[$Ip] Import exception: $_"
-        return $false
     }
-
-    # ── Step 3: Load the imported file as candidate configuration ─────────────
-    # bootstrap.xml is now stored on the device under the filename "bootstrap.xml".
-    # "load config from" replaces the running candidate with that file.
-    $loadCmd = "<load><config><from>bootstrap.xml</from></config></load>"
-    $loadCmdEnc = [uri]::EscapeDataString($loadCmd)
-    Log "[$Ip] Loading bootstrap.xml as candidate configuration ..."
-    try {
-        $loadUri  = "${baseUrl}/api/?type=op&key=${keyEnc}&cmd=${loadCmdEnc}"
-        $loadResp = Invoke-PanGet $loadUri
-        if (-not (Test-PanSuccess $loadResp)) {
-            LogErr "[$Ip] Load config failed: $loadResp"
-            return $false
-        }
-        LogOk "[$Ip] Candidate configuration loaded from bootstrap.xml."
-    } catch {
-        LogErr "[$Ip] Load exception: $_"
-        return $false
-    }
+    LogOk "[$Ip] All $($PanConfigSubtrees.Count) config subtrees merged into candidate."
 
     # ── Step 4: Commit ────────────────────────────────────────────────────────
     $commitCmd    = "<commit></commit>"
@@ -366,16 +431,19 @@ function Configure-Firewall([string]$Ip) {
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-# Validate bootstrap.xml exists before touching any firewall
-if (-not (Test-Path $BootstrapXml)) {
-    Write-Error "bootstrap.xml not found at: $BootstrapXml`nExpected path: nva-spoke-internet-paloalto/bicep/bootstrap/bootstrap.xml"
-    exit 1
+# The day-0 config is now embedded as action=set subtrees ($PanConfigSubtrees),
+# a 1:1 mapping of bootstrap.xml, so the file itself is no longer uploaded.
+# We still surface its presence for traceability (it remains the source-of-truth doc).
+if (Test-Path $BootstrapXml) {
+    Log "bootstrap.xml reference present: $BootstrapXml"
+} else {
+    LogWarn "bootstrap.xml reference not found at $BootstrapXml (config is embedded; continuing)."
 }
 
 Log "=============================================="
 Log "PAN-OS day-0 config push  (post-boot fallback)"
 Log "=============================================="
-Log "  bootstrap.xml : $BootstrapXml"
+Log "  config source : embedded action=set subtrees (1:1 with bootstrap.xml)"
 Log "  Firewalls     : $($MgmtIps -join ', ')"
 Log "  Timeout/FW    : $TimeoutMinutes min"
 Log "  PS version    : $($PSVersionTable.PSVersion)"

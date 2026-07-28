@@ -19,15 +19,11 @@
         https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/create-bootstrap-configuration-files
 
   XML SCHEMA SCOPE (PAN-OS 10.1 / 11.x VM-Series):
-    config/devices/entry[@name='localhost.localdomain']/
-      deviceconfig/system                              system + DNS/NTP
-      deviceconfig/setting/session/tcp                 non-SYN TCP (HA-ports ILB)
-      network/profiles/interface-management-profile    SSH + ping for LB health probes
-      network/interface/ethernet                       eth1/1 + eth1/2 DHCP-client L3
-      network/virtual-router/entry[@name='default']    static routes: 0/0 + 10/8
-      vsys/entry[@name='vsys1']/zone                   untrust (eth1/1) trust (eth1/2)
-      vsys/entry[@name='vsys1']/rulebase/nat           trust->untrust MASQUERADE
-      vsys/entry[@name='vsys1']/rulebase/security      permit trust->untrust (lab)
+    Pinned image: paloaltonetworks:vmseries-flex:byol:11.1.612
+    Config version set to 11.1.0 to match. Config uses only features available since 10.1:
+    dual-VR, DHCP-client data interfaces, NAT masquerade, security policy.
+    Reason for 11.1.612 pin: PAN-OS 12.x introduced mandatory first-use wizard blocking
+    all API access until completed via web GUI — incompatible with apply-panos-config.ps1.
 
   NETWORK LAYOUT (fixed contract):
     snet-mgmt    10.0.0.0/27  gw 10.0.0.1  -> Azure eth0 -> PAN-OS mgmt (init-cfg swap)
@@ -51,10 +47,10 @@
     profile on ethernet1/1 and ethernet1/2 causes PAN-OS to respond to these
     TCP/22 probes directly on the data interfaces — no SSH server on the VMs
     is required. This is the PAN-OS equivalent of the Linux firewall rule:
-      iptables -A INPUT -p tcp --dport 22 -j ACCEPT
+      iptables -A INPUT -p tcp -m tcp -port 22 -j ACCEPT  [double-dash before port in real iptables]
   =============================================================================
 -->
-<config version="10.1.0" urldb="paloaltonetworks">
+<config version="11.1.0" urldb="paloaltonetworks">
   <devices>
     <entry name="localhost.localdomain">
 
@@ -84,10 +80,9 @@
           <!-- Allow TCP packets that are not SYN (FIN/RST mid-flow).        -->
           <!-- Required for Azure ILB HA-ports mode: the LB may forward      -->
           <!-- in-progress connections to this instance after failover.       -->
+          <!-- PAN-OS schema: deviceconfig/setting/session/tcp-reject-non-syn -->
           <session>
-            <tcp>
-              <non-syn-tcp>yes</non-syn-tcp>
-            </tcp>
+            <tcp-reject-non-syn>no</tcp-reject-non-syn>
           </session>
         </setting>
       </deviceconfig>
@@ -100,7 +95,7 @@
         <!-- ── Interface management profile ──────────────────────────────── -->
         <!-- Permits PAN-OS management services (SSH + ICMP) on data         -->
         <!-- interfaces so that Azure LB health probes (TCP/22) succeed.     -->
-        <!-- Equivalent to: iptables -A INPUT -p tcp --dport 22 -j ACCEPT    -->
+        <!-- Equivalent to: iptables -A INPUT -p tcp -m tcp -port 22 -j ACCEPT  -->
         <profiles>
           <interface-management-profile>
             <entry name="allow-ssh-ping">
@@ -155,28 +150,35 @@
           </ethernet>
         </interface>
 
-        <!-- ── Virtual router: static routes for internet breakout ──────── -->
+        <!-- ── DUAL VIRTUAL ROUTERS — required because BOTH Azure LBs probe   -->
+        <!-- from the same IP 168.63.129.16.  A single VR cannot route that  -->
+        <!-- address symmetrically for both eth1/1 (ELB backend) and eth1/2  -->
+        <!-- (ILB backend) at the same time.                                  -->
         <!--                                                                  -->
-        <!-- Route 1: Default route — all internet-bound traffic exits       -->
-        <!--   via ethernet1/1 to the untrust subnet gateway (10.0.0.33).   -->
-        <!--   The Public LB outbound rule then SNATs the PA untrust IP to   -->
-        <!--   the Public LB PIP (pip-lb-public).                            -->
+        <!-- VR-Untrust owns eth1/1 (Public LB / internet egress):           -->
+        <!--   0.0.0.0/0  -> 10.0.0.33 eth1/1  (internet egress + ELB probe) -->
+        <!--   10.0.0.0/8 -> next-vr VR-Trust   (inbound DNAT hand-off)      -->
+        <!--   ELB probe (168.63.129.16) arrives eth1/1 -> 0/0 exits eth1/1  -->
+        <!--   = symmetric, no /32 needed in this VR.                         -->
         <!--                                                                  -->
-        <!-- Route 2: RFC1918 10/8 return path — spoke reply traffic uses    -->
-        <!--   ethernet1/2 (trust) to reach the trust subnet gateway        -->
-        <!--   (10.0.0.65), which routes back through the vHub to spokes.    -->
-        <!--   Covers: spoke1 10.1.0.0/16, spoke2 10.2.0.0/16, DMZ 10.0.0.0/24. -->
+        <!-- VR-Trust owns eth1/2 (ILB HA-ports backend / spoke ingress):    -->
+        <!--   168.63.129.16/32 -> 10.0.0.65 eth1/2  (ILB probe symmetric)  -->
+        <!--   10.0.0.0/8       -> 10.0.0.65 eth1/2  (spoke return path)     -->
+        <!--   0.0.0.0/0        -> next-vr VR-Untrust (internet egress hand-off) -->
+        <!--   Egress flow: spoke->eth1/2->VR-Trust 0/0->VR-Untrust->eth1/1  -->
+        <!--   ->SNAT(masq to eth1/1 IP)->Public LB PIP                       -->
         <virtual-router>
-          <entry name="default">
+
+          <!-- VR-Untrust: ethernet1/1 = Public LB backend, internet egress  -->
+          <entry name="VR-Untrust">
             <interface>
               <member>ethernet1/1</member>
-              <member>ethernet1/2</member>
             </interface>
             <routing-table>
               <ip>
                 <static-route>
 
-                  <!-- 0.0.0.0/0 via untrust gateway 10.0.0.33 (snet-untrust gw) -->
+                  <!-- Internet egress + ELB probe symmetric return via eth1/1 -->
                   <entry name="default-via-untrust">
                     <destination>0.0.0.0/0</destination>
                     <nexthop>
@@ -186,8 +188,42 @@
                     <metric>10</metric>
                   </entry>
 
-                  <!-- 10.0.0.0/8 via trust gateway 10.0.0.65 (snet-trust gw)   -->
-                  <!-- Return path: spoke replies -> hub -> ILB -> PA trust NIC  -->
+                  <!-- Inbound DNAT to spokes: hand off to VR-Trust for eth1/2 -->
+                  <entry name="rfc1918-10-to-vr-trust">
+                    <destination>10.0.0.0/8</destination>
+                    <nexthop>
+                      <next-vr>VR-Trust</next-vr>
+                    </nexthop>
+                    <metric>20</metric>
+                  </entry>
+
+                </static-route>
+              </ip>
+            </routing-table>
+          </entry>
+
+          <!-- VR-Trust: ethernet1/2 = ILB HA-ports backend, spoke ingress   -->
+          <entry name="VR-Trust">
+            <interface>
+              <member>ethernet1/2</member>
+            </interface>
+            <routing-table>
+              <ip>
+                <static-route>
+
+                  <!-- ILB probe symmetry: probe arrives eth1/2, must return  -->
+                  <!-- eth1/2 — this /32 beats the 0/0 default below         -->
+                  <entry name="azure-probe-via-trust">
+                    <destination>168.63.129.16/32</destination>
+                    <nexthop>
+                      <ip-address>10.0.0.65</ip-address>
+                    </nexthop>
+                    <interface>ethernet1/2</interface>
+                    <metric>10</metric>
+                  </entry>
+
+                  <!-- Spoke return path: replies exit eth1/2 via trust gw    -->
+                  <!-- back through the vHub to spoke subnets                 -->
                   <entry name="rfc1918-10-via-trust">
                     <destination>10.0.0.0/8</destination>
                     <nexthop>
@@ -197,10 +233,22 @@
                     <metric>10</metric>
                   </entry>
 
+                  <!-- Internet egress hand-off to VR-Untrust which owns      -->
+                  <!-- eth1/1 and the outbound 0/0 to 10.0.0.33. Zone         -->
+                  <!-- crossing (trust->untrust) triggers NAT + sec policy.   -->
+                  <entry name="default-to-vr-untrust">
+                    <destination>0.0.0.0/0</destination>
+                    <nexthop>
+                      <next-vr>VR-Untrust</next-vr>
+                    </nexthop>
+                    <metric>10</metric>
+                  </entry>
+
                 </static-route>
               </ip>
             </routing-table>
           </entry>
+
         </virtual-router>
 
       </network>
@@ -211,6 +259,20 @@
       <!-- ================================================================= -->
       <vsys>
         <entry name="vsys1">
+
+          <!-- ── Interface import ─────────────────────────────────────────── -->
+          <!-- Assign the data interfaces to vsys1. REQUIRED: zones may only    -->
+          <!-- reference interfaces that are imported into the same vsys.       -->
+          <!-- Without this block PAN-OS fails the commit (empty error detail)  -->
+          <!-- even though 'load config' accepts the candidate.                 -->
+          <import>
+            <network>
+              <interface>
+                <member>ethernet1/1</member>
+                <member>ethernet1/2</member>
+              </interface>
+            </network>
+          </import>
 
           <!-- ── Zone definitions ─────────────────────────────────────────── -->
           <zone>
@@ -282,7 +344,6 @@
                   <category><member>any</member></category>
                   <application><member>any</member></application>
                   <service><member>any</member></service>
-                  <hip-profiles><member>any</member></hip-profiles>
                   <action>allow</action>
                   <!-- Log at session end only (local log; no forwarding profile) -->
                   <log-start>no</log-start>

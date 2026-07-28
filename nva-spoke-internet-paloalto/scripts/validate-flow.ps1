@@ -194,8 +194,11 @@ $nhJson = az network watcher show-next-hop `
     -o json 2>$null
 if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($nhJson)) {
     $nhObj  = $nhJson | ConvertFrom-Json
-    $nhType = $nhObj.nextHopType
-    $nhIp   = $nhObj.nextHopIpAddress
+    # StrictMode-safe property access: next-hop of type None/Internet returns no IP,
+    # so nextHopIpAddress may be absent. Guard against PropertyNotFoundException.
+    $nhType = if ($nhObj.PSObject.Properties.Name -contains 'nextHopType')      { $nhObj.nextHopType }      else { '' }
+    $nhIp   = if ($nhObj.PSObject.Properties.Name -contains 'nextHopIpAddress') { $nhObj.nextHopIpAddress } else { '' }
+    if ([string]::IsNullOrWhiteSpace($nhIp)) { $nhIp = '(none)' }
     Log "       nextHopType: $nhType   nextHopIpAddress: $nhIp"
     if ($nhType -eq "VirtualNetworkGateway" -or $nhType -eq "VirtualHub") {
         CheckPass "NW next-hop: 0.0.0.0/0 -> $nhType (vHub router -- valid for vWAN spoke)"
@@ -451,6 +454,18 @@ if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
             CheckWarn "ILB DipAvailability: az metrics call failed (see above)"
         } else {
             Log $azOut
+        }
+
+        # Check ILB backend pool (nva-backend) NIC membership
+        Log ""
+        Log "  ILB backend pool (nva-backend) -- NIC membership:"
+        $backendNics = az network lb show -g $Rg -n lb-ilb `
+            --query "backendAddressPools[?name=='nva-backend'].backendIPConfigurations[]" `
+            -o json 2>$null | ConvertFrom-Json
+        if ($backendNics -and $backendNics.Count -ge 1) {
+            CheckPass "ILB nva-backend pool: $($backendNics.Count) NIC(s) registered"
+        } else {
+            CheckFail "ILB nva-backend pool: 0 NICs registered (PA trust NICs not yet attached or probe down)"
         }
     } else {
         CheckWarn "lb-ilb not found -- ILB metrics skipped"

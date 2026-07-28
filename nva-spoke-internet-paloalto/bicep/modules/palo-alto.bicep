@@ -162,7 +162,10 @@ resource pa 'Microsoft.Compute/virtualMachines@2023-09-01' = [for i in range(0, 
         publisher: 'paloaltonetworks'
         offer: 'vmseries-flex'
         sku: 'byol'
-        version: 'latest'
+        // Pinned to 11.1.612 (latest stable 11.1.x) to avoid PAN-OS 12.x first-use wizard,
+        // which blocks all API access until completed via web GUI — preventing apply-panos-config.ps1.
+        // PAN-OS 11.1 supports all config features in bootstrap.xml and has no first-use restriction.
+        version: '11.1.612'
       }
       osDisk: {
         createOption: 'FromImage'

@@ -84,10 +84,22 @@ function Poll-Until {
 # Pick first unrestricted DS3_v2-series SKU via az vm list-skus.
 # Standard_B-series are NOT supported for Palo Alto VM-Series.
 function Pick-VmSku([string]$Region) {
-    $candidates = @("Standard_DS3_v2","Standard_DS4_v2","Standard_D3_v2","Standard_D4_v2")
+    # PA VM-Series BYOL needs ≥4 vCPU / ≥14 GB RAM.  Try DS3_v2 first (original baseline),
+    # then DS4_v2, then Dv4/Dv5 equivalents which typically have broader capacity.
+    $candidates = @(
+        "Standard_DS3_v2",
+        "Standard_DS4_v2",
+        "Standard_D3_v2",
+        "Standard_D4_v2",
+        "Standard_D4s_v4",
+        "Standard_D4s_v5",
+        "Standard_D4_v4",
+        "Standard_D4_v5"
+    )
     foreach ($sku in $candidates) {
-        $r = (az vm list-skus -l $Region --resource-type virtualMachines `
-                --query "[?name=='$sku'].restrictions" -o tsv 2>$null).Trim()
+        $raw = az vm list-skus -l $Region --resource-type virtualMachines `
+                --query "[?name=='$sku'].restrictions" -o tsv 2>$null
+        $r = if ($null -eq $raw) { "" } else { ([string]$raw).Trim() }
         if ([string]::IsNullOrWhiteSpace($r) -or $r -eq "None") {
             return $sku
         }
@@ -401,7 +413,8 @@ az deployment group create `
         location="$Location" `
         adminUsername="$AdminUsername" `
         adminPassword="$AdminPasswordPlain" `
-        vmSize="$VmSize" `
+        nvaVmSize="$VmSize" `
+        vmSize="Standard_B2s" `
         deployOnPrem="$deployOnPremParam" `
         onpremBgpAsn=65001 `
         bootstrapStorageAccount="$BootstrapSa" `

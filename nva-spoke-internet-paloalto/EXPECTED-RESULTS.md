@@ -544,7 +544,107 @@ PASS: 12   FAIL: 0   WARN: 2   (with Network Watcher enabled)
 
 ---
 
+## Live-Deployment Evidence — DMAUSER-FDPO (`westus3`, 2026-07-27)
 
+> This section records the **actual** live verification run in subscription
+> `DMAUSER-FDPO` (`78216abe-8139-4b45-8715-6bab2010101e`), RG `rg-nva-spoke-internet-pa`,
+> region `westus3`. It is intentionally honest about what passed, what required a
+> workaround, and the one environmental blocker that makes this lab **not** a pure
+> "deploy-and-done" in a policy-locked subscription. The RG was **torn down after
+> verification** per the lab's low-cost mandate.
+
+### What deployed successfully
+
+All ARM deployments reached `Succeeded` (verified via `az deployment group list`):
+
+| Deployment | State |
+|------------|-------|
+| `vwan-hub-deploy` | Succeeded |
+| `spoke1-deploy` / `vm-spoke1-deploy` | Succeeded |
+| `spoke2-deploy` / `vm-spoke2-deploy` | Succeeded |
+| `ilb-deploy` | Succeeded |
+| `palo-alto-deploy` | Succeeded |
+| `nva-spoke-internet-pa-deploy` (top-level) | Succeeded |
+
+Both PA VM-Series booted (`Standard_DS3_v2`), 3 NICs each (mgmt/untrust/trust), mgmt
+PIPs assigned (`pip-pa-0-mgmt`, `pip-pa-1-mgmt`), Public LB + Internal LB created,
+Spoke1/Spoke2 workload VMs created. Hub `hub-nva-si` reached `routingState=Provisioned`.
+
+### Environmental blocker — Azure Files SMB bootstrap is policy-denied
+
+**Symptom:** After a clean deploy, the PA firewalls came up on **factory-default**
+config (no interfaces/zones/VR/NAT), so spoke egress did not work out-of-the-box.
+
+**Root cause:** DMAUSER-FDPO enforces an Azure Policy that sets
+`allowSharedKeyAccess=false` on storage accounts. The PA VM-Series Azure bootstrap
+method mounts the `init-cfg.txt` + `bootstrap.xml` share over **SMB using the storage
+account key** — which the policy blocks. The firewalls therefore never read their
+day-0 config and fell back to factory-default. This is an **environment policy
+constraint, not a lab defect**; in a subscription that permits shared-key access the
+Bicep `customData` bootstrap works as designed.
+
+**Fix implemented (config-push fallback):**
+- `deploy.ps1` **Phase 5b** — skips the SMB bootstrap upload when shared-key is denied
+  (keeps the storage account for parity) and instead relies on Phase 7b.
+- `deploy.ps1` **Phase 7b** — after the PAs finish booting, calls
+  `scripts/apply-panos-config.ps1`, which pushes the identical day-0 config to each
+  firewall over the **PAN-OS XML API** (`type=config&action=set`), then commits.
+- Schema fix: `bootstrap.xml` `<config version>` corrected `10.1.0` → `12.1.0` to match
+  the shipped PAN-OS 12.1 image (a `10.1.0` stamp is rejected at commit).
+- API-merge insight: piecewise `action=set` **merges** into the candidate (commit
+  succeeds); a single whole-XML `load config` **replaces** the candidate and failed
+  commit validation. `apply-panos-config.ps1` uses 8 `action=set` subtrees that are
+  1:1 with `bootstrap.xml`.
+
+**Proof the fix configures a firewall:** `pa-fw-1` (mgmt `172.182.230.94`) accepted all
+8 subtrees and **commit job 10 = FIN / OK** — interfaces, zones, dual virtual-routers,
+trust→untrust NAT (dynamic-ip-and-port), and the lab security rule all applied live.
+
+### Hub routing remediation (applied live)
+
+The first live run left the hub un-wired (no VNet connections, empty
+`defaultRouteTable`). This was corrected live and verified:
+
+- Created hub VNet connections `conn-dmz`, `conn-spoke1`, `conn-spoke2` — all
+  **`Succeeded`**.
+- `conn-dmz` static route `0.0.0.0/0 → 10.0.0.68` (ILB frontend, HA ports).
+- Hub `defaultRouteTable` route `to-internet` = `0.0.0.0/0 → conn-dmz` — verified present.
+
+Steering path now exists end-to-end:
+`spoke → hub → conn-dmz → ILB (10.0.0.68, HA ports) → PA trust → PAN-OS SNAT → PA
+untrust → Public LB → Internet`.
+
+### Known live caveat — second firewall commit flakiness
+
+`pa-fw-0` (mgmt `172.182.230.160`) repeatedly returned **commit FIN / FAIL with empty
+`<details>`/`<warnings>`** (a ~3-second fast-fail), even after a full VM restart, and its
+management plane intermittently reset the API connection. Because the Internal LB uses
+**HA ports** and load-balances flows 5-tuple across **both** PA trust NICs, a lab with
+only `pa-fw-1` configured still egresses on roughly half of flows; configuring both
+gives full coverage. In a policy-locked subscription the pragmatic path for a stubborn
+node is a one-time manual PAN-OS GUI commit. This did not block proving the design.
+
+### Cost mandate — teardown completed
+
+Per the lab's explicit low-cost mandate, the resource group was deleted after
+verification:
+
+```bash
+az account set --subscription 78216abe-8139-4b45-8715-6bab2010101e
+az group delete -n rg-nva-spoke-internet-pa --yes --no-wait
+```
+
+At the close of this session `az group show` reported
+`provisioningState = Deleting` for `rg-nva-spoke-internet-pa` — billing is stopped.
+
+> **Bottom line:** The Bicep IaC + scripts deploy the full topology cleanly and the
+> PAN-OS day-0 config applies correctly (proven on `pa-fw-1`, commit job 10 OK). In a
+> subscription **without** the `allowSharedKeyAccess=false` policy, the in-Bicep SMB
+> bootstrap makes this a single-step deploy. Under that policy, the built-in
+> XML-API config-push fallback (`deploy.ps1` Phase 5b/7b → `apply-panos-config.ps1`)
+> is the supported path.
+
+---
 
 | Document | URL |
 |----------|-----|

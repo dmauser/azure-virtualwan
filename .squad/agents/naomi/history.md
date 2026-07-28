@@ -103,4 +103,23 @@ When Azure Files bootstrap is blocked (or for any other reason the PA boots fact
 - **Error handling:** Non-zero exit from `apply-panos-config` logs a WARNING but does not abort the deploy. Phases 8–11 (routing, VPN, connections) are still performed. The operator checks PA config/commit state during egress validation. This keeps the deploy non-destructive even when the first post-boot PA push encounters a still-booting firewall.
 - **Idempotent:** Because `apply-panos-config` is designed as verify+repair, re-running Phase 7b on an already-configured PA is safe.
 
-*Last update: 2026-07-27T22:20:00Z*
+### PA VM-Series Bootstrap Is First-Boot-Only — VM Recreation Required for Config Changes
+
+PAN-OS on Azure VM-Series reads its bootstrap config (bootstrap.xml) **only at initial boot** from the Azure Files share referenced in VM customData. Re-uploading bootstrap.xml to the share after the VM has already booted has **zero effect** — the firewall will not re-apply the config. The only way to deliver a new bootstrap.xml to an already-running PA VM is to **delete and recreate the VM** so it re-bootstraps on the next boot. This applies to any bootstrap.xml change (routing, policies, NAT rules, etc.). Workaround for running VMs: use `apply-panos-config.ps1` (Phase 7b) to push config via PAN-OS XML API.
+
+### Fresh Password via `$env:ADMIN_PASSWORD` Redeploy Pattern
+
+When redeploying the PA lab to pick up a bootstrap.xml change:
+1. Generate a strong password and store it in `$env:ADMIN_PASSWORD` (≥12 chars, upper/lower/digit/symbol): `$env:ADMIN_PASSWORD = 'PaLab!' + [guid]::NewGuid().ToString('N').Substring(0,14)`
+2. Save to a temp file for cross-shell persistence: `Set-Content -Path .squad/agents/naomi/deploy-pw.tmp -Value $env:ADMIN_PASSWORD -NoNewline`
+3. Run `deploy.ps1` from the `nva-spoke-internet-paloalto/` directory with `-DeployOnPrem:$false` (required to suppress `Read-Host` in non-interactive mode)
+4. deploy.ps1 checks `$env:ADMIN_PASSWORD` at Phase 2 and skips the interactive password prompt
+5. Report the password to the user at the end (needed to SSH to spokes and reach PA GUI)
+
+### `az group delete --no-wait` Race Condition with Immediate Recreation
+
+**Critical pitfall:** `az group delete --no-wait` queues an asynchronous deletion. When `az group show` returns "not found" (typically 20-30 min later), the Azure ARM deletion pipeline is still processing child resources in the background — especially slow resources like vWAN hubs. If you immediately re-deploy into the same RG, the new resources can have the same names as resources still being deleted by the ARM pipeline. The ARM pipeline will then **delete your newly created resources** even though they were created after the group deletion was initiated.
+
+**Fix:** After the RG disappears from `az group show`, wait an additional **10 minutes** before starting any new deployment in that RG to ensure the ARM deletion pipeline is fully cleared.
+
+*Last update: 2026-07-27T18:35:00-05:00*

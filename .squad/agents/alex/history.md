@@ -199,3 +199,21 @@ va-spoke-internet/media/nva-spoke-internet.png via git rm.
 - This /32 forces probe reply to exit eth1/2 (trust), same interface the probe arrived on
 - Present in bootstrap.xml as static route `azure-probe-via-trust`: 168.63.129.16/32 → nexthop 10.0.0.65 via ethernet1/2
 - Scripts verify this route post-commit as part of the PASS/FAIL check
+
+### 2026-07-27 — Dual Virtual Router Requirement for Active-Active VM-Series (ELB + ILB topology)
+
+**The single-VR host-route approach is an anti-pattern when BOTH an External LB (ELB) and an Internal LB (ILB) are present.**
+
+Both Azure Standard LBs (public and internal) probe from the **same IP: 168.63.129.16**. In a single virtual router, there can be exactly ONE route for a given destination. Adding a /32 host-route for 168.63.129.16 pointing to the trust NIC (ethernet1/2) fixes the ILB probe but breaks the ELB probe: the ELB probe arrives on the untrust NIC (ethernet1/1), but the /32 now routes the reply out ethernet1/2 — Azure SDN drops it as a spoof — the ELB probe regresses to 0% healthy. Net: the fix trades one 0%-healthy probe for another; spoke egress stays broken.
+
+**Canonical fix: dual virtual routers (one per dataplane NIC).**
+
+- **VR-Untrust** owns `ethernet1/1` only. Its 0/0 default to 10.0.0.33 handles ELB probe symmetrically (probe arrives eth1/1, 0/0 routes reply out eth1/1 — no /32 needed). Also handles internet egress.
+- **VR-Trust** owns `ethernet1/2` only. Has the `168.63.129.16/32 → 10.0.0.65/eth1/2` entry for ILB probe symmetry, plus 10/8 for spoke return, plus 0/0 → next-vr VR-Untrust for internet egress hand-off.
+- Inter-VR routing uses PAN-OS `<next-vr>NAME</next-vr>` nexthop (no `<interface>` element alongside it).
+- Zone assignments remain unchanged (untrust zone on eth1/1, trust zone on eth1/2); zone crossing for egress (trust→untrust) still triggers NAT and security policy evaluation.
+- **LB probe traffic is self-traffic** handled by the `interface-management-profile` (ssh=yes on each NIC) — no security policy rules needed for probe coverage on either interface.
+
+**Reference:** https://github.com/davidsntg/microhack-azure-panfw/blob/main/scenario3/README.md — "define TWO distinct Virtual Routers (Trusted and Untrusted) per firewall instance, as the Azure Internal Load Balancer and External Load Balancer rely on the SAME probing source IP address 168.63.129.16."
+
+**NIC convention warning:** The reference scenario3 uses eth1/1=Trust, eth1/2=Untrust (opposite of our lab). Always map carefully — the dual-VR logic is the same; just the NIC-to-VR assignments change.

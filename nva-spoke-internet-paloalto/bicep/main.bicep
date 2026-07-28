@@ -30,8 +30,11 @@ param adminUsername string
 @secure()
 param adminPassword string
 
-@description('VM size for PA firewalls and spoke/onprem VMs; validated by deploy.sh SKU preflight')
-param vmSize string = 'Standard_DS3_v2'
+@description('VM size for PA firewalls; validated by deploy.sh SKU preflight')
+param nvaVmSize string = 'Standard_DS3_v2'
+
+@description('VM size for spoke and on-prem test VMs (Ubuntu workload); needs only 2 vCPU / 4 GB RAM)')
+param vmSize string = 'Standard_B2s'
 
 @description('Deploy the on-premises simulation (VPN GW + on-prem VNet/NVA/VM)')
 param deployOnPrem bool = false
@@ -110,8 +113,7 @@ module paloAlto 'modules/palo-alto.bicep' = {
     ilbBackendPoolId: ilb.outputs.backendPoolId
     adminUsername: adminUsername
     adminPassword: adminPassword
-    vmSize: vmSize
-    bootstrapStorageAccount: bootstrapStorageAccount
+    vmSize: nvaVmSize
     bootstrapStorageKey: bootstrapStorageKey
     bootstrapFileShare: bootstrapFileShare
     bootstrapShareDirectory: bootstrapShareDirectory
