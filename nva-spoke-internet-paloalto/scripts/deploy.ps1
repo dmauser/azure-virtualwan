@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================================================
 # deploy.ps1 — PowerShell equivalent of deploy.sh for nva-spoke-internet-paloalto.
 #              Parity with deploy.sh (same 13-phase flow + Phase 1b + Phase 5b).
