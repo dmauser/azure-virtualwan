@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================================================
 # validate-flow.ps1 — READ-ONLY traffic-breakout validation for nva-spoke-internet-paloalto
 #                     PowerShell parity with validate-flow.sh
@@ -147,8 +147,12 @@ function Show-RouteTable {
                 if ($null -eq $arr -or $arr.Count -eq 0) { Write-Host "       (no routes returned)" -ForegroundColor DarkGray; return }
                 $rows = $arr | ForEach-Object {
                     $pfx    = if ($_.addressPrefixes -is [array]) { $_.addressPrefixes -join ', ' } else { [string]$_.addressPrefixes }
-                    $nhs    = if ($_.nextHops -is [array])        { $_.nextHops -join ', ' }        else { [string]$_.nextHops }
-                    $origin = if ($_.PSObject.Properties.Name -contains 'routeOrigin') { [string]$_.routeOrigin } else { '' }
+                    $nhs    = if ($_.nextHops -is [array]) {
+                                  (@($_.nextHops) | ForEach-Object { if ($_){ ($_.ToString().TrimEnd('/') -split '/')[-1] } }) -join ', '
+                              } elseif ($_.nextHops) {
+                                  ($_.nextHops.ToString().TrimEnd('/') -split '/')[-1]
+                              } else { '' }
+                    $origin = if ($_.PSObject.Properties.Name -contains 'routeOrigin' -and $_.routeOrigin) { ([string]$_.routeOrigin).TrimEnd('/').Split('/')[-1] } else { '' }
                     $asp    = if ($_.PSObject.Properties.Name -contains 'asPath')      { [string]$_.asPath }      else { '' }
                     [PSCustomObject]@{ AddressPrefixes = $pfx; NextHopType = $_.nextHopType; NextHops = $nhs; RouteOrigin = $origin; AsPath = $asp }
                 }

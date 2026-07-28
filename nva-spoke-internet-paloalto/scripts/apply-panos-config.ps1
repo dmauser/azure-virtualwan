@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================================================
 # apply-panos-config.ps1 — Post-boot day-0 Palo Alto config push fallback.
 #

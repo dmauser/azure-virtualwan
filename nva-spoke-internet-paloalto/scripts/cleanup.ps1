@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================================================
 # cleanup.ps1 — Delete the nva-spoke-internet lab resource group.
 # Usage: .\cleanup.ps1 [-Rg <resource-group>] [-Yes]

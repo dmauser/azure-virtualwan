@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # =============================================================================
 # enable-monitoring.ps1 — OPTIONAL monitoring stack for nva-spoke-internet
 #                          PowerShell parity with enable-monitoring.sh
