@@ -1,5 +1,43 @@
 # Lab — NVA in DMZ Spoke for Internet Egress (Palo Alto VM-Series, Bicep IaC)
 
+<p align="left">
+  <img src="https://img.shields.io/badge/IaC-Bicep-0078D4?logo=microsoftazure&logoColor=white" alt="Bicep IaC">
+  <img src="https://img.shields.io/badge/Cloud-Azure%20Virtual%20WAN-0078D4?logo=microsoftazure&logoColor=white" alt="Azure Virtual WAN">
+  <img src="https://img.shields.io/badge/Firewall-Palo%20Alto%20VM--Series%20(BYOL)-F04E23" alt="Palo Alto VM-Series">
+  <img src="https://img.shields.io/badge/Shells-Bash%20%7C%20PowerShell-5391FE?logo=powershell&logoColor=white" alt="Bash | PowerShell">
+  <img src="https://img.shields.io/badge/Cost-Lab%20Optimized-2E9E44" alt="Cost optimized">
+</p>
+
+> **A Palo Alto VM-Series variant of the [Linux IPTables lab](../nva-spoke-internet/README.md).** Same Virtual WAN topology, hub-routing logic, ILB frontend, and on-prem model — with a PAN-OS security policy and NAT in place of Ubuntu IPTables.
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Address Plan](#address-plan)
+- [How the Default Route Works](#how-the-default-route-works)
+- [Palo Alto VM-Series Details](#palo-alto-vm-series-details)
+  - [BYOL Licensing — What Works Without a License](#byol-licensing--what-works-without-a-license)
+  - [Auto-Bootstrap Flow](#auto-bootstrap-flow)
+  - [Management Interface Swap](#management-interface-swap-mgmt-interface-swap)
+  - [How to Reach the PAN-OS Management Interface](#how-to-reach-the-pan-os-management-interface)
+  - [Bootstrap Configuration Summary](#bootstrap-configuration-summary)
+- [Optional On-Premises Connectivity](#optional-on-premises-connectivity)
+- [Prerequisites](#prerequisites)
+- [Deployment](#deployment)
+  - [Bash](#bash)
+  - [PowerShell](#powershell)
+- [Validation](#validation)
+- [Configuration Reference — Load Balancers & PAN-OS](./PALO-ALTO-CONFIG.md)
+- [Known Limitations & Bootstrap Fallback](#known-limitations--bootstrap-fallback)
+- [Cleanup](#cleanup)
+- [Monitoring & Logging](#monitoring--logging)
+- [Files](#files)
+
+---
+
 ## Overview
 
 This lab deploys a **Standard Azure Virtual WAN hub** (`10.100.0.0/23`) with two spoke VNets and a dedicated **DMZ VNet** that hosts an active/active pair of **Palo Alto VM-Series (vmseries-flex, BYOL)** firewalls. Each PA firewall has **3 NICs** (management, untrust, trust) and self-configures from a PAN-OS day-0 **bootstrap package** uploaded to Azure Files by the deploy script. The trust NICs sit behind a **Standard Internal Load Balancer** (HA-port mode, frontend `10.0.0.68`); the untrust NICs sit behind a **Standard Public Load Balancer** for outbound SNAT. A static default route (`0.0.0.0/0`) on the hub's DMZ connection points to the ILB frontend, so all traffic leaving Spoke1 and Spoke2 egresses to the internet through the PA firewalls via SNAT on the Public LB. An **optional on-premises block** — a Linux VM plus a strongSwan/FRR NVA running BGP-over-IPsec — can be deployed at prompt time; it terminates a site-to-site VPN into a vHub VPN Gateway and learns Spoke1/Spoke2 routes via BGP. The entire lab is **Bicep IaC** with interactive Bash and PowerShell wrappers that handle marketplace image terms acceptance, bootstrap storage creation, hub polling, and post-deploy routing steps that Bicep cannot safely sequence.
