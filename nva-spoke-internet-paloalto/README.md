@@ -85,6 +85,8 @@ vWAN Hub  --(static route 0/0 -> 10.0.0.68)-->  DMZ VNet connection (conn-dmz)
 
 > ⚠️ **Hub routing sequencing**: Hub VNet connections and route-table programming are performed by the deploy script **after** `routingState = Provisioned`, not in Bicep. This is intentional — the Azure control plane rejects connection/route operations while the hub is still initialising.
 
+> 📘 **Configuration reference**: For the full steady-state config of both Load Balancers (HA-ports rule, outbound SNAT rule, health probes) and the PAN-OS day-0 config (interfaces, zones, the **dual virtual-router** design, NAT, security policy) — plus an end-to-end packet walk and verification commands — see **[PALO-ALTO-CONFIG.md](./PALO-ALTO-CONFIG.md)**.
+
 ## Palo Alto VM-Series Details
 
 ### BYOL Licensing — What Works Without a License
@@ -490,6 +492,7 @@ To delete **all** lab resources (including monitoring): run `cleanup.sh` / `clea
 nva-spoke-internet-paloalto/
 ├── README.md                       # this file
 ├── EXPECTED-RESULTS.md             # canonical healthy baseline (expected PASS 10/FAIL 0/WARN 4 without NW; PASS 12/WARN 2 with NW)
+├── PALO-ALTO-CONFIG.md             # LB + PAN-OS config reference (HA ports, outbound SNAT, dual-VR, NAT, packet walk)
 ├── .gitignore                      # ignores secrets (.deploy-pw) + deploy logs + bootstrap SA key
 ├── bicep/
 │   ├── main.bicep                  # RG-scoped orchestrator; wires all modules; 16-output contract
