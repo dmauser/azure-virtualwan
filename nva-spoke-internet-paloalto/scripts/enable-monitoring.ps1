@@ -44,6 +44,22 @@ function Log([string]$m) {
 $LA_NAME = "log-nva-spoke-internet"
 $NW_RG   = "NetworkWatcherRG"
 
+# --- az CLI extension isolation --------------------------------------------
+# The user's default extension dir may contain a corrupt extension (e.g. a
+# partially-removed application-insights with a locked .dist-info) that makes
+# EVERY az command crash with "[WinError 5] Access is denied" while az scans
+# extension metadata. Point az at a clean, script-owned extension dir for the
+# duration of this run so core commands (monitor, network, storage) work.
+$script:PrevExtDir = $env:AZURE_EXTENSION_DIR
+$CleanExtDir = Join-Path $env:TEMP 'az-ext-vwan-lab'
+if (-not (Test-Path $CleanExtDir)) {
+    New-Item -ItemType Directory -Path $CleanExtDir -Force | Out-Null
+}
+$env:AZURE_EXTENSION_DIR = $CleanExtDir
+Log "  az extension dir isolated -> $CleanExtDir"
+# ---------------------------------------------------------------------------
+
+try {
 # =============================================================================
 # Phase 1 -- Pre-checks
 # =============================================================================
@@ -69,6 +85,7 @@ $SubShort = ($acct.id -replace '-','').Substring(0,8).ToLower()
 $SaName   = "stnvaspk${SubShort}"
 Log "  Storage account name: $SaName"
 
+
 # =============================================================================
 # Phase 2 -- Log Analytics workspace
 # =============================================================================
@@ -84,10 +101,15 @@ if ($LASTEXITCODE -eq 0) {
         -g $Rg -n $LA_NAME -l $Location `
         --retention-time 30 `
         --output none
+    if ($LASTEXITCODE -ne 0) { Write-Error "Log Analytics workspace create failed (az exit $LASTEXITCODE)."; exit 1 }
     Log "  Created."
 }
 
 $LaId = "$(az monitor log-analytics workspace show -g $Rg -n $LA_NAME --query id -o tsv 2>$null)".Trim()
+if ([string]::IsNullOrWhiteSpace($LaId)) {
+    Write-Error "Could not resolve Log Analytics workspace ID for '$LA_NAME'. If you saw a '[WinError 5] ... azcliext ... application-insights' traceback, a corrupt az extension is the cause; remove it with:  az extension remove -n application-insights   (or delete the folder shown in the error), then re-run."
+    exit 1
+}
 Log "  Workspace ID: $LaId"
 
 # =============================================================================
@@ -101,16 +123,21 @@ if ($LASTEXITCODE -eq 0) {
     Log "  Storage account already exists -- skipping."
 } else {
     Log "  Creating storage account (Standard_LRS) ..."
+    # StorageV2 accounts default to TLS1_2 minimum; --min-tls-version omitted to avoid deprecation warning.
     az storage account create `
         -n $SaName -g $Rg -l $Location `
         --sku Standard_LRS `
         --kind StorageV2 `
-        --min-tls-version TLS1_2 `
         --output none
+    if ($LASTEXITCODE -ne 0) { Write-Error "Storage account create failed (az exit $LASTEXITCODE)."; exit 1 }
     Log "  Created."
 }
 
 $SaId = "$(az storage account show -n $SaName -g $Rg --query id -o tsv 2>$null)".Trim()
+if ([string]::IsNullOrWhiteSpace($SaId)) {
+    Write-Error "Could not resolve storage account ID for '$SaName'."
+    exit 1
+}
 Log "  Storage account ID: $SaId"
 
 # =============================================================================
@@ -120,15 +147,24 @@ Log ""
 Log "=== Phase 4: Network Watcher (NetworkWatcherRG / $Location) ==="
 
 $NwName = "NetworkWatcher_${Location}"
-az network watcher show -g $NW_RG -n $NwName --output none 2>$null
-if ($LASTEXITCODE -eq 0) {
-    Log "  Network Watcher '$NwName' already exists -- skipping."
+$NwId = "$(az network watcher list --query "[?location=='$Location'].id | [0]" -o tsv 2>$null)".Trim()
+if (-not [string]::IsNullOrWhiteSpace($NwId)) {
+    Log "  Network Watcher for region '$Location' already exists -- skipping."
 } else {
     Log "  Ensuring NetworkWatcherRG exists ..."
     az group create -n $NW_RG -l $Location --output none 2>$null
-    Log "  Creating Network Watcher for region '$Location' ..."
-    az network watcher create -l $Location --output none
-    Log "  Created."
+    Log "  Enabling Network Watcher for region '$Location' ..."
+    az network watcher configure -g $NW_RG -l $Location --enabled true --output none
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "az network watcher configure failed for region '$Location' in '$NW_RG' (exit $LASTEXITCODE). Check az credentials and region availability."
+        exit 1
+    }
+    $NwId = "$(az network watcher list --query "[?location=='$Location'].id | [0]" -o tsv 2>$null)".Trim()
+    if ([string]::IsNullOrWhiteSpace($NwId)) {
+        Write-Error "Network Watcher was not provisioned for region '$Location' after configure. Verify region '$Location' supports Network Watcher."
+        exit 1
+    }
+    Log "  Network Watcher for region '$Location' enabled."
 }
 
 # =============================================================================
@@ -160,20 +196,23 @@ foreach ($FlName in $FlowLogMap.Keys) {
         continue
     }
 
-    az network watcher flow-log show -n $FlName -g $NW_RG --output none 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $ExistingFl = "$(az network watcher flow-log list --location $Location --query "[?name=='$FlName'].name | [0]" -o tsv 2>$null)".Trim()
+    if (-not [string]::IsNullOrWhiteSpace($ExistingFl)) {
         Log "    Already exists -- skipping."
     } else {
         Log "    Creating (Traffic Analytics enabled) ..."
-        az network watcher flow-log create `
+        $FlOut = az network watcher flow-log create `
             --name $FlName `
+            --location $Location `
             --vnet $VnetId `
             --storage-account $SaId `
             --workspace $LaId `
             --traffic-analytics true `
-            --location $Location `
-            -g $NW_RG `
-            --output none
+            --output none 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Log "    WARNING: flow-log '$FlName' creation failed (exit $LASTEXITCODE): $(($FlOut | Out-String).Trim())"
+            continue
+        }
         Log "    Created."
     }
 }
@@ -197,17 +236,21 @@ foreach ($LbName in @("lb-public","lb-ilb")) {
     }
 
     $DiagName = "diag-${LbName}"
-    az monitor diagnostic-settings show --resource $LbId -n $DiagName --output none 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $ExistingDiag = "$(az monitor diagnostic-settings list --resource $LbId --query "value[?name=='$DiagName'].name | [0]" -o tsv 2>$null)".Trim()
+    if (-not [string]::IsNullOrWhiteSpace($ExistingDiag)) {
         Log "    Diagnostic settings '$DiagName' already exist -- skipping."
     } else {
         Log "    Creating diagnostic settings (AllMetrics) ..."
-        az monitor diagnostic-settings create `
+        $DiagOut = az monitor diagnostic-settings create `
             --resource $LbId `
             -n $DiagName `
             --workspace $LaId `
             --metrics $MetricsJson `
-            --output none
+            --output none 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Log "    WARNING: diagnostic settings '$DiagName' creation failed (exit $LASTEXITCODE): $(($DiagOut | Out-String).Trim())"
+            continue
+        }
         Log "    Created."
     }
 }
@@ -258,3 +301,8 @@ Write-Host '    @("flow-vnet-dmz","flow-vnet-spoke1","flow-vnet-spoke2") | ForEa
 Write-Host '      az network watcher flow-log update -n $_ -g NetworkWatcherRG --traffic-analytics false --output none'
 Write-Host '    }'
 Log "    To delete all monitoring resources: run cleanup (deletes the whole RG)."
+
+} finally {
+    if ($null -ne $script:PrevExtDir) { $env:AZURE_EXTENSION_DIR = $script:PrevExtDir }
+    else { Remove-Item Env:\AZURE_EXTENSION_DIR -ErrorAction SilentlyContinue }
+}

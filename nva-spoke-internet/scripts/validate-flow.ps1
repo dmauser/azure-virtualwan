@@ -32,9 +32,11 @@ Set-StrictMode -Version Latest
 # Use Continue so individual check failures do not abort the entire script.
 $ErrorActionPreference = "Continue"
 
-$script:Pass = 0
-$script:Fail = 0
-$script:Warn = 0
+$script:Pass       = 0
+$script:Fail       = 0
+$script:Warn       = 0
+$script:OrigExtDir = $null  # set in Phase 1 extension-ensure block; restored in finally
+$CleanExtDir       = ""     # set in Phase 1 extension-ensure block
 
 function Log([string]$m) {
     Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) -ForegroundColor Cyan
@@ -49,6 +51,85 @@ function Get-IPv4([string]$s) {
     $m = [regex]::Match($s, '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}')
     if ($m.Success) { return $m.Value.Trim() }
     return ""
+}
+
+# Render an `az monitor metrics list -o json` payload as one friendly summary line.
+# $Agg: aggregation used (Average|Total|Maximum|Minimum|Count); the per-datapoint
+# field name is that word lowercased (average/total/etc.).
+# Prints: "       latest <v> | min <v> | max <v> | avg <v>   [<n> pts, HH:mm-HH:mm]"
+# or "       (no data points - idle)" when the series is empty or all-null.
+function Show-Metric {
+    param([string]$Json, [string]$Agg)
+    if ([string]::IsNullOrWhiteSpace($Json)) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $obj = $null
+    try { $obj = $Json | ConvertFrom-Json } catch { }
+    if ($null -eq $obj) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $valArr = $null
+    if ($obj.PSObject.Properties.Name -contains 'value') {
+        $valArr = @($obj.value)
+    } else {
+        $valArr = @($obj)
+    }
+    if ($null -eq $valArr -or $valArr.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $tsArr = $null
+    if ($valArr[0].PSObject.Properties.Name -contains 'timeseries') {
+        $tsArr = @($valArr[0].timeseries)
+    }
+    if ($null -eq $tsArr -or $tsArr.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $dataArr = $null
+    if ($tsArr[0].PSObject.Properties.Name -contains 'data') {
+        $dataArr = @($tsArr[0].data)
+    }
+    if ($null -eq $dataArr -or $dataArr.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $field  = $Agg.ToLower()
+    $points = @()
+    foreach ($dp in $dataArr) {
+        if (-not ($dp.PSObject.Properties.Name -contains $field)) { continue }
+        $raw = $dp.$field
+        if ($null -eq $raw) { continue }
+        $v = $null
+        try { $v = [double]$raw } catch { continue }
+        $ts = $null
+        if ($dp.PSObject.Properties.Name -contains 'timeStamp') {
+            try { $ts = [datetime]$dp.timeStamp } catch { $ts = $null }
+        }
+        $points += [pscustomobject]@{ Ts = $ts; Val = $v }
+    }
+    if ($points.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $sorted = @($points | Sort-Object Ts)
+    $latest = $sorted[-1].Val
+    $minVal = ($sorted | Measure-Object Val -Minimum).Minimum
+    $maxVal = ($sorted | Measure-Object Val -Maximum).Maximum
+    $avgVal = ($sorted | Measure-Object Val -Average).Average
+    $first  = $sorted[0].Ts
+    $last   = $sorted[-1].Ts
+    if ($null -ne $first)  { try { $fStr = $first.ToString('HH:mm') } catch { $fStr = [string]$first } } else { $fStr = '?' }
+    if ($null -ne $last)   { try { $lStr = $last.ToString('HH:mm')  } catch { $lStr = [string]$last  } } else { $lStr = '?' }
+    $line = "       latest {0} | min {1} | max {2} | avg {3}   [{4} pts, {5}-{6}]" -f `
+        [math]::Round($latest, 2), `
+        [math]::Round($minVal,  2), `
+        [math]::Round($maxVal,  2), `
+        [math]::Round($avgVal,  2), `
+        $points.Count, $fStr, $lStr
+    Write-Host $line -ForegroundColor Gray
 }
 
 # =============================================================================
@@ -70,6 +151,31 @@ if ($rgEc -ne 0) {
     exit 1
 }
 Log "  Resource group: $Rg"
+
+# --- virtual-wan extension isolation ---
+# Ensures vhub commands find the virtual-wan extension even when:
+#   (a) the extension is absent from the user's shell, or
+#   (b) a corrupt extension in $env:AZURE_EXTENSION_DIR (e.g. application-insights)
+#       crashes az command-table load with [WinError 5], causing all vhub queries to
+#       return empty strings and producing false-negative FAILs.
+# Uses a stable per-user cache dir (not per-PID) so we only install on the first run.
+$script:OrigExtDir = $env:AZURE_EXTENSION_DIR
+$CleanExtDir       = Join-Path $env:TEMP 'az-ext-vwan-lab'
+New-Item -ItemType Directory -Force -Path $CleanExtDir | Out-Null
+$env:AZURE_EXTENSION_DIR = $CleanExtDir
+Log "  Using stable az extension dir: $CleanExtDir"
+az extension show -n virtual-wan --output none 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Log "  Installing 'virtual-wan' CLI extension (first run only) ..."
+    az extension add -n virtual-wan --only-show-errors 2>$null | Out-Null
+}
+az extension show -n virtual-wan --output none 2>$null
+if ($LASTEXITCODE -ne 0) {
+    CheckWarn "virtual-wan extension unavailable — vHub route checks may report empty"
+}
+# --- end extension isolation setup ---
+
+try {
 
 $hubRouting = "$(az network vhub show -g $Rg -n $Hub --query routingState -o tsv 2>$null)".Trim()
 if ($hubRouting -eq "Provisioned") {
@@ -213,7 +319,7 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ifvJson)) {
         CheckFail "NW IP flow verify: access = '$ifvAccess' (expected Allow) -- check NSG rules"
     }
 } else {
-    CheckWarn "NW IP flow verify failed (Network Watcher may not be enabled)"
+    CheckWarn "NW IP flow verify failed (Network Watcher may not be enabled) — run enable-monitoring.ps1 to enable Network Watcher"
 }
 
 # 2h. Network Watcher connectivity test
@@ -237,7 +343,7 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ctJson)) {
         CheckFail "NW connectivity: '$ctStatus' (expected Reachable)"
     }
 } else {
-    CheckWarn "NW connectivity test failed (Network Watcher may not be enabled)"
+    CheckWarn "NW connectivity test failed (Network Watcher may not be enabled) — run enable-monitoring.ps1 to enable Network Watcher"
 }
 
 # =============================================================================
@@ -380,20 +486,19 @@ if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
         @{name="VipAvailability";    agg="Average"},
         @{name="DipAvailability";    agg="Average"}
     )) {
-        Log "  -- $($m.name) ($($m.agg)):"
-        $azOut = az monitor metrics list `
+        Log ("  -- {0} ({1}):" -f $m.name, $m.agg)
+        $mJson = az monitor metrics list `
             --resource   $lbPublicId `
             --metric     $m.name `
             --start-time $StartTime `
             --end-time   $EndTime `
             --interval PT5M `
             --aggregation $m.agg `
-            -o table 2>&1
+            -o json 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Log "     ERROR (exit $LASTEXITCODE): $azOut"
-            CheckWarn "$($m.name): az metrics call failed (see above)"
+            CheckWarn "$($m.name): metrics query failed"
         } else {
-            Log $azOut
+            Show-Metric -Json $mJson -Agg $m.agg
         }
     }
 
@@ -403,19 +508,18 @@ if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
     Log "  Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-standard-diagnostics#multi-dimensional-metrics"
     if (-not [string]::IsNullOrWhiteSpace($lbIlbId)) {
         Log "  -- DipAvailability (Average):"
-        $azOut = az monitor metrics list `
+        $mJson = az monitor metrics list `
             --resource   $lbIlbId `
             --metric     "DipAvailability" `
             --start-time $StartTime `
             --end-time   $EndTime `
             --interval PT5M `
             --aggregation "Average" `
-            -o table 2>&1
+            -o json 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Log "     ERROR (exit $LASTEXITCODE): $azOut"
-            CheckWarn "ILB DipAvailability: az metrics call failed (see above)"
+            CheckWarn "ILB DipAvailability: metrics query failed"
         } else {
-            Log $azOut
+            Show-Metric -Json $mJson -Agg "Average"
         }
     } else {
         CheckWarn "lb-ilb not found -- ILB metrics skipped"
@@ -445,3 +549,7 @@ if ($script:Fail -gt 0) {
 Log ""
 Log "  All critical checks passed. Internet breakout Spoke->NVA->Public LB is functioning."
 Log "  For deeper analysis, run: .\scripts\enable-monitoring.ps1"
+} finally {
+    if ($null -ne $script:OrigExtDir) { $env:AZURE_EXTENSION_DIR = $script:OrigExtDir }
+    else { Remove-Item Env:\AZURE_EXTENSION_DIR -ErrorAction SilentlyContinue }
+}

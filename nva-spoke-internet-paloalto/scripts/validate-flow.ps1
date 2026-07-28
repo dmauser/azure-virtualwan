@@ -49,17 +49,28 @@ Set-StrictMode -Version Latest
 # Use Continue so individual check failures do not abort the entire script.
 $ErrorActionPreference = "Continue"
 
-$script:Pass = 0
-$script:Fail = 0
-$script:Warn = 0
+$script:Pass       = 0
+$script:Fail       = 0
+$script:Warn       = 0
+$script:OrigExtDir = $null  # set in Phase 1 extension-ensure block; restored in finally
+$CleanExtDir       = ""     # set in Phase 1 extension-ensure block
 
 function Log([string]$m) {
     Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) -ForegroundColor Cyan
 }
 
-function CheckPass([string]$label) { Log "  [PASS] $label"; $script:Pass++ }
-function CheckFail([string]$label) { Log "  [FAIL] $label"; $script:Fail++ }
-function CheckWarn([string]$label) { Log "  [WARN] $label"; $script:Warn++ }
+function CheckPass([string]$label) {
+    Write-Host ("[{0:HH:mm:ss}]   [PASS] {1}" -f (Get-Date), $label) -ForegroundColor Green
+    $script:Pass++
+}
+function CheckFail([string]$label) {
+    Write-Host ("[{0:HH:mm:ss}]   [FAIL] {1}" -f (Get-Date), $label) -ForegroundColor Red
+    $script:Fail++
+}
+function CheckWarn([string]$label) {
+    Write-Host ("[{0:HH:mm:ss}]   [WARN] {1}" -f (Get-Date), $label) -ForegroundColor Yellow
+    $script:Warn++
+}
 
 # Extract first IPv4 address from a string
 function Get-IPv4([string]$s) {
@@ -68,10 +79,170 @@ function Get-IPv4([string]$s) {
     return ""
 }
 
+# Phase/section banner in Magenta for easy visual scanning
+function Banner([string]$m) {
+    Write-Host ("[{0:HH:mm:ss}] {1}" -f (Get-Date), $m) -ForegroundColor Magenta
+}
+
+# Render an az route JSON payload as a compact aligned table.
+# -Kind Hub   : vHub route-table routes[].{destinations,nextHopType,nextHop}      (az ... -o json)
+# -Kind Conn  : connection staticRoutes[].{name,prefix,nextHop}                   (az ... -o json)
+# -Kind Nic   : NIC effective routes (.value[]) from show-effective-route-table   (az ... -o json)
+# -Kind VHub  : vHub get-effective-routes (.value[])                              (az ... -o json)
+# Never aborts: on empty/invalid JSON prints a dim placeholder line.
+function Show-RouteTable {
+    param(
+        [string]$Json,
+        [ValidateSet('Hub','Conn','Nic','VHub')]
+        [string]$Kind
+    )
+    if ([string]::IsNullOrWhiteSpace($Json)) {
+        Write-Host "       (no routes returned)" -ForegroundColor DarkGray
+        return
+    }
+    $data = $null
+    try { $data = $Json | ConvertFrom-Json } catch { }
+    if ($null -eq $data) {
+        Write-Host "       (no routes returned)" -ForegroundColor DarkGray
+        return
+    }
+    try {
+        switch ($Kind) {
+            'Hub' {
+                $arr = @($data)
+                if ($arr.Count -eq 0) { Write-Host "       (no routes returned)" -ForegroundColor DarkGray; return }
+                $rows = $arr | ForEach-Object {
+                    $dest = if ($_.destinations -is [array]) { $_.destinations -join ', ' } else { [string]$_.destinations }
+                    $nh   = if ($_.nextHop) { ($_.nextHop.TrimEnd('/') -split '/')[-1] } else { '' }
+                    [PSCustomObject]@{ Destinations = $dest; NextHopType = $_.nextHopType; NextHop = $nh }
+                }
+                $rows | Format-Table -AutoSize | Out-String | Write-Host
+            }
+            'Conn' {
+                $arr = @($data)
+                if ($arr.Count -eq 0) { Write-Host "       (no routes returned)" -ForegroundColor DarkGray; return }
+                $rows = $arr | ForEach-Object {
+                    $pfx = if ($_.prefix -is [array]) { $_.prefix -join ', ' } else { [string]$_.prefix }
+                    [PSCustomObject]@{ Name = $_.name; Prefix = $pfx; NextHop = $_.nextHop }
+                }
+                $rows | Format-Table -AutoSize | Out-String | Write-Host
+            }
+            'Nic' {
+                $arr = $null
+                if ($data.PSObject.Properties.Name -contains 'value') { $arr = @($data.value) } else { $arr = @($data) }
+                if ($null -eq $arr -or $arr.Count -eq 0) { Write-Host "       (no routes returned)" -ForegroundColor DarkGray; return }
+                $rows = $arr | ForEach-Object {
+                    $pfx  = if ($_.addressPrefix -is [array])    { $_.addressPrefix -join ', '    } else { [string]$_.addressPrefix }
+                    $nhip = if ($_.nextHopIpAddress -is [array]) { $_.nextHopIpAddress -join ', ' } else { [string]$_.nextHopIpAddress }
+                    if ([string]::IsNullOrWhiteSpace($nhip)) { $nhip = '-' }
+                    [PSCustomObject]@{ Source = $_.source; State = $_.state; AddressPrefix = $pfx; NextHopType = $_.nextHopType; NextHopIP = $nhip }
+                }
+                $def   = @($rows | Where-Object { $_.AddressPrefix -like '*0.0.0.0/0*' })
+                $other = @($rows | Where-Object { $_.AddressPrefix -notlike '*0.0.0.0/0*' })
+                ($def + $other) | Format-Table -AutoSize | Out-String | Write-Host
+            }
+            'VHub' {
+                $arr = $null
+                if ($data.PSObject.Properties.Name -contains 'value') { $arr = @($data.value) } else { $arr = @($data) }
+                if ($null -eq $arr -or $arr.Count -eq 0) { Write-Host "       (no routes returned)" -ForegroundColor DarkGray; return }
+                $rows = $arr | ForEach-Object {
+                    $pfx    = if ($_.addressPrefixes -is [array]) { $_.addressPrefixes -join ', ' } else { [string]$_.addressPrefixes }
+                    $nhs    = if ($_.nextHops -is [array])        { $_.nextHops -join ', ' }        else { [string]$_.nextHops }
+                    $origin = if ($_.PSObject.Properties.Name -contains 'routeOrigin') { [string]$_.routeOrigin } else { '' }
+                    $asp    = if ($_.PSObject.Properties.Name -contains 'asPath')      { [string]$_.asPath }      else { '' }
+                    [PSCustomObject]@{ AddressPrefixes = $pfx; NextHopType = $_.nextHopType; NextHops = $nhs; RouteOrigin = $origin; AsPath = $asp }
+                }
+                $rows | Format-Table -AutoSize | Out-String | Write-Host
+            }
+        }
+    } catch {
+        Write-Host "       (route render error: $_)" -ForegroundColor DarkGray
+    }
+}
+
+# Render an `az monitor metrics list -o json` payload as one friendly summary line.
+# $Agg: aggregation used (Average|Total|Maximum|Minimum|Count); the per-datapoint
+# field name is that word lowercased (average/total/etc.).
+# Prints: "       latest <v> | min <v> | max <v> | avg <v>   [<n> pts, HH:mm-HH:mm]"
+# or "       (no data points - idle)" when the series is empty or all-null.
+function Show-Metric {
+    param([string]$Json, [string]$Agg)
+    if ([string]::IsNullOrWhiteSpace($Json)) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $obj = $null
+    try { $obj = $Json | ConvertFrom-Json } catch { }
+    if ($null -eq $obj) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $valArr = $null
+    if ($obj.PSObject.Properties.Name -contains 'value') {
+        $valArr = @($obj.value)
+    } else {
+        $valArr = @($obj)
+    }
+    if ($null -eq $valArr -or $valArr.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $tsArr = $null
+    if ($valArr[0].PSObject.Properties.Name -contains 'timeseries') {
+        $tsArr = @($valArr[0].timeseries)
+    }
+    if ($null -eq $tsArr -or $tsArr.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $dataArr = $null
+    if ($tsArr[0].PSObject.Properties.Name -contains 'data') {
+        $dataArr = @($tsArr[0].data)
+    }
+    if ($null -eq $dataArr -or $dataArr.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $field  = $Agg.ToLower()
+    $points = @()
+    foreach ($dp in $dataArr) {
+        if (-not ($dp.PSObject.Properties.Name -contains $field)) { continue }
+        $raw = $dp.$field
+        if ($null -eq $raw) { continue }
+        $v = $null
+        try { $v = [double]$raw } catch { continue }
+        $ts = $null
+        if ($dp.PSObject.Properties.Name -contains 'timeStamp') {
+            try { $ts = [datetime]$dp.timeStamp } catch { $ts = $null }
+        }
+        $points += [pscustomobject]@{ Ts = $ts; Val = $v }
+    }
+    if ($points.Count -eq 0) {
+        Write-Host "       (no data points - idle)" -ForegroundColor DarkGray
+        return
+    }
+    $sorted = @($points | Sort-Object Ts)
+    $latest = $sorted[-1].Val
+    $minVal = ($sorted | Measure-Object Val -Minimum).Minimum
+    $maxVal = ($sorted | Measure-Object Val -Maximum).Maximum
+    $avgVal = ($sorted | Measure-Object Val -Average).Average
+    $first  = $sorted[0].Ts
+    $last   = $sorted[-1].Ts
+    if ($null -ne $first)  { try { $fStr = $first.ToString('HH:mm') } catch { $fStr = [string]$first } } else { $fStr = '?' }
+    if ($null -ne $last)   { try { $lStr = $last.ToString('HH:mm')  } catch { $lStr = [string]$last  } } else { $lStr = '?' }
+    $line = "       latest {0} | min {1} | max {2} | avg {3}   [{4} pts, {5}-{6}]" -f `
+        [math]::Round($latest, 2), `
+        [math]::Round($minVal,  2), `
+        [math]::Round($maxVal,  2), `
+        [math]::Round($avgVal,  2), `
+        $points.Count, $fStr, $lStr
+    Write-Host $line -ForegroundColor Gray
+}
+
 # =============================================================================
 # Phase 1 -- Pre-checks
 # =============================================================================
-Log "=== Phase 1: Pre-checks ==="
+Banner "=== Phase 1: Pre-checks ==="
 
 $acctJson = az account show -o json 2>$null
 if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($acctJson)) {
@@ -88,6 +259,31 @@ if ($rgEc -ne 0) {
 }
 Log "  Resource group: $Rg"
 
+# --- virtual-wan extension isolation ---
+# Ensures vhub commands find the virtual-wan extension even when:
+#   (a) the extension is absent from the user's shell, or
+#   (b) a corrupt extension in $env:AZURE_EXTENSION_DIR (e.g. application-insights)
+#       crashes az command-table load with [WinError 5], causing all vhub queries to
+#       return empty strings and producing false-negative FAILs.
+# Uses a stable per-user cache dir (not per-PID) so we only install on the first run.
+$script:OrigExtDir = $env:AZURE_EXTENSION_DIR
+$CleanExtDir       = Join-Path $env:TEMP 'az-ext-vwan-lab'
+New-Item -ItemType Directory -Force -Path $CleanExtDir | Out-Null
+$env:AZURE_EXTENSION_DIR = $CleanExtDir
+Log "  Using stable az extension dir: $CleanExtDir"
+az extension show -n virtual-wan --output none 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Log "  Installing 'virtual-wan' CLI extension (first run only) ..."
+    az extension add -n virtual-wan --only-show-errors 2>$null | Out-Null
+}
+az extension show -n virtual-wan --output none 2>$null
+if ($LASTEXITCODE -ne 0) {
+    CheckWarn "virtual-wan extension unavailable — vHub route checks may report empty"
+}
+# --- end extension isolation setup ---
+
+try {
+
 $hubRouting = "$(az network vhub show -g $Rg -n $Hub --query routingState -o tsv 2>$null)".Trim()
 if ($hubRouting -eq "Provisioned") {
     CheckPass "Hub '$Hub' routingState = Provisioned"
@@ -103,7 +299,7 @@ $DefaultRtId = "${HubId}/hubRouteTables/defaultRouteTable"
 # Ref: https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub
 # =============================================================================
 Log ""
-Log "=== Phase 2: Control-plane routes ==="
+Banner "=== Phase 2: Control-plane routes ==="
 
 # 2a. defaultRouteTable: 0.0.0.0/0 -> conn-dmz
 # Route prefixes live in routes[].destinations[] (array) -- use contains() to check presence.
@@ -112,8 +308,8 @@ Log "  [2a] Hub defaultRouteTable routes:"
 $drt = az network vhub route-table show `
     -g $Rg --vhub-name $Hub --name defaultRouteTable `
     --query 'routes[].{destinations:destinations,nextHopType:nextHopType,nextHop:nextHop}' `
-    -o table 2>$null
-Log $drt
+    -o json 2>$null
+Show-RouteTable -Json $drt -Kind Hub
 $q2a = "routes[?contains(destinations, '0.0.0.0/0')]"
 $drt0 = "$(az network vhub route-table show -g $Rg --vhub-name $Hub --name defaultRouteTable --query $q2a -o tsv 2>$null)".Trim()
 if (-not [string]::IsNullOrWhiteSpace($drt0)) {
@@ -129,8 +325,8 @@ Log "  [2b] conn-dmz static routes (expected: 0.0.0.0/0 -> 10.0.0.68):"
 $connRoutes = az network vhub connection show `
     -g $Rg --vhub-name $Hub -n conn-dmz `
     --query 'routingConfiguration.vnetRoutes.staticRoutes[].{name:name,prefix:addressPrefixes,nextHop:nextHopIpAddress}' `
-    -o table 2>$null
-Log $connRoutes
+    -o json 2>$null
+Show-RouteTable -Json $connRoutes -Kind Conn
 $q2b = "routingConfiguration.vnetRoutes.staticRoutes[?contains(addressPrefixes, '0.0.0.0/0')].nextHopIpAddress"
 $connNH = "$(az network vhub connection show -g $Rg --vhub-name $Hub -n conn-dmz --query $q2b -o tsv 2>$null)".Trim()
 if (-not [string]::IsNullOrWhiteSpace($connNH)) {
@@ -147,9 +343,20 @@ if (-not [string]::IsNullOrWhiteSpace($connNH)) {
 Log ""
 Log "  [2c] Spoke1 NIC (nic-vm-spoke1) effective routes:"
 Log "       Expecting 0.0.0.0/0 via VirtualNetworkGateway (vHub BGP router)"
-$eff1 = az network nic show-effective-route-table -g $Rg -n nic-vm-spoke1 -o table 2>$null
-Log $eff1
-if ($eff1 -match "VirtualNetworkGateway") {
+$eff1Raw = az network nic show-effective-route-table -g $Rg -n nic-vm-spoke1 -o json 2>$null
+Show-RouteTable -Json $eff1Raw -Kind Nic
+$eff1HasVng = $false
+try {
+    $eff1Obj = $eff1Raw | ConvertFrom-Json
+    if ($null -ne $eff1Obj) {
+        $eff1Routes = if ($eff1Obj.PSObject.Properties.Name -contains 'value') { @($eff1Obj.value) } else { @($eff1Obj) }
+        $eff1Match  = @($eff1Routes | Where-Object { $_.nextHopType -eq 'VirtualNetworkGateway' } |
+                       Where-Object { (@($_.addressPrefix) | Where-Object { $_ -eq '0.0.0.0/0' }).Count -gt 0 })
+        $eff1HasVng = ($eff1Match.Count -gt 0)
+    }
+} catch { $eff1HasVng = $false }
+if (-not $eff1HasVng) { $eff1HasVng = ($eff1Raw -match 'VirtualNetworkGateway') }  # string fallback
+if ($eff1HasVng) {
     CheckPass "Spoke1 NIC: 0.0.0.0/0 via VirtualNetworkGateway (vHub)"
 } else {
     CheckFail "Spoke1 NIC: missing 0.0.0.0/0 via VirtualNetworkGateway"
@@ -158,9 +365,20 @@ if ($eff1 -match "VirtualNetworkGateway") {
 # 2d. Spoke2 NIC effective routes
 Log ""
 Log "  [2d] Spoke2 NIC (nic-vm-spoke2) effective routes:"
-$eff2 = az network nic show-effective-route-table -g $Rg -n nic-vm-spoke2 -o table 2>$null
-Log $eff2
-if ($eff2 -match "VirtualNetworkGateway") {
+$eff2Raw = az network nic show-effective-route-table -g $Rg -n nic-vm-spoke2 -o json 2>$null
+Show-RouteTable -Json $eff2Raw -Kind Nic
+$eff2HasVng = $false
+try {
+    $eff2Obj = $eff2Raw | ConvertFrom-Json
+    if ($null -ne $eff2Obj) {
+        $eff2Routes = if ($eff2Obj.PSObject.Properties.Name -contains 'value') { @($eff2Obj.value) } else { @($eff2Obj) }
+        $eff2Match  = @($eff2Routes | Where-Object { $_.nextHopType -eq 'VirtualNetworkGateway' } |
+                       Where-Object { (@($_.addressPrefix) | Where-Object { $_ -eq '0.0.0.0/0' }).Count -gt 0 })
+        $eff2HasVng = ($eff2Match.Count -gt 0)
+    }
+} catch { $eff2HasVng = $false }
+if (-not $eff2HasVng) { $eff2HasVng = ($eff2Raw -match 'VirtualNetworkGateway') }  # string fallback
+if ($eff2HasVng) {
     CheckPass "Spoke2 NIC: 0.0.0.0/0 via VirtualNetworkGateway (vHub)"
 } else {
     CheckFail "Spoke2 NIC: missing 0.0.0.0/0 via VirtualNetworkGateway"
@@ -170,12 +388,14 @@ if ($eff2 -match "VirtualNetworkGateway") {
 # Ref: https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub
 Log ""
 Log "  [2e] vHub effective routes for defaultRouteTable:"
-az network vhub get-effective-routes `
+$vhubEff   = az network vhub get-effective-routes `
     --resource-type RouteTable `
     --resource-id $DefaultRtId `
     -g $Rg -n $Hub `
-    -o table 2>$null
-if ($LASTEXITCODE -eq 0) {
+    -o json 2>$null
+$vhubEffEc = $LASTEXITCODE
+Show-RouteTable -Json $vhubEff -Kind VHub
+if ($vhubEffEc -eq 0) {
     CheckPass "vHub get-effective-routes returned successfully"
 } else {
     CheckWarn "vhub get-effective-routes failed (may need az-cli >= 2.57)"
@@ -233,7 +453,7 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ifvJson)) {
         CheckFail "NW IP flow verify: access = '$ifvAccess' (expected Allow) -- check NSG rules"
     }
 } else {
-    CheckWarn "NW IP flow verify failed (Network Watcher may not be enabled)"
+    CheckWarn "NW IP flow verify failed (Network Watcher may not be enabled) — run enable-monitoring.ps1 to enable Network Watcher"
 }
 
 # 2h. Network Watcher connectivity test
@@ -257,7 +477,7 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ctJson)) {
         CheckFail "NW connectivity: '$ctStatus' (expected Reachable)"
     }
 } else {
-    CheckWarn "NW connectivity test failed (Network Watcher may not be enabled)"
+    CheckWarn "NW connectivity test failed (Network Watcher may not be enabled) — run enable-monitoring.ps1 to enable Network Watcher"
 }
 
 # =============================================================================
@@ -265,7 +485,7 @@ if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($ctJson)) {
 # Ref: https://learn.microsoft.com/azure/load-balancer/troubleshoot-outbound-connection
 # =============================================================================
 Log ""
-Log "=== Phase 3: Data-plane -- curl from spoke VMs ==="
+Banner "=== Phase 3: Data-plane -- curl from spoke VMs ==="
 
 $PublicLbPip = "$(az network public-ip show -g $Rg -n pip-lb-public --query ipAddress -o tsv 2>$null)".Trim()
 Log "  Public LB PIP (pip-lb-public): $PublicLbPip"
@@ -327,7 +547,7 @@ if (-not [string]::IsNullOrWhiteSpace($PublicLbPip) -and $curl2 -eq $PublicLbPip
 #   show interface ethernet1/2
 # =============================================================================
 Log ""
-Log "=== Phase 4: PA NVA forwarding evidence (MANUAL -- see instructions below) ==="
+Banner "=== Phase 4: PA NVA forwarding evidence (MANUAL -- see instructions below) ==="
 
 foreach ($nvaName in $NvaNames) {
     Log ""
@@ -391,7 +611,7 @@ foreach ($nvaName in $NvaNames) {
 # Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-monitor-metrics-cli
 # =============================================================================
 Log ""
-Log "=== Phase 5: Standard Load Balancer metrics ==="
+Banner "=== Phase 5: Standard Load Balancer metrics ==="
 Log "  (30-min window; non-zero values confirm active traffic; zero is normal when lab is idle)"
 
 $lbPublicId = "$(az network lb show -g $Rg -n lb-public --query id -o tsv 2>$null)".Trim()
@@ -418,20 +638,19 @@ if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
         @{name="VipAvailability";    agg="Average"},
         @{name="DipAvailability";    agg="Average"}
     )) {
-        Log "  -- $($m.name) ($($m.agg)):"
-        $azOut = az monitor metrics list `
+        Log ("  -- {0} ({1}):" -f $m.name, $m.agg)
+        $mJson = az monitor metrics list `
             --resource   $lbPublicId `
             --metric     $m.name `
             --start-time $StartTime `
             --end-time   $EndTime `
             --interval PT5M `
             --aggregation $m.agg `
-            -o table 2>&1
+            -o json 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Log "     ERROR (exit $LASTEXITCODE): $azOut"
-            CheckWarn "$($m.name): az metrics call failed (see above)"
+            CheckWarn "$($m.name): metrics query failed"
         } else {
-            Log $azOut
+            Show-Metric -Json $mJson -Agg $m.agg
         }
     }
 
@@ -441,19 +660,18 @@ if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
     Log "  Ref: https://learn.microsoft.com/azure/load-balancer/load-balancer-standard-diagnostics#multi-dimensional-metrics"
     if (-not [string]::IsNullOrWhiteSpace($lbIlbId)) {
         Log "  -- DipAvailability (Average):"
-        $azOut = az monitor metrics list `
+        $mJson = az monitor metrics list `
             --resource   $lbIlbId `
             --metric     "DipAvailability" `
             --start-time $StartTime `
             --end-time   $EndTime `
             --interval PT5M `
             --aggregation "Average" `
-            -o table 2>&1
+            -o json 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Log "     ERROR (exit $LASTEXITCODE): $azOut"
-            CheckWarn "ILB DipAvailability: az metrics call failed (see above)"
+            CheckWarn "ILB DipAvailability: metrics query failed"
         } else {
-            Log $azOut
+            Show-Metric -Json $mJson -Agg "Average"
         }
 
         # Check ILB backend pool (nva-backend) NIC membership
@@ -476,11 +694,18 @@ if ([string]::IsNullOrWhiteSpace($lbPublicId)) {
 # Summary
 # =============================================================================
 Log ""
-Log "======================================================================"
-Log "  validate-flow.ps1 SUMMARY (nva-spoke-internet-paloalto)"
-Log "======================================================================"
-Log "  PASS: $($script:Pass)   FAIL: $($script:Fail)   WARN: $($script:Warn)"
-Log "======================================================================"
+Banner "======================================================================"
+Banner "  validate-flow.ps1 SUMMARY (nva-spoke-internet-paloalto)"
+Banner "======================================================================"
+$sumTs = Get-Date
+Write-Host ("[{0:HH:mm:ss}]   PASS: " -f $sumTs) -NoNewline -ForegroundColor Magenta
+Write-Host "$($script:Pass)" -NoNewline -ForegroundColor Green
+Write-Host "   FAIL: " -NoNewline -ForegroundColor Magenta
+$failColor = if ($script:Fail -gt 0) { "Red" } else { "Green" }
+Write-Host "$($script:Fail)" -NoNewline -ForegroundColor $failColor
+Write-Host "   WARN: " -NoNewline -ForegroundColor Magenta
+Write-Host "$($script:Warn)" -ForegroundColor Yellow
+Banner "======================================================================"
 
 if ($script:Fail -gt 0) {
     Log ""
@@ -496,3 +721,7 @@ if ($script:Fail -gt 0) {
 Log ""
 Log "  All critical checks passed. Internet breakout Spoke->PA NVA->Public LB is functioning."
 Log "  Review Phase 4 WARN items above for manual PA session/NAT evidence."
+} finally {
+    if ($null -ne $script:OrigExtDir) { $env:AZURE_EXTENSION_DIR = $script:OrigExtDir }
+    else { Remove-Item Env:\AZURE_EXTENSION_DIR -ErrorAction SilentlyContinue }
+}
