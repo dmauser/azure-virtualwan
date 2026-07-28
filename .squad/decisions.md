@@ -2107,3 +2107,104 @@ Three cases handled: array of IDs, single string ID, empty/null.
 
 If the `nva-spoke-internet` (non-PA) lab's `validate-flow.ps1` has a `'VHub'` branch with the same pattern, apply the identical fix there for consistency.
 
+
+---
+
+# Decision: NW Check Messaging -- SKIP tier + accurate error routing
+
+**Date:** 2026-07-28
+**Author:** Amos (Tester)
+**Status:** Adopted
+**Scope:** nva-spoke-internet-paloalto/scripts/validate-flow.ps1 checks [2g] and [2h]
+
+## Context
+
+Live diagnosis on sub 78216abe / rg-nva-spoke-internet-pa / westus3 confirmed:
+- NetworkWatcher_westus3 exists with state = Succeeded (NW IS enabled).
+- [2g] real error: `(NsgsNotAppliedOnNic)` -- no NSG on nic-vm-spoke1. IP flow verify ONLY evaluates NSG rules; with no NSG it can never succeed.
+- [2h] real error: `(NetworkWatcherVmExtensionNotInstalled)` -- NetworkWatcherAgent not yet on vm-spoke1. Naomi is adding the install step to enable-monitoring.ps1.
+
+The old code used `2>$null`, swallowing both real errors. The fallback message blamed Network Watcher not being enabled -- wrong for both checks.
+
+## Decisions
+
+### 1. Add a SKIP result tier
+
+SKIP = "not applicable in this topology". Does NOT count as WARN or FAIL.
+Displayed in DarkGray with `[SKIP]` tag. Included in summary tally.
+
+Rationale: [2g] is permanently not applicable in this lab because the topology is governed by vHub routing + Palo Alto, not NSGs. Calling it a WARN or FAIL would be noise that operators can never resolve.
+
+### 2. [2g] maps to SKIP (not WARN) on NsgsNotAppliedOnNic
+
+When `az network watcher test-ip-flow` returns `NsgsNotAppliedOnNic`, the result is `[SKIP]` with a message explaining why (no NSG, vHub routing + PA governs traffic, IP flow verify only evaluates NSG rules).
+
+Any other az error falls back to `[WARN]` with the generic "could not be evaluated -- see raw error above" message.
+
+### 3. [2h] stays WARN (not SKIP) on NetworkWatcherVmExtensionNotInstalled
+
+The missing NetworkWatcherAgent is a real, actionable gap. Once enable-monitoring.ps1 installs the agent, [2h] will pass. Keeping it as WARN with an actionable message ("run enable-monitoring.ps1") is correct.
+
+### 4. Capture stderr via 2>&1; log raw error before result tag
+
+Both az calls changed from `2>$null` to `2>&1` so the real Azure error code surfaces inline (Log before CheckSkip/CheckWarn). This is read-only -- no Azure resource writes.
+
+### 5. Summary line format
+
+`PASS: N  FAIL: N  WARN: N  SKIP: N` -- SKIP count in DarkGray, appended after WARN. Exit code logic unchanged (driven by $script:Fail only).
+
+## Impact
+
+| Check | Before | After |
+|-------|--------|-------|
+| [2g] NsgsNotAppliedOnNic | [WARN] misleading NW-disabled message | [SKIP] correct N/A message |
+| [2h] VmExtensionNotInstalled | [WARN] misleading NW-disabled message | [WARN] actionable agent-install message |
+| [2h] after agent installed | N/A | [PASS] |
+
+---
+
+# Decision: Install NetworkWatcherAgentLinux on Spoke VMs in enable-monitoring.ps1
+
+**Date:** 2026-07-28
+**Author:** Naomi (Infra Dev)
+**Status:** Adopted
+
+## Context
+
+`validate-flow.ps1` check `[2h]` (az network watcher test-connectivity from vm-spoke1) was failing
+live with:
+
+    (NetworkWatcherVmExtensionNotInstalled) NetworkWatcherAgent is not installed, VM vm-spoke1
+
+`enable-monitoring.ps1` enabled regional Network Watcher (Phase 4) but never installed the
+per-VM NetworkWatcherAgentLinux extension that `test-connectivity` requires on the SOURCE VM.
+
+## Decision
+
+Add **Phase 4b** to `nva-spoke-internet-paloalto/scripts/enable-monitoring.ps1` that installs
+`NetworkWatcherAgentLinux` (publisher `Microsoft.Azure.NetworkWatcher`, version 1.4,
+`--enable-auto-upgrade true`) on `vm-spoke1` and `vm-spoke2`.
+
+## Rationale
+
+- The extension is **FREE** -- no Azure charge. Installing it does not change lab cost posture.
+- Without it, `az network watcher test-connectivity` always exits non-zero on the source VM,
+  making validate-flow.ps1 check [2h] permanently un-passable regardless of network config.
+- Palo Alto firewall VMs are NOT given the agent -- they are not connectivity-test sources and
+  the agent is a Linux package incompatible with PAN-OS.
+- The install is idempotent: skipped if `provisioningState == Succeeded`; `WARN + continue` on
+  failure so a single VM issue does not abort the broader monitoring setup.
+
+## Files Changed
+
+- `nva-spoke-internet-paloalto/scripts/enable-monitoring.ps1`
+  - Header comment: added item 4 (NetworkWatcherAgentLinux, free, required for connectivity checks);
+    renumbered old items 4 -> 5, 5 -> 6.
+  - Inserted Phase 4b block (~line 170) between Phase 4 (Network Watcher) and Phase 5 (VNet flow logs).
+  - Summary block: added NW Agent line noting vm-spoke1/vm-spoke2 coverage and [2h] enablement.
+
+## References
+
+- https://learn.microsoft.com/azure/network-watcher/network-watcher-agent-update
+- https://learn.microsoft.com/azure/network-watcher/network-watcher-connectivity-overview
+
