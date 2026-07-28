@@ -122,4 +122,51 @@ When redeploying the PA lab to pick up a bootstrap.xml change:
 
 **Fix:** After the RG disappears from `az group show`, wait an additional **10 minutes** before starting any new deployment in that RG to ensure the ARM deletion pipeline is fully cleared.
 
-*Last update: 2026-07-27T18:35:00-05:00*
+### AADSTS530004 Conditional Access Token Expiry — Use REST API with Bearer Token
+
+In DMAUSER-FDPO (tenant `16b3c013-d300-468d-ac64-7eda0820b6d3`), the `az` CLI silently uses cached tokens that expire after ~60-90 minutes. After the first command in a shell completes, subsequent `az` commands can fail with `AADSTS530004 AcceptCompliantDevice setting isn't configured for this organization`. The CLI retries silently and returns `ResourceNotFound` or similar errors rather than the real auth error — difficult to diagnose.
+
+**Workaround for long-running deploys:** At shell start, run `az account get-access-token --query accessToken -o tsv` once and save the token. For all subsequent ARM operations, use `Invoke-RestMethod` with the bearer token directly instead of `az` CLI commands. This bypasses the CA-aware silent token refresh. Token validity is typically ~60 min from issuance — save a timestamp; regenerate before it expires.
+
+### vWAN Hub Serializes Connection Operations
+
+Azure vWAN hub only allows one hub VNet connection operation at a time. Attempting to `PUT` or `DELETE` a connection while another is in `Updating` state returns `400 AnotherOperationInProgress`. Always poll the previous connection to `Succeeded` before starting the next one. This applies to both `az network vhub connection create` (which doesn't serialize automatically) and REST API PUTs.
+
+### PA commit-force After apply-panos-config.ps1
+
+When `apply-panos-config.ps1` runs immediately after a fresh PA boot, the PA may still be in the middle of auto-commit (job type `AutoCom`). The `commit` API call will fail with `auto-commit not yet finished — use commit force`. Pattern:
+1. Poll `show jobs all` until job type `AutoCom` shows `status=FIN result=OK`
+2. Then issue `commit-force` (cmd `<commit-force></commit-force>`) — this succeeds even while auto-commit is finishing
+3. Poll job 3 for `status=FIN result=OK` before verifying live routing table
+
+### Probe Route Visible in Routing Table Before Commit (VR config side-effect)
+
+After `apply-panos-config.ps1` sets the virtual-router config via `action=set`, the route `168.63.129.16/32 → 10.0.0.65` appears in `show routing route` immediately — even before the commit completes. This is because PAN-OS installs candidate VR config into the kernel's FIB on `set`. However, commit is still needed to make the config persistent across reboots.
+
+### vWAN Spoke UDR Anti-Pattern: Do NOT Use `VirtualAppliance` Pointing to ILB in Another VNet
+
+In a vWAN topology, spoke workload subnet UDRs with `nextHopType=VirtualAppliance` pointing to an ILB frontend IP (e.g. `10.0.0.68`) in the DMZ VNet (connected to the hub but not directly peered to the spoke) resolve as `nextHopType=None` in the spoke's effective route table. Azure treats `None` as a null/drop route — spoke egress is silently dropped.
+
+**Correct pattern:** Leave spoke workload UDR tables empty (`routes: []`). The vWAN hub's `defaultRouteTable` propagates `0/0 → conn-dmz` to connected spoke VNets as a `VirtualNetworkGateway` route (source: VirtualNetworkGateway, nextHop: hub gateway IP). This route correctly routes spoke traffic via the hub → DMZ VNet → ILB → PA NVA without any UDR intervention. Adding a conflicting User route overrides the VNG route and marks it Invalid.
+
+**Signal to look for:** If `az network nic show-effective-route-table` shows `"source": "User", "state": "Active", "nextHopType": "None"` for a UDR with `nextHopType: VirtualAppliance`, the next-hop IP is not resolvable as a virtual appliance in the local VNet context — traffic will be dropped.
+
+**deploy.ps1 fix:** Phase 10b was changed from adding `0/0 → VirtualAppliance → ILB` to a no-op comment. Do not add spoke UDR routes in vWAN deployments where hub routing handles the 0/0 propagation.
+
+### Westus3 VM Capacity Constraints (July 2026)
+
+- All Dv2 SKUs (DS3_v2, DS4_v2, etc.) blocked by capacity in westus3
+- B2s, B2ms: pass `az vm list-skus` restriction check but fail SkuNotAvailable at allocation time — `list-skus` is unreliable for capacity
+- D8s_v4, D2s_v3: allocatable in westus3 as of July 2026
+- D4s_v4/D4_v4/D4s_v5/D4_v5: only support 2 NICs — cannot be used for PA NVA (needs 3 NICs). Must use D8s variants (D8s_v4, D8s_v5, D8_v4, D8_v5) which support 4 NICs.
+- Use real allocation probe (`az vm create` in throw-away RG) to detect spoke VM capacity — `list-skus` gives false positives.
+
+### Full Deploy/Egress Cycle (Cycles 1-5) — Final Outcome 2026-07-27
+
+Multi-cycle deploy to resolve PA egress for rg-nva-spoke-internet-pa:
+- **Cycle 1 (single-VR):** ILB 100%, egress broken — UDR missing
+- **Cycles 2-4:** Blocked by Dv2 capacity; D4s 2-NIC limit discovered; SKU candidates updated
+- **Cycle 5 (dual-VR + Phase 10b UDR):** Bicep ✅, hub ✅, connections ✅, both LBs 100% — but egress STILL broken because Phase 10b UDR's `VirtualAppliance` cross-hub next-hop resolved as None/drop
+- **Fix (post-cycle 5):** Deleted conflicting UDR 0/0 routes; vWAN hub VNG route became Active; spoke egress immediately passed — both spokes returned `172.182.236.138` (lb-public PIP) ✅
+
+*Last update: 2026-07-27T18:00:00-05:00*

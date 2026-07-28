@@ -81,20 +81,20 @@ function Poll-Until {
     }
 }
 
-# Pick first unrestricted DS3_v2-series SKU via az vm list-skus.
+# Pick first unrestricted NVA SKU via az vm list-skus.
 # Standard_B-series are NOT supported for Palo Alto VM-Series.
+# PA VM-Series BYOL needs ≥4 vCPU / ≥14 GB RAM AND ≥3 NICs.
+# Dv4/Dv5 4-vCPU SKUs (D4s_v4 etc.) cap at 2 NICs — use 8-vCPU variants for PA.
 function Pick-VmSku([string]$Region) {
-    # PA VM-Series BYOL needs ≥4 vCPU / ≥14 GB RAM.  Try DS3_v2 first (original baseline),
-    # then DS4_v2, then Dv4/Dv5 equivalents which typically have broader capacity.
     $candidates = @(
-        "Standard_DS3_v2",
-        "Standard_DS4_v2",
-        "Standard_D3_v2",
-        "Standard_D4_v2",
-        "Standard_D4s_v4",
-        "Standard_D4s_v5",
-        "Standard_D4_v4",
-        "Standard_D4_v5"
+        "Standard_DS3_v2",   # 4 vCPU, 14 GB, max 4 NICs
+        "Standard_DS4_v2",   # 8 vCPU, 28 GB, max 8 NICs
+        "Standard_D3_v2",    # 4 vCPU, 14 GB, max 4 NICs
+        "Standard_D4_v2",    # 8 vCPU, 28 GB, max 8 NICs
+        "Standard_D8s_v4",   # 8 vCPU, 32 GB, max 4 NICs
+        "Standard_D8s_v5",   # 8 vCPU, 32 GB, max 4 NICs
+        "Standard_D8_v4",    # 8 vCPU, 32 GB, max 4 NICs
+        "Standard_D8_v5"     # 8 vCPU, 32 GB, max 4 NICs
     )
     foreach ($sku in $candidates) {
         $raw = az vm list-skus -l $Region --resource-type virtualMachines `
@@ -104,9 +104,61 @@ function Pick-VmSku([string]$Region) {
             return $sku
         }
     }
-    Log "  WARNING: No PA-compatible (DS3_v2-series) SKU with empty restrictions found in '$Region'."
+    Log "  WARNING: No PA-compatible NVA SKU with empty restrictions found in '$Region'."
     Log "           Using Standard_DS3_v2 as fallback; preflight will verify capacity."
     return "Standard_DS3_v2"
+}
+
+# Pick first unrestricted small SKU for spoke/workload Ubuntu VMs (2 vCPU / 4-8 GB RAM).
+function Pick-SpokeVmSku([string]$Region) {
+    if ($SkipPreflight) { return "Standard_B2s" }
+
+    # B-series and D2-series capacity can be blocked even when list-skus shows no restrictions.
+    # Probe with a real VM allocation (throw-away RG) to find an actually-allocatable SKU.
+    $suffix  = (New-HexKey 3)
+    $capRg   = "capcheck-spoke-${Region}-${suffix}"
+    $capPass = "CapChk$(New-HexKey 6)Aa1!"
+    az group create -n $capRg -l $Region --output none 2>$null | Out-Null
+    az network vnet create -g $capRg -n "capchk-vnet2" -l $Region `
+        --address-prefix "10.253.0.0/16" --subnet-name "capchk-sub2" `
+        --subnet-prefix "10.253.0.0/24" --output none 2>$null | Out-Null
+    az network nic create -g $capRg -n "capchk-nic2" -l $Region `
+        --vnet-name "capchk-vnet2" --subnet "capchk-sub2" `
+        --output none 2>$null | Out-Null
+
+    $candidates = @("Standard_B2s","Standard_B2ms","Standard_D2s_v3","Standard_D2as_v4","Standard_D2s_v4","Standard_A2_v2")
+    $spokeSku = $null
+    foreach ($probeSku in $candidates) {
+        Log "  [spoke-cap] Probing spoke SKU $probeSku ..."
+        $code = 1
+        try {
+            az vm create -g $capRg -n "capchk-spoke" -l $Region `
+                --image Ubuntu2204 --size $probeSku `
+                --admin-username capchk --admin-password $capPass `
+                --nics "capchk-nic2" --os-disk-delete-option Delete `
+                --only-show-errors --output none 2>&1 | Out-Null
+            $code = $LASTEXITCODE
+        } catch { $code = 1 }
+        if ($code -eq 0) {
+            $spokeSku = $probeSku
+            if ($probeSku -ne "Standard_B2s") {
+                Log "  [spoke-cap] NOTE: Standard_B2s unavailable — using '$probeSku' instead."
+            } else {
+                Log "  [spoke-cap] ✔ $probeSku allocatable."
+            }
+            break
+        } else {
+            Log "  [spoke-cap] ✗ $probeSku capacity-blocked."
+            az vm delete -g $capRg -n "capchk-spoke" --yes --no-wait --output none 2>$null | Out-Null
+        }
+    }
+    az group delete -n $capRg --yes --no-wait --output none 2>$null | Out-Null
+
+    if (-not $spokeSku) {
+        Log "  WARNING: No spoke VM SKU allocatable in $Region. Falling back to Standard_B2s."
+        return "Standard_B2s"
+    }
+    return $spokeSku
 }
 
 # Real VM allocation probe in a throw-away RG.  Returns the first SKU that
@@ -139,7 +191,8 @@ function Preflight-VmCapacity([string]$Region, [string]$InitialSku) {
         --output none 2>$null
 
     $candidates = @($InitialSku)
-    @("Standard_DS3_v2","Standard_DS4_v2","Standard_D3_v2","Standard_D4_v2") | ForEach-Object {
+    @("Standard_DS3_v2","Standard_DS4_v2","Standard_D3_v2","Standard_D4_v2",
+      "Standard_D8s_v4","Standard_D8s_v5","Standard_D8_v4","Standard_D8_v5") | ForEach-Object {
         if ($_ -ne $InitialSku) { $candidates += $_ }
     }
 
@@ -275,9 +328,13 @@ Log ""
 Log "=== Phase 3: VM SKU selection ==="
 $CandidateSku = Pick-VmSku -Region $Location
 Log "  list-skus candidate: $CandidateSku"
-Log "  Running capacity pre-flight in $Location (this may take ~2 min) ..."
+Log "  Running capacity pre-flight in $Location (this may take ~2-4 min) ..."
 $VmSize = Preflight-VmCapacity -Region $Location -InitialSku $CandidateSku
 Log "  ✔ VM_SIZE resolved: $VmSize"
+
+Log "  Running spoke VM capacity probe in $Location ..."
+$SpokeVmSize = Pick-SpokeVmSku -Region $Location
+Log "  ✔ SPOKE_VM_SIZE resolved: $SpokeVmSize"
 
 # =============================================================================
 # Phase 4 — Create resource group
@@ -414,7 +471,7 @@ az deployment group create `
         adminUsername="$AdminUsername" `
         adminPassword="$AdminPasswordPlain" `
         nvaVmSize="$VmSize" `
-        vmSize="Standard_B2s" `
+        vmSize="$SpokeVmSize" `
         deployOnPrem="$deployOnPremParam" `
         onpremBgpAsn=65001 `
         bootstrapStorageAccount="$BootstrapSa" `
@@ -576,6 +633,17 @@ az network vhub route-table route add `
     --output none
 
 Log "  ✔ defaultRouteTable 0.0.0.0/0 → conn-dmz route installed."
+
+# =============================================================================
+# Phase 10b — NOTE: No spoke UDR required for vWAN topology
+# The vWAN hub's defaultRouteTable already propagates 0/0 → conn-dmz to all
+# connected spokes as VirtualNetworkGateway routes.  A UDR with
+# nextHopType=VirtualAppliance pointing to an ILB in a different (hub-connected)
+# VNet resolves as nextHopType=None in the effective route table, silently
+# dropping spoke egress traffic.  Spoke workload UDRs are left empty (routes:[])
+# as Bicep creates them; routing is handled entirely by hub route propagation.
+# =============================================================================
+Log "=== Phase 10b: Spoke workload UDRs left empty — vWAN hub propagation handles 0/0 (no UDR needed) ==="
 
 # =============================================================================
 # Phase 12 — On-prem VPN (conditional)

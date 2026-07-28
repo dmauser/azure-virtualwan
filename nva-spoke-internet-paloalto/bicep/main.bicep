@@ -114,6 +114,7 @@ module paloAlto 'modules/palo-alto.bicep' = {
     adminUsername: adminUsername
     adminPassword: adminPassword
     vmSize: nvaVmSize
+    bootstrapStorageAccount: bootstrapStorageAccount
     bootstrapStorageKey: bootstrapStorageKey
     bootstrapFileShare: bootstrapFileShare
     bootstrapShareDirectory: bootstrapShareDirectory

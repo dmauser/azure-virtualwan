@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.42.1.51946",
-      "templateHash": "6842013764617017073"
+      "templateHash": "14019861629940255109"
     }
   },
   "parameters": {
@@ -27,11 +27,18 @@
         "description": "Admin password for all VMs"
       }
     },
-    "vmSize": {
+    "nvaVmSize": {
       "type": "string",
       "defaultValue": "Standard_DS3_v2",
       "metadata": {
-        "description": "VM size for PA firewalls and spoke/onprem VMs; validated by deploy.sh SKU preflight"
+        "description": "VM size for PA firewalls; validated by deploy.sh SKU preflight"
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_B2s",
+      "metadata": {
+        "description": "VM size for spoke and on-prem test VMs (Ubuntu workload); needs only 2 vCPU / 4 GB RAM)"
       }
     },
     "deployOnPrem": {
@@ -807,7 +814,7 @@
             "value": "[parameters('adminPassword')]"
           },
           "vmSize": {
-            "value": "[parameters('vmSize')]"
+            "value": "[parameters('nvaVmSize')]"
           },
           "bootstrapStorageAccount": {
             "value": "[parameters('bootstrapStorageAccount')]"
@@ -832,7 +839,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.42.1.51946",
-              "templateHash": "10498107154664963656"
+              "templateHash": "768659701434347290"
             }
           },
           "parameters": {
@@ -1063,7 +1070,7 @@
                     "publisher": "paloaltonetworks",
                     "offer": "vmseries-flex",
                     "sku": "byol",
-                    "version": "latest"
+                    "version": "11.1.612"
                   },
                   "osDisk": {
                     "createOption": "FromImage",
