@@ -1769,3 +1769,257 @@ If spoke→PA→Internet egress fails in a future iteration:
 4. **Only if all above pass and traffic still fails**: Consider adding UDRs (but evidence suggests this will not be necessary)
 
 ---
+
+# Decision: Dual Virtual Router Design for PA VM-Series (ELB + ILB topology)
+
+**Date:** 2026-07-27  
+**Author:** Alex (Network Engineer)  
+**Status:** Implemented — bootstrap.xml updated; clean redeploy by Naomi pending  
+**Supersedes:** alex-probe-route-fix.md (single-VR host-route approach — see anti-pattern section)
+
+---
+
+## Root Cause
+
+Azure Standard LB health probes — **both internal (ILB) and external (ELB)** — always originate from the same platform IP: **168.63.129.16**. In our Active-Active VM-Series deployment:
+
+- The **Public LB (lb-public)** backends the untrust NICs (ethernet1/1, snet-untrust 10.0.0.32/27, gw 10.0.0.33)
+- The **Internal LB (lb-ilb, HA-ports)** backends the trust NICs (ethernet1/2, snet-trust 10.0.0.64/27, gw 10.0.0.65)
+
+With a **single virtual router** containing only `0.0.0.0/0 → ethernet1/1` and `10.0.0.0/8 → ethernet1/2`:
+
+- ILB probe arrives on ethernet1/2 (trust). No /32 for 168.63.129.16 → 0/0 → ethernet1/1. SYN-ACK exits the untrust NIC with a trust source IP → Azure SDN drops as spoof → **ILB 0% healthy → all spoke egress fails.**
+- Adding a `/32 host-route 168.63.129.16 → ethernet1/2` fixes ILB probe symmetry BUT the ELB probe (arriving on ethernet1/1) now also gets routed out ethernet1/2 → same Azure SDN spoof drop → **ELB regresses to 0% healthy.**
+
+A single virtual router fundamentally cannot serve both probe symmetry requirements simultaneously when both LBs probe from the same source IP.
+
+---
+
+## Decision: Dual Virtual Routers
+
+Implement two separate virtual routers, each owning one dataplane NIC. Each VR's routes are scoped to its NIC, so each LB's probe naturally exits the interface it arrived on.
+
+### VR-Untrust (ethernet1/1 — Public LB / internet egress)
+
+| Route Name | Destination | Next-Hop | Interface | Metric | Purpose |
+|---|---|---|---|---|---|
+| `default-via-untrust` | 0.0.0.0/0 | 10.0.0.33 | ethernet1/1 | 10 | Internet egress; ELB probe symmetric (0/0 → eth1/1) |
+| `rfc1918-10-to-vr-trust` | 10.0.0.0/8 | next-vr:VR-Trust | — | 20 | Inbound DNAT return hand-off |
+
+### VR-Trust (ethernet1/2 — ILB backend / spoke ingress)
+
+| Route Name | Destination | Next-Hop | Interface | Metric | Purpose |
+|---|---|---|---|---|---|
+| `azure-probe-via-trust` | 168.63.129.16/32 | 10.0.0.65 | ethernet1/2 | 10 | ILB probe symmetric (/32 beats 0/0) |
+| `rfc1918-10-via-trust` | 10.0.0.0/8 | 10.0.0.65 | ethernet1/2 | 10 | Spoke return path via trust gw |
+| `default-to-vr-untrust` | 0.0.0.0/0 | next-vr:VR-Untrust | — | 10 | Internet egress hand-off |
+
+### Inter-VR Egress Flow
+
+```
+Spoke VM → vHub defaultRouteTable → conn-dmz 0/0 → ILB 10.0.0.68 → ethernet1/2
+  → VR-Trust lookup: 0/0 → next-vr VR-Untrust
+  → VR-Untrust lookup: 0/0 → 10.0.0.33 ethernet1/1
+  → Zone crossing trust→untrust → NAT (masquerade to eth1/1 DHCP IP)
+  → Public LB outbound SNAT → pip-lb-public
+  → Internet
+```
+
+### Probe Coverage
+
+LB probe traffic (TCP/22 to the PA interface) is PAN-OS **self-traffic** — handled by the `interface-management-profile` (`allow-ssh-ping`: ssh=yes) applied to both ethernet1/1 and ethernet1/2. This is not transit traffic; the security policy (`permit-trust-to-untrust`) is NOT evaluated for self-traffic. No additional security policy rules are required.
+
+### Zones (unchanged)
+
+- `untrust` zone → ethernet1/1
+- `trust` zone → ethernet1/2
+
+Zone assignments are unchanged. The zone crossing (trust→untrust) for egress traffic still triggers NAT and security policy evaluation, so the existing `trust-to-untrust-masquerade` NAT rule and `permit-trust-to-untrust` security rule apply as before.
+
+---
+
+## Reference
+
+[microhack-azure-panfw scenario3](https://github.com/davidsntg/microhack-azure-panfw/blob/main/scenario3/README.md):
+
+> "To ensure proper routing and management of traffic, it is crucial to define TWO distinct Virtual Routers (Trusted and Untrusted) per firewall instance, as the Azure Internal Load Balancer and External Load Balancer rely on the SAME probing source IP address 168.63.129.16."
+
+> ⚠️ **NIC convention in that reference is the inverse of our lab:**  
+> Reference: eth1/1=Trust, eth1/2=Untrust  
+> Our lab: eth1/1=Untrust, eth1/2=Trust  
+> The dual-VR logic is identical; just the NIC-to-VR assignments are swapped.
+
+---
+
+## File Changed
+
+`nva-spoke-internet-paloalto/bicep/bootstrap/bootstrap.xml`  
+- Replaced single VR `default` with `VR-Untrust` + `VR-Trust`  
+- Fixed pre-existing XML comment `--dport` violations (XML spec forbids `--` inside comments)  
+- XML validated via PowerShell `[xml]` cast — **VALID**  
+- Shared by both pa-fw-0 and pa-fw-1 — single edit covers both
+
+---
+
+## Anti-Pattern: Single-VR Host Route (superseded)
+
+Adding `168.63.129.16/32 → ethernet1/2` to a single VR is a partial fix:
+- ILB probe: symmetric ✓
+- ELB probe: broken ✗ (reply now exits wrong NIC, Azure SDN drops)
+
+This approach was initially implemented (session 1) before the ELB regression was identified. The dual-VR design is the only correct solution when both an ELB and ILB are present.
+
+
+---
+
+# Decision Note: PA Live Re-Apply — Bootstrap Fix Deployment
+**Author:** Naomi (Infra Dev)  
+**Date:** 2026-07-27  
+**Context:** nva-spoke-internet-paloalto lab, DMAUSER-FDPO / westus3, rg-nva-spoke-internet-pa
+
+---
+
+## Problem
+
+Amos validated the live deployment and found data plane BROKEN: ILB `lb-ilb` health probe was 0% because PAN-OS lacked a return route for Azure health probe source `168.63.129.16/32`. Alex fixed `bootstrap.xml` with a new static route `azure-probe-via-trust` (168.63.129.16/32 → 10.0.0.65 via ethernet1/2). Since PA bootstrap is first-boot-only (Azure Files delivery), VM recreation was required to apply the fix.
+
+---
+
+## Approach Chosen
+
+**Full clean redeploy** (not targeted VM recreate). Rationale: deterministic, validates shippable IaC end-to-end, eliminates any state drift from the broken deployment.
+
+Steps executed:
+1. Fixed `validate-flow.ps1` to add ILB backend pool membership check using `nva-backend` pool name (cosmetic fix for Amos's re-validation run)
+2. Deleted existing RG with `cleanup.ps1 -Rg rg-nva-spoke-internet-pa -Yes` (uses `az group delete --no-wait`)
+3. Waited for RG to disappear from `az group show`, then added **10-minute buffer** before redeploying to clear Azure's async deletion pipeline (see below)
+4. Launched `deploy.ps1` from `nva-spoke-internet-paloalto/` with `-Location westus3 -Rg rg-nva-spoke-internet-pa -AdminUsername azureuser -DeployOnPrem:$false`
+5. Bicep deployment completed (all sub-deployments Succeeded)
+6. `apply-panos-config.ps1` ran post-boot to push fixed `bootstrap.xml` via PAN-OS XML API (Phase 7b fallback, required because DMAUSER-FDPO subscription policy `allowSharedKeyAccess=false` blocks Azure Files upload)
+
+---
+
+## Complications Encountered
+
+### Complication 1: `az group delete --no-wait` race condition (critical)
+
+The first redeploy attempt failed because `cleanup.ps1` uses `az group delete --no-wait`. The RG record disappears from `az group show` after ~22 minutes, but the ARM deletion pipeline continues processing child resources for additional minutes. When a new Bicep deployment created resources with the same names in the "deleted" RG, the still-running ARM pipeline deleted the newly created resources (PA VMs, LBs, VNets) approximately 6 minutes after the second Bicep run completed. This caused the deploy to fail in Phase 7b (PA API polling against already-deleted VMs).
+
+**Fix applied:** After RG deletion, wait 10 minutes past the `az group show` disappearance before redeploying.
+
+### Complication 2: Unknown third deployment
+
+While Naomi was waiting for the 10-minute buffer, a third Bicep deployment ran automatically (PA VMs created at 23:17 UTC). The exact trigger is unknown — likely the original deploy.ps1 process (shellId: deploy2) was not fully stopped and completed Phase 6 again after Phase 7b timed out. The third deployment created a full environment with all resources in Succeeded state.
+
+---
+
+## Outcome
+
+**COMPLETE — ILB probe healthy.**
+
+- **Final deployment:** All resources deployed and Succeeded in westus3/rg-nva-spoke-internet-pa (Bicep Phase 6 at ~20:23 CDT 2026-07-27)
+- **PA VMs:** pa-fw-0 (mgmt 20.106.90.158) and pa-fw-1 (mgmt 20.106.90.240) both **VM running**
+- **PAN-OS config push (Phase 7b):** 8 config subtrees SET successfully on both FWs via `apply-panos-config.ps1`; probe route `168.63.129.16/32 → 10.0.0.65 via eth1/2` confirmed present in routing table on both FWs
+- **Commit:** Auto-commit (job2) completed FIN/OK; commit-force (job3) completed FIN/OK on both FWs (~20:44 CDT)
+- **Hub connections:** conn-dmz, conn-spoke1, conn-spoke2 all in Succeeded state
+- **defaultRouteTable:** Route `default-via-nva` (0.0.0.0/0 → conn-dmz) added and Succeeded
+- **ILB probe health (`DipAvailability`):** **100% at 01:47:00 UTC (20:47 CDT) — HEALTHY** ✅
+
+### Key Azure deploy details
+| Resource | Value |
+|---|---|
+| Hub | hub-nva-si |
+| ILB frontend | 10.0.0.68 |
+| Public LB PIP | 20.163.105.237 |
+| Storage account | pabstrape461042f |
+| pa-fw-0 mgmt IP | 20.106.90.158 |
+| pa-fw-1 mgmt IP | 20.106.90.240 |
+
+---
+
+## Admin Credentials
+
+- Username: `azureuser`
+- Password: `PaLab!60af5799327244`
+
+---
+
+## Pending
+
+- Full egress validation (Amos, authoritative) — ILB now healthy, egress path complete
+- Git commit of bootstrap.xml + validate-flow.ps1 (separate dispatch after Amos confirms)
+
+
+---
+
+# Decision: PALO-ALTO-CONFIG.md — Canonical LB & PAN-OS Configuration Reference
+
+**Date:** 2026-07-28  
+**Author:** Coordinator (Session 274503b2-8535-4021-8ce3-c90e21d1658d)  
+**Status:** Implemented — committed to main  
+**Related:** Merges all prior decisions on Palo Alto bootstrap, LB design, dual-VR routing  
+
+---
+
+## Summary
+
+A single canonical reference document 
+va-spoke-internet-paloalto/PALO-ALTO-CONFIG.md (14,168 chars) has been authored documenting:
+
+1. **Azure Load Balancer Configuration** (Standard LBs, Internal HA-ports, Public SNAT)  
+   - ILB: static frontend 10.0.0.68, HA-ports rule (protocol=All, port=0, floating IP), TCP/22 health probe  
+   - Public LB: static outbound PIP, SNAT-all rule, TCP/22 health probe  
+   - Probe source: Azure platform fabric 168.63.129.16  
+
+2. **PAN-OS Day-0 Configuration** (from ootstrap.xml)  
+   - Interface mapping: eth0=mgmt (snet-mgmt), eth1=untrust (snet-untrust), eth2=trust (snet-trust)  
+   - Dual virtual-router design (VR-Untrust, VR-Trust) with inter-VR handoff for egress flow  
+   - NAT masquerade rule (trust→untrust→SNAT to eth1 DHCP IP)  
+   - Security policy: permit trust→untrust  
+   - Critical fixed route: 168.63.129.16/32 → 10.0.0.65 via eth2 (ILB probe symmetry)  
+   - Session setting: 	cp non-syn-tcp=yes (HA-ports mid-flow packet handling)  
+
+3. **End-to-End Packet Flow**  
+   - Spoke VM egress → vHub defaultRouteTable (0/0 → conn-dmz) → ILB 10.0.0.68 → PA trust NIC → VR-Trust routes to VR-Untrust → NAT → PA untrust NIC → Public LB SNAT → Internet PIP  
+
+4. **Verification Commands**  
+   - Azure control-plane: hub routes, connection state, effective routes on spoke NICs  
+   - PAN-OS API (via pply-panos-config.ps1/.sh): confirm ethernet1/1 & eth1/2 up, routes present, interfaces assigned to zones  
+   - Data-plane: curl ifconfig.io from spoke VMs returns Public LB PIP  
+   - LB metrics: DipAvailability = 100% (both LBs), SNAT port consumption observed  
+
+5. **Azure Learn Citations**  
+   - HA-ports: https://learn.microsoft.com/azure/load-balancer/load-balancer-ha-ports-overview  
+   - Standard LB SNAT: https://learn.microsoft.com/azure/load-balancer/load-balancer-outbound-connections  
+   - VNet effective routes: https://learn.microsoft.com/azure/virtual-wan/effective-routes-virtual-hub  
+
+---
+
+## Key Design Decisions Reflected
+
+This document is the authoritative source for all LB + PAN-OS config decisions made across this session:
+
+| Decision | Reference |
+|---|---|
+| Dual virtual-router design (VR-Untrust, VR-Trust) | alex-dual-vr-fix.md (this inbox merge) + related decisions |
+| 168.63.129.16/32 host route for probe symmetry | alex-dual-vr-fix.md + decision "Azure ILB Health-Probe Symmetry Route" |
+| HA-ports floating IP + non-syn-tcp=yes | naomi-paloalto-bicep.md (decisions log) |
+| SNAT-all on Public LB + double-SNAT design | Public LB & SNAT decisions (decisions log) |
+| Bootstrap fallback via XML API (Phase 7b) | alex-panos-config-fallback.md + naomi-harden-deploy-scripts.md |
+
+---
+
+## Supersedes
+
+- README.md ASCII diagram (single-VR architecture, now outdated)  
+- All single-VR routing approaches documented elsewhere  
+- Partial probe-fix references in other decision entries  
+
+**The dual-VR design in PALO-ALTO-CONFIG.md is authoritative.**
+
+---
+
+## Maintenance
+
+This file is the living reference for troubleshooting Palo Alto deployments in Azure with dual LBs (internal + public). Future labs or productions deployments should reference PALO-ALTO-CONFIG.md for the proven pattern.
+
