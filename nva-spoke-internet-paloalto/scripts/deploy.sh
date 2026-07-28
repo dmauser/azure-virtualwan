@@ -1,0 +1,550 @@
+#!/usr/bin/env bash
+# =============================================================================
+# deploy.sh — Main orchestration for the nva-spoke-internet-paloalto lab.
+#
+# Deploys:
+#   Virtual WAN hub + Spoke1 + Spoke2 + DMZ VNets
+#   Two Palo Alto VM-Series (vmseries-flex, BYOL) with 3-NIC design
+#   Public LB for SNAT egress, HA-ports ILB for east-west (0/0 next-hop 10.0.0.68)
+#   PA bootstrap: Azure Files share with init-cfg.txt + bootstrap.xml (Phase 5b)
+#   Post-deploy vHub routing: conn-dmz static 0/0→ILB, defaultRouteTable 0/0→conn-dmz
+#   Optional: on-prem S2S VPN (BGP-over-IPsec, strongSwan + FRR, Linux NVA)
+#
+# Usage: ./deploy.sh [--yes]   (--yes skips DEPLOY_ONPREM prompt, defaults to N)
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BICEP_DIR="${SCRIPT_DIR}/../bicep"
+
+source "${SCRIPT_DIR}/functions.sh"
+
+DEPLOY_NAME="nva-spoke-internet-pa-deploy"
+
+# =============================================================================
+# Phase 1 — Prerequisite check
+# =============================================================================
+log "=== Phase 1: Checking prerequisites ==="
+
+for tool in az jq openssl; do
+  if ! command -v "$tool" &>/dev/null; then
+    echo "ERROR: Required tool not found: $tool"
+    echo "  Install: az=Azure CLI | jq=https://stedolan.github.io/jq/ | openssl (built into most distros)"
+    exit 1
+  fi
+done
+
+if ! az account show --output none 2>/dev/null; then
+  echo "ERROR: Not logged in to Azure. Run: az login"
+  exit 1
+fi
+
+CURRENT_SUB=$(az account show --query '[name,id]' -o tsv | tr '\t' ' / ')
+log "  Logged in — subscription: $CURRENT_SUB"
+
+# =============================================================================
+# Phase 1b — Accept Palo Alto VM-Series marketplace image terms
+# =============================================================================
+log "=== Phase 1b: Accepting Palo Alto VM-Series marketplace image terms ==="
+az vm image terms accept \
+  --urn "paloaltonetworks:vmseries-flex:byol:latest" \
+  --output none
+log "  ✔ Image terms accepted (paloaltonetworks:vmseries-flex:byol:latest)."
+
+# =============================================================================
+# Phase 2 — Prompts
+# =============================================================================
+log "=== Phase 2: Parameters ==="
+
+ask_default() {
+  local var_name="$1" prompt="$2" default="$3"
+  read -r -p "  ${prompt} [${default}]: " _inp
+  printf -v "$var_name" '%s' "${_inp:-$default}"
+}
+
+ask_default LOCATION    "Azure region"       "westus3"
+ask_default RG          "Resource group name" "rg-nva-spoke-internet-pa"
+ask_default ADMIN_USERNAME "Admin username"  "azureuser"
+
+# Secure password prompt with confirmation
+while true; do
+  read -r -s -p "  Admin password (min 12 chars, complexity required): " ADMIN_PASSWORD
+  echo ""
+  read -r -s -p "  Confirm password: " ADMIN_PASSWORD2
+  echo ""
+  if [[ "$ADMIN_PASSWORD" != "$ADMIN_PASSWORD2" ]]; then
+    echo "  Passwords do not match — try again."
+  elif [[ ${#ADMIN_PASSWORD} -lt 12 ]]; then
+    echo "  Password is too short (minimum 12 characters) — try again."
+  else
+    break
+  fi
+done
+
+ask_default DEPLOY_ONPREM "Deploy on-prem simulation? (y/N)" "N"
+DEPLOY_ONPREM="${DEPLOY_ONPREM,,}"   # lower-case
+
+log ""
+log "  Location       : $LOCATION"
+log "  Resource group : $RG"
+log "  Admin username : $ADMIN_USERNAME"
+log "  On-prem deploy : $DEPLOY_ONPREM"
+log ""
+
+# =============================================================================
+# Phase 3 — VM SKU selection + capacity preflight
+# =============================================================================
+log "=== Phase 3: VM SKU selection ==="
+
+pick_vm_sku "$LOCATION" CANDIDATE_SKU
+log "  list-skus candidate: $CANDIDATE_SKU"
+log "  Running capacity pre-flight in $LOCATION (this may take ~2 min) ..."
+
+if ! preflight_vm_capacity "$LOCATION" "$CANDIDATE_SKU" VM_SIZE; then
+  # preflight_vm_capacity already printed a detailed failure message + region suggestions
+  exit 1
+fi
+log "  ✔ VM_SIZE resolved: $VM_SIZE"
+
+# =============================================================================
+# Phase 4 — Create resource group
+# =============================================================================
+log "=== Phase 4: Creating resource group '$RG' ==="
+az group create -n "$RG" -l "$LOCATION" --output none
+log "  ✔ Resource group ready."
+
+# =============================================================================
+# Phase 5 — Generate PSK (if on-prem)
+# =============================================================================
+VPN_SHARED_KEY=""
+if [[ "$DEPLOY_ONPREM" == "y" ]]; then
+  log "=== Phase 5: Generating VPN PSK ==="
+  VPN_SHARED_KEY="$(openssl rand -hex 24)"
+  log "  ✔ PSK generated (hex-48, stored only in this shell session)."
+fi
+
+# =============================================================================
+# Phase 5b — PA bootstrap storage account + Azure Files share
+# =============================================================================
+log "=== Phase 5b: Creating PA bootstrap storage ==="
+
+BOOTSTRAP_SA_SUFFIX="$(openssl rand -hex 4)"
+BOOTSTRAP_SA="pabstrap${BOOTSTRAP_SA_SUFFIX}"
+BOOTSTRAP_SHARE="bootstrap"
+BOOTSTRAP_DIR=""   # empty = root; PA reads init-cfg.txt from config/ subfolder inside the share
+
+log "  Storage account name: $BOOTSTRAP_SA"
+az storage account create \
+  -g "$RG" -n "$BOOTSTRAP_SA" -l "$LOCATION" \
+  --sku Standard_LRS --kind StorageV2 \
+  --min-tls-version TLS1_2 \
+  --allow-shared-key-access true \
+  --output none
+log "  ✔ Storage account created."
+
+# Verify the effective allowSharedKeyAccess setting.
+# A management-group policy can override --allow-shared-key-access true back to false,
+# silently blocking all Azure Files SMB data-plane operations (share/dir/upload).
+SHARED_KEY_BOOTSTRAP_AVAILABLE=true
+effective_shared_key=$(az storage account show -g "$RG" -n "$BOOTSTRAP_SA" \
+    --query allowSharedKeyAccess -o tsv 2>/dev/null || true)
+if [[ "$effective_shared_key" == "false" ]]; then
+    SHARED_KEY_BOOTSTRAP_AVAILABLE=false
+    log ""
+    log "  WARNING: Subscription policy enforces allowSharedKeyAccess=false;"
+    log "           Azure Files bootstrap upload will be skipped. The storage account"
+    log "           is retained so palo-alto.bicep customData references resolve."
+    log "           The lab will fall back to post-boot PAN-OS API config push (Phase 7b)."
+    log ""
+else
+    log "  ✔ allowSharedKeyAccess=true confirmed — Azure Files upload will proceed."
+fi
+
+# Retrieve storage key (management-plane; succeeds regardless of shared-key policy).
+# Key is always passed to Bicep so customData renders correctly even in fallback mode.
+BOOTSTRAP_SA_KEY=$(az storage account keys list \
+  -g "$RG" -n "$BOOTSTRAP_SA" \
+  --query "[0].value" -o tsv)
+
+if [[ "$SHARED_KEY_BOOTSTRAP_AVAILABLE" == "true" ]]; then
+    # ── Data-plane operations (skipped when policy blocks shared-key access) ──
+
+    if ! az storage share create \
+      --account-name "$BOOTSTRAP_SA" \
+      --account-key "$BOOTSTRAP_SA_KEY" \
+      -n "$BOOTSTRAP_SHARE" \
+      --output none; then
+        log "  WARNING: Failed to create Azure Files share '$BOOTSTRAP_SHARE'."
+        log "           Phase 7b config push will configure the PA firewalls post-boot."
+        SHARED_KEY_BOOTSTRAP_AVAILABLE=false
+    else
+        log "  ✔ Azure Files share '$BOOTSTRAP_SHARE' created."
+
+        # PA bootstrap requires these 4 directories in the share root
+        for dir in config content license software; do
+            if ! az storage directory create \
+              --account-name "$BOOTSTRAP_SA" \
+              --account-key "$BOOTSTRAP_SA_KEY" \
+              --share-name "$BOOTSTRAP_SHARE" \
+              -n "$dir" \
+              --output none; then
+                log "  WARNING: Failed to create directory '$dir' in bootstrap share."
+            fi
+        done
+        log "  ✔ Bootstrap directories created: config/ content/ license/ software/"
+
+        # Upload the two PA day-0 config files (authored by Alex; referenced paths are required)
+        for f in init-cfg.txt bootstrap.xml; do
+            SRC="${BICEP_DIR}/bootstrap/${f}"
+            DST="config/${f}"
+            if [[ ! -f "$SRC" ]]; then
+                log "  WARNING: Bootstrap file not found: $SRC"
+                log "           Skipping upload — PA will boot in minimal state without this file."
+                continue
+            fi
+            if ! az storage file upload \
+              --account-name "$BOOTSTRAP_SA" \
+              --account-key "$BOOTSTRAP_SA_KEY" \
+              --share-name "$BOOTSTRAP_SHARE" \
+              --path "$DST" \
+              --source "$SRC" \
+              --output none; then
+                log "  WARNING: Failed to upload '$f' to bootstrap share."
+                log "           Phase 7b config push will configure the PA firewalls post-boot."
+            else
+                log "  ✔ Uploaded ${f} → ${BOOTSTRAP_SHARE}/${DST}"
+            fi
+        done
+    fi
+fi
+
+log "  Bootstrap storage ready: account=$BOOTSTRAP_SA  share=$BOOTSTRAP_SHARE  sharedKey=$SHARED_KEY_BOOTSTRAP_AVAILABLE"
+
+# =============================================================================
+# Phase 6 — Bicep deployment
+# =============================================================================
+log "=== Phase 6: Deploying Bicep template '$DEPLOY_NAME' ==="
+log "  This will take 20-40 minutes (vWAN hub + VPN gateway provisioning) ..."
+
+DEPLOY_ONPREM_PARAM="false"
+[[ "$DEPLOY_ONPREM" == "y" ]] && DEPLOY_ONPREM_PARAM="true"
+
+az deployment group create \
+  -g "$RG" \
+  -f "${BICEP_DIR}/main.bicep" \
+  -n "$DEPLOY_NAME" \
+  --parameters \
+    location="$LOCATION" \
+    adminUsername="$ADMIN_USERNAME" \
+    adminPassword="$ADMIN_PASSWORD" \
+    vmSize="$VM_SIZE" \
+    deployOnPrem="$DEPLOY_ONPREM_PARAM" \
+    onpremBgpAsn=65001 \
+    bootstrapStorageAccount="$BOOTSTRAP_SA" \
+    bootstrapStorageKey="$BOOTSTRAP_SA_KEY" \
+    bootstrapFileShare="$BOOTSTRAP_SHARE" \
+    bootstrapShareDirectory="$BOOTSTRAP_DIR" \
+  --output none
+
+log "  ✔ Bicep deployment complete."
+
+# =============================================================================
+# Phase 7 — Read deployment outputs
+# =============================================================================
+log "=== Phase 7: Reading deployment outputs ==="
+
+OUTPUTS=$(az deployment group show \
+  -g "$RG" -n "$DEPLOY_NAME" \
+  --query "properties.outputs" -o json)
+
+# Helper: extract a named output value
+get_output() { echo "$OUTPUTS" | jq -r ".[\"$1\"].value // empty"; }
+
+LOCATION_OUT="$(get_output location)"
+VWAN_NAME="$(get_output vwanName)"
+HUB="$(get_output hubName)"
+HUB_ID="$(get_output hubId)"
+DMZ_VNET_ID="$(get_output dmzVnetId)"
+SPOKE1_VNET_ID="$(get_output spoke1VnetId)"
+SPOKE2_VNET_ID="$(get_output spoke2VnetId)"
+ILB_FRONTEND_IP="$(get_output ilbFrontendIp)"
+PUBLIC_LB_PIP="$(get_output publicLbPublicIp)"
+VPN_GW_NAME="$(get_output vpnGatewayName)"
+ONPREM_NVA_PIP="$(get_output onpremNvaPublicIp)"
+ONPREM_NVA_PRIVATE_IP="$(get_output onpremNvaPrivateIp)"
+ONPREM_NVA_NAME="$(get_output onpremNvaName)"
+ONPREM_VM_NAME="$(get_output onpremVmName)"
+
+# defaultRouteTable resource ID — derived from the already-fetched HUB_ID output
+DEFAULT_RT_ID="${HUB_ID}/hubRouteTables/defaultRouteTable"
+
+log "  Hub             : $HUB"
+log "  VWAN            : $VWAN_NAME"
+log "  DMZ VNet        : $DMZ_VNET_ID"
+log "  Spoke1 VNet     : $SPOKE1_VNET_ID"
+log "  Spoke2 VNet     : $SPOKE2_VNET_ID"
+log "  ILB frontend    : $ILB_FRONTEND_IP"
+log "  Public LB PIP   : $PUBLIC_LB_PIP"
+[[ -n "$VPN_GW_NAME" ]] && log "  VPN GW          : $VPN_GW_NAME"
+[[ -n "$ONPREM_NVA_PIP" ]] && log "  On-prem NVA PIP : $ONPREM_NVA_PIP"
+[[ -n "$ONPREM_NVA_PRIVATE_IP" ]] && log "  On-prem NVA priv: $ONPREM_NVA_PRIVATE_IP"
+
+# Guard: ILB frontend must match expected value
+if [[ "$ILB_FRONTEND_IP" != "10.0.0.68" ]]; then
+  echo "  WARNING: ILB frontend IP from outputs is '$ILB_FRONTEND_IP', expected '10.0.0.68'."
+  echo "           Review Bicep output.  Continuing with actual value."
+fi
+
+# =============================================================================
+# Phase 7b — Post-boot PAN-OS day-0 config push
+# =============================================================================
+log "=== Phase 7b: Applying PAN-OS day-0 config (post-boot) ==="
+# Always run — idempotent verify+repair whether Azure Files bootstrap succeeded or not.
+# pip-pa-0-mgmt / pip-pa-1-mgmt are the management PIPs deployed by palo-alto.bicep.
+PA0_MGMT_IP=$(az network public-ip show -g "$RG" -n "pip-pa-0-mgmt" \
+    --query ipAddress -o tsv 2>/dev/null || true)
+PA1_MGMT_IP=$(az network public-ip show -g "$RG" -n "pip-pa-1-mgmt" \
+    --query ipAddress -o tsv 2>/dev/null || true)
+
+# Build comma-separated list of non-empty IPs
+MGMT_IPS_CSV=""
+for _ip in "$PA0_MGMT_IP" "$PA1_MGMT_IP"; do
+    [[ -z "$_ip" ]] && continue
+    MGMT_IPS_CSV="${MGMT_IPS_CSV:+${MGMT_IPS_CSV},}${_ip}"
+done
+
+if [[ -n "$MGMT_IPS_CSV" ]]; then
+    if ! bash "${SCRIPT_DIR}/apply-panos-config.sh" \
+        --mgmt-ips "$MGMT_IPS_CSV" \
+        --admin-username "$ADMIN_USERNAME" \
+        --admin-password "$ADMIN_PASSWORD"; then
+        log "  WARNING: PAN-OS config push reported errors on one or more firewalls. Check PA config/commit state before validating egress."
+    else
+        log "  ✔ PAN-OS day-0 config applied to all firewalls."
+    fi
+else
+    log "  WARNING: No PA management IPs found in outputs — cannot apply post-boot config."
+fi
+
+# =============================================================================
+# Phase 8 — Wait for hub routingState = Provisioned
+# =============================================================================
+log "=== Phase 8: Waiting for hub '$HUB' to reach routingState=Provisioned ==="
+# Max 60 iterations × 10s = 10 minutes.
+poll_until "Hub routingState" "Provisioned" 10 60 \
+  az network vhub show -g "$RG" -n "$HUB" --query "routingState" -o tsv
+log "  ✔ Hub is Provisioned."
+
+# =============================================================================
+# Phase 9 — Create hub VNet connections
+# =============================================================================
+log "=== Phase 9: Creating hub VNet connections ==="
+
+# conn-dmz: includes static route 0.0.0.0/0 → ILB frontend 10.0.0.68
+# This route tells the hub: for 0/0 packets arriving from other connections and
+# destined for routing through DMZ, forward to the ILB (which load-balances
+# across PA instances on the HA-ports backend pool).
+log "  Creating conn-dmz (with static 0/0 → $ILB_FRONTEND_IP) ..."
+az network vhub connection create \
+  -g "$RG" --vhub-name "$HUB" -n "conn-dmz" \
+  --remote-vnet "$DMZ_VNET_ID" \
+  --associated-route-table "$DEFAULT_RT_ID" \
+  --propagated-route-tables "$DEFAULT_RT_ID" \
+  --labels "default" \
+  --route-name "default-via-ilb" \
+  --address-prefixes "0.0.0.0/0" \
+  --next-hop "$ILB_FRONTEND_IP" \
+  --output none
+
+log "  Polling conn-dmz provisioningState ..."
+poll_until "conn-dmz provisioningState" "Succeeded" 15 40 \
+  az network vhub connection show -g "$RG" --vhub-name "$HUB" -n "conn-dmz" \
+    --query "provisioningState" -o tsv
+
+# conn-spoke1
+log "  Creating conn-spoke1 ..."
+az network vhub connection create \
+  -g "$RG" --vhub-name "$HUB" -n "conn-spoke1" \
+  --remote-vnet "$SPOKE1_VNET_ID" \
+  --associated-route-table "$DEFAULT_RT_ID" \
+  --propagated-route-tables "$DEFAULT_RT_ID" \
+  --labels "default" \
+  --output none
+
+poll_until "conn-spoke1 provisioningState" "Succeeded" 15 40 \
+  az network vhub connection show -g "$RG" --vhub-name "$HUB" -n "conn-spoke1" \
+    --query "provisioningState" -o tsv
+
+# conn-spoke2
+log "  Creating conn-spoke2 ..."
+az network vhub connection create \
+  -g "$RG" --vhub-name "$HUB" -n "conn-spoke2" \
+  --remote-vnet "$SPOKE2_VNET_ID" \
+  --associated-route-table "$DEFAULT_RT_ID" \
+  --propagated-route-tables "$DEFAULT_RT_ID" \
+  --labels "default" \
+  --output none
+
+poll_until "conn-spoke2 provisioningState" "Succeeded" 15 40 \
+  az network vhub connection show -g "$RG" --vhub-name "$HUB" -n "conn-spoke2" \
+    --query "provisioningState" -o tsv
+
+log "  ✔ All three hub VNet connections are Succeeded."
+
+# =============================================================================
+# Phase 10+11 — defaultRouteTable: add 0.0.0.0/0 → conn-dmz
+# =============================================================================
+log "=== Phase 10+11: Adding 0/0 route to hub defaultRouteTable ==="
+
+CONN_DMZ_ID=$(az network vhub connection show \
+  -g "$RG" --vhub-name "$HUB" -n "conn-dmz" \
+  --query "id" -o tsv)
+
+log "  conn-dmz ID: $CONN_DMZ_ID"
+log "  Adding defaultRouteTable route: 0.0.0.0/0 → conn-dmz ..."
+
+az network vhub route-table route add \
+  -g "$RG" --vhub-name "$HUB" --name "defaultRouteTable" \
+  --route-name "to-internet" \
+  --destination-type "CIDR" --destinations "0.0.0.0/0" \
+  --next-hop-type "ResourceID" --next-hop "$CONN_DMZ_ID" \
+  --output none
+
+log "  ✔ defaultRouteTable 0.0.0.0/0 → conn-dmz route installed."
+log "  NET RESULT: Spoke1/Spoke2 effective routes will include 0.0.0.0/0 → DMZ → ILB → PA → SNAT."
+
+# =============================================================================
+# Phase 12 — On-prem VPN (conditional)
+# =============================================================================
+if [[ "$DEPLOY_ONPREM" == "y" ]]; then
+  log "=== Phase 12: On-prem VPN site + connection ==="
+
+  # a) Create vWAN VPN site for on-prem
+  log "  Creating VPN site 'onprem-vpnsite' ..."
+  az network vpn-site create \
+    -g "$RG" -n "onprem-vpnsite" \
+    -l "$LOCATION" \
+    --virtual-wan "$VWAN_NAME" \
+    --ip-address "$ONPREM_NVA_PIP" \
+    --asn 65001 \
+    --bgp-peering-address "$ONPREM_NVA_PRIVATE_IP" \
+    --address-prefixes "192.168.100.0/24" \
+    --link-name "onprem-link" \
+    --output none
+  log "  ✔ VPN site created."
+
+  # b) Create S2S VPN connection on the hub VPN gateway
+  log "  Creating VPN gateway connection 'conn-onprem' (BGP enabled) ..."
+  az network vpn-gateway connection create \
+    -g "$RG" --gateway-name "$VPN_GW_NAME" -n "conn-onprem" \
+    --vpn-site "onprem-vpnsite" \
+    --enable-bgp true \
+    --vpn-site-link "onprem-link" \
+    --output none
+
+  log "  Setting PSK on link index 0 ..."
+  az network vpn-gateway connection vpn-site-link-conn sharedkey update \
+    -g "$RG" --gateway-name "$VPN_GW_NAME" \
+    --connection-name "conn-onprem" \
+    --index 0 \
+    --value "$VPN_SHARED_KEY" \
+    --output none
+
+  log "  Polling conn-onprem provisioningState ..."
+  poll_until "conn-onprem provisioningState" "Succeeded" 20 60 \
+    az network vpn-gateway connection show \
+      -g "$RG" --gateway-name "$VPN_GW_NAME" -n "conn-onprem" \
+      --query "provisioningState" -o tsv
+
+  log "  ✔ VPN connection provisioned."
+
+  # c) Fetch hub GW public IPs + BGP peer IPs
+  log "  Fetching hub VPN gateway instance IPs and BGP peer IPs ..."
+  HUB_GW_PIP0=$(az network vpn-gateway show \
+    -g "$RG" -n "$VPN_GW_NAME" \
+    --query "ipConfigurations[0].publicIpAddress" -o tsv)
+  HUB_GW_PIP1=$(az network vpn-gateway show \
+    -g "$RG" -n "$VPN_GW_NAME" \
+    --query "ipConfigurations[1].publicIpAddress" -o tsv)
+  HUB_BGP_PEER0=$(az network vpn-gateway show \
+    -g "$RG" -n "$VPN_GW_NAME" \
+    --query "bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]" -o tsv)
+  HUB_BGP_PEER1=$(az network vpn-gateway show \
+    -g "$RG" -n "$VPN_GW_NAME" \
+    --query "bgpSettings.bgpPeeringAddresses[1].defaultBgpIpAddresses[0]" -o tsv)
+
+  log "  Hub GW PIP0     : $HUB_GW_PIP0"
+  log "  Hub GW PIP1     : $HUB_GW_PIP1"
+  log "  Hub BGP peer0   : $HUB_BGP_PEER0"
+  log "  Hub BGP peer1   : $HUB_BGP_PEER1"
+
+  # d) Configure on-prem NVA (strongSwan + FRR) — Linux on-prem stays unchanged
+  log "  Calling configure-onprem.sh ..."
+  bash "${SCRIPT_DIR}/configure-onprem.sh" \
+    "$ONPREM_NVA_NAME" "$RG" \
+    "$HUB_GW_PIP0" "$HUB_GW_PIP1" \
+    "$HUB_BGP_PEER0" "$HUB_BGP_PEER1" \
+    "65515" "65001" "$ONPREM_NVA_PRIVATE_IP" "$VPN_SHARED_KEY"
+fi
+
+# =============================================================================
+# Phase 13 — Validation summary
+# =============================================================================
+log ""
+log "╔══════════════════════════════════════════════════════════════════════╗"
+log "║                   DEPLOYMENT COMPLETE — VALIDATION                   ║"
+log "╚══════════════════════════════════════════════════════════════════════╝"
+log ""
+log "  Resource group  : $RG"
+log "  Hub             : $HUB  (routingState: Provisioned)"
+log "  Public LB PIP   : $PUBLIC_LB_PIP   ← egress SNAT IP for spoke VMs"
+log "  ILB frontend    : $ILB_FRONTEND_IP ← hub 0/0 next hop"
+log ""
+log "  ROUTING VERIFICATION:"
+log "  ─────────────────────────────────────────────────────────────────────"
+log "  # Check Spoke1 VM effective routes (replace <nic-name>):"
+echo "  az network nic show-effective-route-table -g $RG --name <spoke1-nic-name> -o table | grep '0.0.0.0/0'"
+log ""
+log "  # Check defaultRouteTable routes:"
+echo "  az network vhub route-table show -g $RG --vhub-name $HUB --name defaultRouteTable --query 'routes' -o table"
+log ""
+log "  EGRESS TEST (run from Spoke1 or Spoke2 VM via serial console):"
+log "  ─────────────────────────────────────────────────────────────────────"
+log "  # Serial console: Azure portal → VM → Serial console"
+echo "  curl -s --max-time 10 https://ifconfig.me"
+log "  # Expected: public IP matching the Public LB PIP = $PUBLIC_LB_PIP"
+log ""
+
+if [[ "$DEPLOY_ONPREM" == "y" ]]; then
+  log "  ON-PREM TUNNEL VERIFICATION:"
+  log "  ─────────────────────────────────────────────────────────────────────"
+  log "  # Check VPN connection state:"
+  echo "  az network vpn-gateway connection show -g $RG --gateway-name $VPN_GW_NAME -n conn-onprem --query 'connectionStatus' -o tsv"
+  log ""
+  log "  # From on-prem NVA (serial console or az vm run-command):"
+  log "  # IPsec tunnels:"
+  echo "  az vm run-command invoke -g $RG --name $ONPREM_NVA_NAME --command-id RunShellScript --scripts 'ipsec status | grep ESTABLISHED'"
+  log ""
+  log "  # BGP session:"
+  echo "  az vm run-command invoke -g $RG --name $ONPREM_NVA_NAME --command-id RunShellScript --scripts \"vtysh -c 'show bgp summary'\""
+  log ""
+  log "  # Ping from on-prem VM → spoke1 VM private IP:"
+  echo "  az vm run-command invoke -g $RG --name $ONPREM_VM_NAME --command-id RunShellScript --scripts 'ping -c 4 10.1.0.4'"
+  log ""
+fi
+
+log "  PALO ALTO FIREWALL (BYOL LICENSING):"
+log "  ─────────────────────────────────────────────────────────────────────"
+log "  The firewalls boot in BYOL/unlicensed (eval) mode.  The dataplane is"
+log "  functional for lab traffic without a license (eval mode still forwards)."
+log "  To apply full licensing (optional):"
+log "    1. Open the PA management GUI: https://<pip-pa-0-mgmt>  (see portal)"
+log "    2. Navigate to Device → Licenses → Activate feature using Auth-Code"
+log "    3. Enter your Palo Alto Networks auth-code and commit."
+log "  This step is optional for lab validation — traffic forwarding works"
+log "  without a license in eval mode."
+log ""
+log "  CLEANUP:"
+echo "  bash ${SCRIPT_DIR}/cleanup.sh --rg $RG"
+log ""

@@ -1,191 +1,172 @@
 # Naomi — History (Summarized)
 
-## Project Context
-- **Project:** azure-virtualwan — Azure Virtual WAN lab scenarios and deployment scripts
-- **Stack:** Azure CLI (.azcli), Bicep, ARM JSON, Bash/Shell
-- **Domain:** Azure Networking (Virtual WAN, VPN, ExpressRoute, BGP, NVAs, Azure Firewall, Secured Virtual Hubs, Routing Intent)
-- **User:** Daniel Mauser
-- **Created:** 2026-05-04
+## Career Overview
 
-## Career Arc Summary
+**Role:** Infra Dev for azure-virtualwan project (Azure CLI, Bicep, ARM, Bash/Shell)
 
-### Phase 1: Repository Foundations (2026-05-04)
-- Cataloged 30+ labs with LABS_INDEX.md and learning path ordering (fundamentals → advanced → hybrid/migration)
-- Architected unified-lab framework with centralized Bicep type definitions and modular composition
-- **Key Insight:** Centralized types prevent drift; module composition enables simple-to-complex topology scaling from same codebase
+### Phase Summaries
+1. **Repository Foundations (2026-05-04):** Cataloged 30+ labs with LABS_INDEX.md, unified-lab Bicep framework, centralized type definitions
+2. **SVH-Dynamic-ER-RI Lab (2026-06-15):** Production Bicep orchestrator (vwan, vhub, firewall, spoke, VM, KV, ER), deploy/cleanup scripts with correct phase sequencing, dual-path ER gateway, per-hub vmSize
+3. **Bug Fix & Hardening (2026-06-16):** Fixed critical CLI bugs (z network vhub routing-intent --vhub vs --vhub-name), unbounded polls → counters+timeout, z vm list-skus → sync probe, timestamped output
+4. **Live Deployment Round 2 (2026-06-16):** 75-min end-to-end 4-hub ER+AzFw+RI deploy, capacity probe patterns, Windows detached process learnings, VNet/subnet naming length constraints
 
-### Phase 2: SVH-Dynamic-ER-RI Lab Delivery (2026-06-15)
-- Authored production Bicep orchestrator + all supporting modules (vwan, vhub, firewall, spoke, VM, KV, ER diagnostics)
-- Designed deploy/cleanup scripts with correct phase sequencing (hub provisioning → ER gateway → spoke connections → firewall → Routing Intent)
-- Implemented dual-path ER gateway creation (Bicep + CLI fallback) and demand-driven gateway model
-- **Key Decisions:** Per-hub vmSize for capacity resilience, admin password inline (params safe to commit), spoke connections/RI script-driven (ARM timing gates)
-- **Integration:** Cross-team naming contracts with Amos (validate), Alex (routing-intent), Holden (docs)
+### Key Bicep Learnings (nva-spoke-internet + paloalto variants)
+- Conditional module null-safety (BCP318 non-null assertion !)
+- "Always deploy, gate inside" pattern for conditional modules
+- HA-ports ILB (protocol=All, ports=0, enableFloatingIP=true, static frontend)
+- Public LB outbound rule coexistence (disableOutboundSnat=true on LB rules)
+- Cloud-init base64 embedded at Bicep compile time
+- 16-output contract discipline with exact naming
 
-### Phase 3: Bug Fix + Hardening (2026-06-15)
-- **BUG 1 (CRITICAL):** `az network vhub routing-intent` uses `--vhub` (not `--vhub-name`). Fixed infinite polling in all 4 scripts.
-- **BUG 2:** Unbounded poll loops → added iteration counters + timeout guards (7 poll loops, 5–20 min each)
-- **BUG 3:** `az vm list-skus` unreliable for capacity checks → implemented synchronous probe (Phase 5b) with SKU retry loop + throw-away RG
-- **Feature:** Timestamped output across all scripts (`[HH:mm:ss]` prefixes on every phase/poll tick)
-- **Learning:** Always verify CLI parameter names with `--help` before new calls; routing-intent and vhub-connection are distinct subcommand trees
+### Recent: nva-spoke-internet-paloalto (2026-07-27)
+- Rebuilt nva-spoke-internet labs with Palo Alto VM-Series (vmseries-flex, BYOL)
+- Added 3-subnet DMZ (mgmt/untrust/trust), PA-specific UDRs, 13-phase deploy script
+- Marketplace plan block mandatory: plan: { name: 'byol', publisher: 'paloaltonetworks', product: 'vmseries-flex' }
+- Preserved all 16 outputs; 
+vaNames now PA firewall names instead of Linux NVAs
+- Flow-validation script naming fix (pa-fw-0/pa-fw-1 instead of pa-nva-0/pa-nva-1)
 
-### Phase 4: Live Deployment Round 2 (2026-06-16)
-- 75-minute end-to-end deployment of 4-hub secured vWAN (westus, westus2, westus3, eastus2) with ER, AzFw Basic, Routing Intent both-mode
-- Pre-flight VM capacity probe passed all 4 regions (Standard_B2s), preventing post-provisioning failures
-- **Learning 1:** Windows detached processes don't inherit CLI context → use async-attached for long deploys
-- **Learning 2:** Subscription 78216abe lacks bring-your-own-public-IP capability; lab defaults (no public IP) correct
-- **Learning 3:** Single-char VNet/subnet names fail capacity probe (`NetcfgInvalidVirtualNetworkSite`); probe uses 7+ char names
-
-## Learnings
-- grep `routing-intent.*--vhub-name` → 0 in all 4 scripts ✔
-- PowerShell Parser `deploy.ps1` → 0 errors ✔
-- PowerShell Parser `validate.ps1` → 0 errors ✔
-- `bash -n deploy.sh` → PASSED ✔
-- `bash -n validate.sh` → PASSED ✔
-- `deploy.sh` LF-only (0 CRLF) ✔
-- `validate.sh` LF-only (0 CRLF) ✔
-
-## Learnings
-
-### 2026-06-15 — Password-Only VM Auth (removed SSH key requirement)
-
-- **Context**: VMs in the svh-dynamic-er-ri lab were deploying with both SSH key and password authentication. The SSH key was required at deploy time, causing friction. VMs have no public IP, so SSH key auth from the internet was never used in practice — password + Serial Console is the only real access path.
-
-- **Decision**: Removed all SSH key prompts and ephemeral keygen logic from `deploy.sh` and `deploy.ps1`. `sshPublicKey` Bicep param now defaults to `''` (empty string). The `ubuntu-vm.bicep` module uses a ternary on `empty(sshPublicKey)` to conditionally include the `ssh.publicKeys` block — only if a key is actually provided. `disablePasswordAuthentication: false` is always set, ensuring Serial Console and password SSH always work.
-
-- **Bicep pattern** for optional SSH key in `linuxConfiguration`:
-  ```bicep
-  linuxConfiguration: empty(sshPublicKey) ? {
-    disablePasswordAuthentication: false
-  } : {
-    disablePasswordAuthentication: false
-    ssh: { publicKeys: [ { path: '/home/${adminUsername}/.ssh/authorized_keys', keyData: sshPublicKey } ] }
-  }
-  ```
-
-- **Files changed**: `ubuntu-vm.bicep`, `main.bicep`, `deploy.sh`, `deploy.ps1`, `README.md`, `docs/troubleshooting.md`, `docs/architecture.md`, `docs/cost-control.md`.
-
-- **Verification**: `az bicep build --file main.bicep` → 0 errors (1 pre-existing upgrade warning). `deploy.ps1` Parser → 0 errors. `bash -n deploy.sh` → PASSED. deploy.sh has 0 CRLF sequences (LF-only).
-
-- **Key Vault storage** of `vm-admin-username` and `vm-admin-password` secrets was already implemented and is kept unchanged. The deployment summary in both scripts now prominently shows how to retrieve credentials with `az keyvault secret show`.
-
-
-
-**New lab added:** `3vhub-er-ri/` — 3-region vWAN, ER on 2 hubs, AzFw Basic, Routing Intent (private only).
-
-**Key CLI patterns used:**
-
-- **Hub routing preference at create time:**
-  ```bash
-  az network vhub create ... --hub-routing-preference ASPath
-  ```
-  With fallback post-create if flag is silently ignored by older CLI extension:
-  ```bash
-  az network vhub update -g $rg -n $hubname --hub-routing-preference ASPath
-  ```
-
-- **Native CLI Routing Intent (private traffic only, no bicep):**
-  ```bash
-  fwid=$(az network firewall show -g $rg -n $hubname-azfw --query id -o tsv)
-  az network vhub routing-intent create -g $rg --vhub-name $hubname -n $hubname-ri \
-    --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]'
-  ```
-  Poll with:
-  ```bash
-  az network vhub routing-intent show -g $rg --vhub-name $hubname -n $hubname-ri \
-    --query 'provisioningState' -o tsv
-  ```
-
-- **Azure Firewall Basic on vHub:**
-  ```bash
-  az network firewall create -g $rg -n $hubname-azfw \
-    --sku AZFW_Hub --tier Basic --virtual-hub $hubname \
-    --public-ip-count 1 --firewall-policy <policy-id> --location <region>
-  ```
-  Policy must also be Basic SKU: `az network firewall policy create ... --sku Basic`
-
-- **ER service-key pause + poll pattern** (interactive script):
-  1. Print service keys via `az network express-route show --query serviceKey -o tsv`
-  2. Pause with `read -p "Press ENTER once circuits show Provisioned..."`
-  3. Poll loop with configurable `MAX_WAIT_MIN=180`, `sleep 30`, abort with resume hint on timeout
-  4. Timeout message includes instruction to re-run from Phase 9 onward
-
-## Session: nva-spoke-internet Bicep IaC build (2026-07-24)
-
-**Requested by:** Daniel Mauser  
-**New lab:** `nva-spoke-internet/bicep/` — full Bicep IaC for the IPTables NVA internet-breakout lab.
-
-### Files Created
-
-| File | Description |
-|------|-------------|
-| `cloud-init/nva.yaml` | DMZ NVA: ip_forward, iptables MASQUERADE (eth0), FORWARD ACCEPT, SSH ACCEPT, netfilter-persistent save |
-| `cloud-init/onprem-nva.yaml` | On-prem NVA: strongSwan + FRR install, ip_forward, bgpd enabled, services enabled |
-| `cloud-init/workload.yaml` | Workload VM: ping, traceroute, tcpdump, curl, net-tools, dnsutils |
-| `modules/vm.bicep` | Generic Ubuntu 22.04 VM: password auth, managed boot diagnostics (no storageUri), StandardSSD_LRS, optional cloud-init, IP forwarding, public IP, static private IP, LB pool membership |
-| `modules/vwan-hub.bicep` | vWAN (vwan-nva-si) + vHub (hub-nva-si) + conditional VPN GW (vpngw-nva-si) |
-| `modules/dmz.bicep` | DMZ VNet (10.0.0.0/24), snet-nva + snet-ilb, NSG, UDR (0/0→Internet on snet-nva) |
-| `modules/public-lb.bicep` | Standard Public LB: PIP, TCP-22 probe, SSH LB rule (disableOutboundSnat=true), outbound SNAT rule |
-| `modules/internal-lb.bicep` | Standard ILB: static frontend 10.0.0.68 in snet-ilb, HA-ports rule (All/0/0) |
-| `modules/nva.bicep` | 2x NVA VMs (nva-dmz-0/1): loop, both in Public LB + ILB backend pools, cloud-init |
-| `modules/spoke.bicep` | Parameterized spoke VNet + workload subnet + VM; used for Spoke1 (10.1) and Spoke2 (10.2) |
-| `modules/onprem.bicep` | Always-deployed module with deployOnPrem gate; on-prem NVA (PIP + static IP) + workload VM + UDR |
-| `main.bicep` | RG-scoped orchestrator; wires all modules; 16-output contract for Alex's deploy.sh |
-| `main.bicepparam` | Sample params file (placeholder creds, deployOnPrem=false) |
-
-### Compile Result
-
-`az bicep build --file nva-spoke-internet/bicep/main.bicep` → **exit code 0, zero warnings** (after fixing BCP318 null-assertion and unused-var).
-
-### Key Bicep Learnings
-
-1. **Conditional module output null-safety (BCP318):** When accessing properties of a conditional (`if (cond)`) resource inside a conditional module or ternary output, Bicep warns BCP318. Fix: use the non-null assertion operator `resource!.property` — communicates to Bicep that you know the resource exists when the branch is evaluated. Example: `vnet!.properties.subnets[0].id`, `nvaOnprem!.outputs.publicIp`.
-
-2. **"Always deploy, gate inside" pattern for conditional modules:** Instead of `module foo = if (cond)` at the call site (which forces all outputs to be nullable), deploy the module unconditionally and gate resources inside via `if (deployOnPrem)`. Outputs return `''` when not deployed. This avoids `reference()` on undeployed resources and removes BCP318 from caller. Trade-off: the module file always runs through ARM, but with no actual resources created.
-
-3. **HA-ports ILB rule shape:** `protocol: 'All'`, `frontendPort: 0`, `backendPort: 0`, `enableFloatingIP: true`. Frontend IP MUST be static (`privateIPAllocationMethod: 'Static'`). API version `2024-05-01` required for LBs to access latest ARM schema cleanly.
-
-4. **Public LB outbound rule coexistence:** LB rules MUST have `disableOutboundSnat: true` when an outbound rule is also defined on the same LB. Otherwise ARM rejects with a conflict error. The outbound rule uses `allocatedOutboundPorts: 0` (auto) and `enableTcpReset: true`.
-
-5. **cloud-init path resolution:** `loadFileAsBase64('../cloud-init/nva.yaml')` is resolved at Bicep **compile time** relative to the module file location (not CWD). From `modules/nva.bicep`, `../cloud-init/` resolves correctly to `bicep/cloud-init/`. This means the built ARM JSON embeds the base64-encoded cloud-init inline — no runtime file access needed.
-
-6. **customData conditional union pattern:** `union({osProfileBase}, empty(customData) ? {} : {customData: customData})` avoids sending an empty-string base64 blob as customData (which ARM accepts but is wasteful/confusing). Only include `customData` in `osProfile` when non-empty.
-
-7. **LB backend pool membership in looping module:** Pass `lbBackendPoolRefs array = []` to `vm.bicep` as `[{id: poolId1}, {id: poolId2}]` from the calling module. No `[for ...]` loop needed in the NIC ipConfig — `loadBalancerBackendAddressPools: lbBackendPoolRefs` is set directly. Works cleanly with the `[for i in range(0, 2)]` module loop in `nva.bicep`.
-
-8. **Unused param suppression via output:** If a param is needed post-deploy by scripts (e.g., `onpremBgpAsn`) but not used in any Bicep resource, emit it as a module output. This satisfies the Bicep linter and makes it available via `az deployment group show --query properties.outputs`.
-
-9. **DMZ snet-nva UDR (0/0 → Internet):** Critical safety route. When the vHub later programs 0/0 → ILB into the spoke VNets, the NVA subnet must not also receive that propagated route (it would create a routing loop). The UDR with `nextHopType: Internet` on snet-nva pins the NVA's own egress to Internet, overriding any hub-propagated default. `disableBgpRoutePropagation: false` is intentional — we still want specific routes from the hub, just not the 0/0.
-
-10. **Output contract discipline:** All 16 outputs in `main.bicep` have exact names matching Alex's `deploy.sh` `jq` queries. Any rename breaks the deploy chain silently. Documented in `.squad/decisions.md` via inbox entry.
-
-### Address Plan Used
-
-| Resource | CIDR / IP |
-|----------|-----------|
-| vWAN Hub | 10.100.0.0/23 |
-| DMZ VNet | 10.0.0.0/24 |
-| snet-nva (DMZ) | 10.0.0.0/26 |
-| snet-ilb (DMZ) | 10.0.0.64/26 |
-| ILB frontend (static) | 10.0.0.68 |
-| Spoke1 VNet | 10.1.0.0/24 → snet-workload 10.1.0.0/26 |
-| Spoke2 VNet | 10.2.0.0/24 → snet-workload 10.2.0.0/26 |
-| On-prem VNet | 192.168.100.0/24 |
-| snet-nva (on-prem) | 192.168.100.0/27 |
-| snet-workload (on-prem) | 192.168.100.32/27 |
-| On-prem NVA (static) | 192.168.100.4 |
+**Status:** PA lab passed review gate (Amos PASS), live deploy ready (separate opt-in)
 
 ---
 
-## Team Update: 2026-07-24
+*Last update: 2026-07-27 (PA lab completed and validated)*
 
-**Lab Status:** nva-spoke-internet Bicep rebuild **COMPLETE & VALIDATED**
+---
 
-The team successfully rebuilt the nva-spoke-internet lab infrastructure as code. All agents contributed:
-- naomi: 13 Bicep files
-- alex: 6 deployment scripts
-- holden: README + topology diagram
-- amos: QA validation (8/8 PASS + 1 LOW defect fixed)
+## Phase 5 — PA Live Deploy (2026-07-27)
 
-Lab is ready for end-to-end testing.
+### Session: nva-spoke-internet-paloalto live deploy to DMAUSER-FDPO / westus3
 
-**2026-07-24 — DEPLOYMENT STATUS:** lab is LIVE in DMAUSER-FDPO (eastus2, B2s), 7/7 validation PASS — Alex
+**Region:** westus3  
+**VM SKU:** Standard_DS3_v2 (auto-selected by preflight, allocatable in westus3)  
+**Subscription:** DMAUSER-FDPO (78216abe-8139-4b45-8715-6bab2010101e)  
+**RG:** rg-nva-spoke-internet-pa  
+**Outcome:** Infrastructure 100% deployed, PA config applied via XML API, ILB health probes PASSING. Internet egress (spoke→PA→Internet) NOT confirmed before user tore down the RG.
+
+**PASS/WARN/FAIL (manual evidence, validate-flow.ps1 NOT run):**
+- PASS: Hub routingState=Provisioned
+- PASS: defaultRouteTable 0.0.0.0/0 → conn-dmz (ResourceId) present
+- PASS: conn-dmz staticRoute 0.0.0.0/0 → 10.0.0.68 present
+- PASS: Spoke1 effective routes 0.0.0.0/0 → VirtualNetworkGateway (hub)
+- PASS: Hub effective routes include 0.0.0.0/0 → conn-dmz
+- PASS: Network Watcher next-hop from spoke1 → 1.1.1.1 = 10.100.0.68 (VirtualNetworkGateway)
+- PASS: ILB lb-ilb frontend=10.0.0.68, HA-ports, floatingIP=true
+- PASS: Public LB lb-public PIP=57.154.34.6, outbound SNAT rule
+- PASS: ILB health probes PASSING (active SSH sessions from 168.63.129.16 → trust NICs)
+- PASS: PA-FW-0 + PA-FW-1 both running, config committed
+- PASS: PA interfaces eth1/1 (untrust DHCP), eth1/2 (trust DHCP) up
+- PASS: PA static routes: 0/0 → untrust-GW, 10/8 → trust-GW
+- PASS: PA NAT rule trust-to-untrust-masquerade active
+- PASS: PA security rule permit-trust-to-untrust (any→any) active
+- FAIL: Internet egress spoke1 → curl ifconfig.io timed out (zero PA sessions observed)
+- FAIL: Internet egress spoke2 → curl ifconfig.io timed out (zero PA sessions observed)
+
+**Root cause of egress FAIL:** Hub defaultRouteTable uses `nextHopType=ResourceId` pointing to conn-dmz, which routes packets into DMZ VNet without specifying 10.0.0.68 as the physical forwarding IP. When packets enter snet-trust, the trust subnet's effective route `0.0.0.0/0 → hub (VirtualNetworkGateway)` sends them back to hub → routing loop, packets dropped. The conn-dmz `vnetRoutes.staticRoutes` (0.0.0.0/0 → 10.0.0.68, propagateStaticRoutes=true) was intended to solve this but the explicit ResourceId route in defaultRouteTable supersedes it.
+
+**Planned fix (not applied before teardown):** Add `0.0.0.0/0 → VirtualAppliance 10.0.0.68` to spoke workload UDR tables (`udr-vnet-spoke1-workload`, `udr-vnet-spoke2-workload`). This forces spoke traffic directly to the ILB IP, bypassing the vWAN hub routing ambiguity.
+
+**Critical discovery — bootstrap key-auth policy:** DMAUSER-FDPO subscription has a management-group policy enforcing `allowSharedKeyAccess=false` on ALL storage accounts. The bootstrap file share cannot be populated via any available tool. PA VMs boot factory-default. Workaround: apply PAN-OS config via XML API (see naomi-pa-live-deploy.md for full playbook).
+
+**deploy.ps1 Phase 5b bug:** All `az storage` operations (share create, dir create, file upload) in Phase 5b do NOT check `$LASTEXITCODE`. Script logs "✔" for every storage op even when all silently fail. Fix: add `if ($LASTEXITCODE -ne 0) { throw }` after each storage call.
+
+**RG torn down:** User (dmauser@microsoft.com) manually deleted rg-nva-spoke-internet-pa at 2026-07-27T22:07:16Z before egress fix could be applied.
+
+---
+
+## Learnings
+
+### Silent Storage Failure Bug (`| Out-Null` swallows `$LASTEXITCODE` in PowerShell)
+
+In PowerShell, when you pipe an external command to `| Out-Null` (e.g. `az storage directory create ... | Out-Null`), the pipeline internally resets `$LASTEXITCODE` to `0` after the pipe stage completes, regardless of the actual exit code returned by `az`. Additionally, Phase 5b in `deploy.ps1` originally had no `$LASTEXITCODE` checks at all for `az storage share create`, `az storage directory create`, or `az storage file upload`. The combined effect: every storage operation appeared to succeed (the script printed "✔ Bootstrap storage ready") even when all data-plane ops were returning 403 Forbidden due to policy. Fix: (1) remove `| Out-Null` from each az command so the process is directly awaited, then (2) check `$LASTEXITCODE` immediately after the call — before any other statement can overwrite it.
+
+### `allowSharedKeyAccess=false` Policy Detection + Graceful Skip Pattern
+
+Azure management-group policy can enforce `allowSharedKeyAccess=false` on all storage accounts in a subscription. When this policy is active, `az storage account create --allow-shared-key-access true` succeeds at the ARM management-plane level, but the policy immediately overrides the property back to `false`. Key observations for the fallback pattern:
+
+1. **Management-plane vs data-plane split:** `az storage account keys list` is a management-plane ARM call and succeeds regardless of the `allowSharedKeyAccess` property. The storage key can always be retrieved and passed to Bicep `customData` parameters — so the bootstrap storage account should always be created and the key always retrieved, even in fallback mode.
+2. **Effective-setting query:** Immediately after account create, run `az storage account show --query allowSharedKeyAccess -o tsv`. If it returns `false` (or the query fails), the subscription policy is blocking shared-key access.
+3. **`$SharedKeyBootstrapAvailable` flag:** Set to `$false` on policy detection; wrap all SMB data-plane operations (share create, directory create, file upload) in an `if ($SharedKeyBootstrapAvailable)` block. The account is still created and the key still passed to Bicep so customData string interpolation resolves correctly.
+4. **Bash equivalent:** Use `SHARED_KEY_BOOTSTRAP_AVAILABLE=true/false`; guard with `[[ "$SHARED_KEY_BOOTSTRAP_AVAILABLE" == "true" ]]`; use `|| true` on the effective-key query to prevent `set -euo pipefail` from aborting.
+5. **Downgrade unexpected storage failures:** Even when `$SharedKeyBootstrapAvailable` is `$true`, az data-plane ops can still fail (race, transient auth). On failure: log a WARNING, set `$SharedKeyBootstrapAvailable = $false`, and continue — Phase 7b will configure the PAs regardless.
+
+### Phase 7b Post-Boot Config-Push Wiring + `apply-panos-config` Contract
+
+When Azure Files bootstrap is blocked (or for any other reason the PA boots factory-default), Phase 7b provides a universal safety net that always runs after Bicep deployment:
+
+- **Timing:** Phase 7b runs immediately after Phase 7 (read deployment outputs), before Phase 8 (hub routing state poll). The PA VMs may still be booting; Alex's `apply-panos-config.*` scripts handle the boot-wait/retry internally via their `-TimeoutMinutes` / `--timeout-minutes` parameter (default 20 min).
+- **PIP lookup:** `main.bicep` outputs only the `nvaNames` array — PA management PIP addresses are NOT in the output contract. Query them directly: `az network public-ip show -g $Rg -n "pip-pa-0-mgmt" --query ipAddress -o tsv` (resource names are `pip-pa-${i}-mgmt`, loop i=0,1 in `palo-alto.bicep`). This avoids any bicep output contract change.
+- **Contract (call only — Alex owns implementation):**
+  - PowerShell: `apply-panos-config.ps1 -MgmtIps <string[]> -AdminUsername <string> -AdminPassword <string> [-TimeoutMinutes 20]`
+  - Bash: `apply-panos-config.sh --mgmt-ips "ip1,ip2" --admin-username U --admin-password P [--timeout-minutes 20]`
+  - Exit non-zero if any firewall fails.
+- **Error handling:** Non-zero exit from `apply-panos-config` logs a WARNING but does not abort the deploy. Phases 8–11 (routing, VPN, connections) are still performed. The operator checks PA config/commit state during egress validation. This keeps the deploy non-destructive even when the first post-boot PA push encounters a still-booting firewall.
+- **Idempotent:** Because `apply-panos-config` is designed as verify+repair, re-running Phase 7b on an already-configured PA is safe.
+
+### PA VM-Series Bootstrap Is First-Boot-Only — VM Recreation Required for Config Changes
+
+PAN-OS on Azure VM-Series reads its bootstrap config (bootstrap.xml) **only at initial boot** from the Azure Files share referenced in VM customData. Re-uploading bootstrap.xml to the share after the VM has already booted has **zero effect** — the firewall will not re-apply the config. The only way to deliver a new bootstrap.xml to an already-running PA VM is to **delete and recreate the VM** so it re-bootstraps on the next boot. This applies to any bootstrap.xml change (routing, policies, NAT rules, etc.). Workaround for running VMs: use `apply-panos-config.ps1` (Phase 7b) to push config via PAN-OS XML API.
+
+### Fresh Password via `$env:ADMIN_PASSWORD` Redeploy Pattern
+
+When redeploying the PA lab to pick up a bootstrap.xml change:
+1. Generate a strong password and store it in `$env:ADMIN_PASSWORD` (≥12 chars, upper/lower/digit/symbol): `$env:ADMIN_PASSWORD = 'PaLab!' + [guid]::NewGuid().ToString('N').Substring(0,14)`
+2. Save to a temp file for cross-shell persistence: `Set-Content -Path .squad/agents/naomi/deploy-pw.tmp -Value $env:ADMIN_PASSWORD -NoNewline`
+3. Run `deploy.ps1` from the `nva-spoke-internet-paloalto/` directory with `-DeployOnPrem:$false` (required to suppress `Read-Host` in non-interactive mode)
+4. deploy.ps1 checks `$env:ADMIN_PASSWORD` at Phase 2 and skips the interactive password prompt
+5. Report the password to the user at the end (needed to SSH to spokes and reach PA GUI)
+
+### `az group delete --no-wait` Race Condition with Immediate Recreation
+
+**Critical pitfall:** `az group delete --no-wait` queues an asynchronous deletion. When `az group show` returns "not found" (typically 20-30 min later), the Azure ARM deletion pipeline is still processing child resources in the background — especially slow resources like vWAN hubs. If you immediately re-deploy into the same RG, the new resources can have the same names as resources still being deleted by the ARM pipeline. The ARM pipeline will then **delete your newly created resources** even though they were created after the group deletion was initiated.
+
+**Fix:** After the RG disappears from `az group show`, wait an additional **10 minutes** before starting any new deployment in that RG to ensure the ARM deletion pipeline is fully cleared.
+
+### AADSTS530004 Conditional Access Token Expiry — Use REST API with Bearer Token
+
+In DMAUSER-FDPO (tenant `16b3c013-d300-468d-ac64-7eda0820b6d3`), the `az` CLI silently uses cached tokens that expire after ~60-90 minutes. After the first command in a shell completes, subsequent `az` commands can fail with `AADSTS530004 AcceptCompliantDevice setting isn't configured for this organization`. The CLI retries silently and returns `ResourceNotFound` or similar errors rather than the real auth error — difficult to diagnose.
+
+**Workaround for long-running deploys:** At shell start, run `az account get-access-token --query accessToken -o tsv` once and save the token. For all subsequent ARM operations, use `Invoke-RestMethod` with the bearer token directly instead of `az` CLI commands. This bypasses the CA-aware silent token refresh. Token validity is typically ~60 min from issuance — save a timestamp; regenerate before it expires.
+
+### vWAN Hub Serializes Connection Operations
+
+Azure vWAN hub only allows one hub VNet connection operation at a time. Attempting to `PUT` or `DELETE` a connection while another is in `Updating` state returns `400 AnotherOperationInProgress`. Always poll the previous connection to `Succeeded` before starting the next one. This applies to both `az network vhub connection create` (which doesn't serialize automatically) and REST API PUTs.
+
+### PA commit-force After apply-panos-config.ps1
+
+When `apply-panos-config.ps1` runs immediately after a fresh PA boot, the PA may still be in the middle of auto-commit (job type `AutoCom`). The `commit` API call will fail with `auto-commit not yet finished — use commit force`. Pattern:
+1. Poll `show jobs all` until job type `AutoCom` shows `status=FIN result=OK`
+2. Then issue `commit-force` (cmd `<commit-force></commit-force>`) — this succeeds even while auto-commit is finishing
+3. Poll job 3 for `status=FIN result=OK` before verifying live routing table
+
+### Probe Route Visible in Routing Table Before Commit (VR config side-effect)
+
+After `apply-panos-config.ps1` sets the virtual-router config via `action=set`, the route `168.63.129.16/32 → 10.0.0.65` appears in `show routing route` immediately — even before the commit completes. This is because PAN-OS installs candidate VR config into the kernel's FIB on `set`. However, commit is still needed to make the config persistent across reboots.
+
+### vWAN Spoke UDR Anti-Pattern: Do NOT Use `VirtualAppliance` Pointing to ILB in Another VNet
+
+In a vWAN topology, spoke workload subnet UDRs with `nextHopType=VirtualAppliance` pointing to an ILB frontend IP (e.g. `10.0.0.68`) in the DMZ VNet (connected to the hub but not directly peered to the spoke) resolve as `nextHopType=None` in the spoke's effective route table. Azure treats `None` as a null/drop route — spoke egress is silently dropped.
+
+**Correct pattern:** Leave spoke workload UDR tables empty (`routes: []`). The vWAN hub's `defaultRouteTable` propagates `0/0 → conn-dmz` to connected spoke VNets as a `VirtualNetworkGateway` route (source: VirtualNetworkGateway, nextHop: hub gateway IP). This route correctly routes spoke traffic via the hub → DMZ VNet → ILB → PA NVA without any UDR intervention. Adding a conflicting User route overrides the VNG route and marks it Invalid.
+
+**Signal to look for:** If `az network nic show-effective-route-table` shows `"source": "User", "state": "Active", "nextHopType": "None"` for a UDR with `nextHopType: VirtualAppliance`, the next-hop IP is not resolvable as a virtual appliance in the local VNet context — traffic will be dropped.
+
+**deploy.ps1 fix:** Phase 10b was changed from adding `0/0 → VirtualAppliance → ILB` to a no-op comment. Do not add spoke UDR routes in vWAN deployments where hub routing handles the 0/0 propagation.
+
+### Westus3 VM Capacity Constraints (July 2026)
+
+- All Dv2 SKUs (DS3_v2, DS4_v2, etc.) blocked by capacity in westus3
+- B2s, B2ms: pass `az vm list-skus` restriction check but fail SkuNotAvailable at allocation time — `list-skus` is unreliable for capacity
+- D8s_v4, D2s_v3: allocatable in westus3 as of July 2026
+- D4s_v4/D4_v4/D4s_v5/D4_v5: only support 2 NICs — cannot be used for PA NVA (needs 3 NICs). Must use D8s variants (D8s_v4, D8s_v5, D8_v4, D8_v5) which support 4 NICs.
+- Use real allocation probe (`az vm create` in throw-away RG) to detect spoke VM capacity — `list-skus` gives false positives.
+
+### Full Deploy/Egress Cycle (Cycles 1-5) — Final Outcome 2026-07-27
+
+Multi-cycle deploy to resolve PA egress for rg-nva-spoke-internet-pa:
+- **Cycle 1 (single-VR):** ILB 100%, egress broken — UDR missing
+- **Cycles 2-4:** Blocked by Dv2 capacity; D4s 2-NIC limit discovered; SKU candidates updated
+- **Cycle 5 (dual-VR + Phase 10b UDR):** Bicep ✅, hub ✅, connections ✅, both LBs 100% — but egress STILL broken because Phase 10b UDR's `VirtualAppliance` cross-hub next-hop resolved as None/drop
+- **Fix (post-cycle 5):** Deleted conflicting UDR 0/0 routes; vWAN hub VNG route became Active; spoke egress immediately passed — both spokes returned `172.182.236.138` (lb-public PIP) ✅
+
+*Last update: 2026-07-27T18:00:00-05:00*

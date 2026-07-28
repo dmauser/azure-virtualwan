@@ -1,0 +1,42 @@
+# =============================================================================
+# PAN-OS init-cfg.txt — Bootstrap control file for Azure VM-Series (BYOL)
+# Lab: nva-spoke-internet-paloalto  (azure-virtualwan project)
+#
+# IMPORTANT: The PAN-OS bootstrap parser treats lines beginning with '#' as
+# comments (they are silently ignored).  These headers are therefore safe to
+# include and will not interfere with bootstrap processing.
+#
+# Verified against:
+#   https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall
+#   https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/bootstrap-configuration-files
+#   https://docs.paloaltonetworks.com/vm-series/getting-started/bootstrap-the-vm-series-firewall/create-bootstrap-configuration-files
+#
+# Key decisions:
+#   type=dhcp-client            -> management NIC IP assigned by Azure DHCP
+#                                  (snet-mgmt 10.0.0.0/27, gateway 10.0.0.1)
+#   hostname                    -> generic label; can be overridden per-VM via
+#                                  Bicep custom-data or individual bootstrap packages
+#   vm-auth-key                 -> intentionally blank (BYOL lab; no Panorama)
+#   panorama-server             -> intentionally blank (standalone, no Panorama)
+#   op-command-modes=mgmt-interface-swap
+#                               -> REQUIRED for Azure 3-NIC deployments.
+#                                  Routes PAN-OS management plane traffic through
+#                                  the FIRST Azure NIC (eth0, snet-mgmt) instead
+#                                  of the PAN-OS dedicated OOB management port.
+#                                  Effect on NIC-to-PAN-OS-interface mapping:
+#                                    Azure eth0 (snet-mgmt)    -> PAN-OS management
+#                                    Azure eth1 (snet-untrust) -> PAN-OS ethernet1/1
+#                                    Azure eth2 (snet-trust)   -> PAN-OS ethernet1/2
+# =============================================================================
+type=dhcp-client
+ip-address=
+default-gateway=
+netmask=
+hostname=pan-dmz-nva
+vm-auth-key=
+panorama-server=
+dhcp-send-hostname=yes
+dhcp-send-client-id=yes
+dhcp-accept-server-hostname=yes
+dhcp-accept-server-domain=yes
+op-command-modes=mgmt-interface-swap
