@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.42.1.51946",
-      "templateHash": "14019861629940255109"
+      "templateHash": "7538033141787994402"
     }
   },
   "parameters": {
@@ -1218,7 +1218,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.42.1.51946",
-              "templateHash": "9530434132557984583"
+              "templateHash": "12014621243796971839"
             }
           },
           "parameters": {
@@ -1284,6 +1284,31 @@
           },
           "resources": [
             {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-11-01",
+              "name": "[format('nsg-{0}-workload', parameters('vnetName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-SSH-Inbound",
+                    "properties": {
+                      "priority": 100,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourceAddressPrefix": "VirtualNetwork",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "VirtualNetwork",
+                      "destinationPortRange": "22",
+                      "description": "Allow SSH from hub / on-prem / other spoke via VirtualNetwork service tag"
+                    }
+                  }
+                ]
+              }
+            },
+            {
               "type": "Microsoft.Network/routeTables",
               "apiVersion": "2023-11-01",
               "name": "[format('udr-{0}-workload', parameters('vnetName'))]",
@@ -1313,12 +1338,16 @@
                       "addressPrefix": "[parameters('workloadSubnetPrefix')]",
                       "routeTable": {
                         "id": "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
+                      },
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-workload', parameters('vnetName')))]"
                       }
                     }
                   }
                 ]
               },
               "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-workload', parameters('vnetName')))]",
                 "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
               ]
             },
@@ -1655,7 +1684,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.42.1.51946",
-              "templateHash": "9530434132557984583"
+              "templateHash": "12014621243796971839"
             }
           },
           "parameters": {
@@ -1721,6 +1750,31 @@
           },
           "resources": [
             {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-11-01",
+              "name": "[format('nsg-{0}-workload', parameters('vnetName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "Allow-SSH-Inbound",
+                    "properties": {
+                      "priority": 100,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourceAddressPrefix": "VirtualNetwork",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "VirtualNetwork",
+                      "destinationPortRange": "22",
+                      "description": "Allow SSH from hub / on-prem / other spoke via VirtualNetwork service tag"
+                    }
+                  }
+                ]
+              }
+            },
+            {
               "type": "Microsoft.Network/routeTables",
               "apiVersion": "2023-11-01",
               "name": "[format('udr-{0}-workload', parameters('vnetName'))]",
@@ -1750,12 +1804,16 @@
                       "addressPrefix": "[parameters('workloadSubnetPrefix')]",
                       "routeTable": {
                         "id": "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
+                      },
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-workload', parameters('vnetName')))]"
                       }
                     }
                   }
                 ]
               },
               "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}-workload', parameters('vnetName')))]",
                 "[resourceId('Microsoft.Network/routeTables', format('udr-{0}-workload', parameters('vnetName')))]"
               ]
             },
