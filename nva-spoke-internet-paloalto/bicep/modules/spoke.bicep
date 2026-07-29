@@ -40,6 +40,38 @@ param tags object = {}
 // Cloud-init: workload tools
 var workloadCloudInit = loadFileAsBase64('../cloud-init/workload.yaml')
 
+// ── NSG (baseline / default-rules) ───────────────────────────────────────────
+// Mirrors Azure platform default rules (immutable, always present — see
+// https://learn.microsoft.com/azure/virtual-network/network-security-groups-overview#default-security-rules):
+//   Inbound : AllowVNetInBound (65000), AllowAzureLoadBalancerInBound (65001), DenyAllInbound (65500)
+//   Outbound: AllowVnetOutBound (65000), AllowInternetOutBound (65001), DenyAllOutBound (65500)
+// Custom rule added here (no Deny rules — outbound Internet must remain open for spoke → PA ILB → Internet):
+//   Inbound 100 — Allow SSH (TCP/22) from VirtualNetwork (includes hub + peered spokes in VWAN context)
+// Applied at subnet scope on snet-workload only; DMZ/PA/GW subnets are untouched.
+resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
+  name: 'nsg-${vnetName}-workload'
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'Allow-SSH-Inbound'
+        properties: {
+          priority: 100
+          direction: 'Inbound'
+          access: 'Allow'
+          protocol: 'Tcp'
+          sourceAddressPrefix: 'VirtualNetwork'
+          sourcePortRange: '*'
+          destinationAddressPrefix: 'VirtualNetwork'
+          destinationPortRange: '22'
+          description: 'Allow SSH from hub / on-prem / other spoke via VirtualNetwork service tag'
+        }
+      }
+    ]
+  }
+}
+
 // ── UDR (empty — placeholder for deploy.sh or manual spoke-level routes) ──────
 resource udr 'Microsoft.Network/routeTables@2023-11-01' = {
   name: 'udr-${vnetName}-workload'
@@ -64,6 +96,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         properties: {
           addressPrefix: workloadSubnetPrefix
           routeTable: { id: udr.id }
+          networkSecurityGroup: { id: nsg.id }
         }
       }
     ]

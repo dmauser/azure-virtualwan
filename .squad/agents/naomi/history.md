@@ -9,6 +9,36 @@
 
 ## Learnings
 
+### 2026-07-28 — Spoke Baseline NSG (nva-spoke-internet-paloalto)
+
+**Task:** Added baseline NSG to both spoke workload subnets without disrupting live Palo Alto lab.
+
+**NSG module pattern (spoke.bicep):**
+- Resource: `Microsoft.Network/networkSecurityGroups@2023-11-01` (matches routeTable/vnet apiVersion in module).
+- Named `nsg-${vnetName}-workload` — parameterized so both instantiations produce distinct names.
+- One custom rule: Allow-SSH-Inbound (priority 100, TCP/22, source=VirtualNetwork, destination=VirtualNetwork).
+- No custom Deny rules — outbound internet left to platform default AllowInternetOutBound (65001), required for spoke → PA ILB → Internet breakout.
+- NSG declared BEFORE the vnet resource (dependency order), then referenced via `networkSecurityGroup: { id: nsg.id }` in snet-workload subnet properties alongside existing routeTable.
+- Tags param threaded through to NSG resource.
+
+**What-if blast-radius decision — chose SURGICAL approach:**
+- Ran `az deployment group what-if` with live params (but placeholder adminPassword).
+- Result: `+ CREATE` for 2 NSGs (correct) + `! Deploy` on 26 other resources (PA VMs, hub, LBs, NICs, UDRs, VNets).
+- The `!` items were largely noise from the placeholder password causing drift detection.
+- HOWEVER: the task gate requires "ONLY the two NSGs + subnet associations" — the output showed additional re-Deploy noise on hub/PA/LBs, failing the gate.
+- Additional constraint: live adminPassword is SecureString — can't retrieve for a clean full deploy.
+- **Decision: surgical CLI apply.** Bicep is the IaC source of truth for future clean deploys; live state applied via CLI.
+- Confirmed spoke UDRs are empty (`routes: null`) in live Azure — matching Bicep `routes: []` — so spoke UDR route-wipe risk was zero regardless.
+
+**Live verification result:**
+- `az network vnet subnet show --query "networkSecurityGroup.id"` on snet-workload for both spokes → returned correct NSG resource IDs ✔
+- `az vm run-command invoke vm-spoke1 "curl -s -m 10 ifconfig.me"` → returned `20.163.105.237` (Palo Alto Public LB SNAT IP) — internet breakout fully intact ✔
+
+**apiVersion validated:** `Microsoft.Network/networkSecurityGroups@2023-11-01` confirmed via Microsoft Learn MCP (https://learn.microsoft.com/azure/templates/microsoft.network/networksecuritygroups).
+**Default rules validated:** AllowVNetInBound 65000 / AllowAzureLoadBalancerInBound 65001 / DenyAllInbound 65500 (inbound) and AllowVnetOutBound 65000 / AllowInternetOutBound 65001 / DenyAllOutBound 65500 (outbound) confirmed at https://learn.microsoft.com/azure/virtual-network/network-security-groups-overview#default-security-rules.
+
+---
+
 ### 2026-07-27 — PA Live Deploy Session (nva-spoke-internet-paloalto)
 
 Completed full Palo Alto virtual WAN lab deployment in westus3 (rg-nva-spoke-internet-pa). Validated all scripts (deploy.ps1, validate-flow.ps1, enable-monitoring.ps1) in live environment. Result: 7/7 validation PASS, infrastructure stable. Key findings documented in decisions.md.
