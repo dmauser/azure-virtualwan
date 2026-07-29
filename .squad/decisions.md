@@ -2208,3 +2208,160 @@ Add **Phase 4b** to `nva-spoke-internet-paloalto/scripts/enable-monitoring.ps1` 
 - https://learn.microsoft.com/azure/network-watcher/network-watcher-agent-update
 - https://learn.microsoft.com/azure/network-watcher/network-watcher-connectivity-overview
 
+---
+
+# Decision: Spoke Workload Subnets Now Carry Baseline NSG
+
+**Author:** Naomi (Infra Dev)
+**Date:** 2026-07-28
+**Status:** Applied — live in DMAUSER-FDPO (westus3, rg-nva-spoke-internet-pa)
+
+---
+
+## Decision
+
+The prior "spokes are NSG-less by design" decision is **intentionally superseded for spoke workload subnets only**. Both `snet-workload` subnets on vnet-spoke1 and vnet-spoke2 now carry a dedicated baseline NSG:
+
+| Subnet | NSG |
+|---|---|
+| vnet-spoke1 / snet-workload | `nsg-vnet-spoke1-workload` |
+| vnet-spoke2 / snet-workload | `nsg-vnet-spoke2-workload` |
+
+DMZ, PA management/untrust/trust, and on-prem/gateway subnets are **untouched** — they remain NSG-less or use their existing NSG (`nsg-dmz`) as before.
+
+---
+
+## NSG Rule Composition
+
+### Custom rules (explicit, in Bicep)
+| Priority | Name | Direction | Protocol | Source | Destination | Port | Action |
+|---|---|---|---|---|---|---|---|
+| 100 | Allow-SSH-Inbound | Inbound | TCP | VirtualNetwork | VirtualNetwork | 22 | Allow |
+
+`VirtualNetwork` in a VWAN spoke context includes hub + all peered spokes — so this covers SSH from hub/on-prem/other spoke without explicit IP targeting.
+
+### Platform defaults (immutable, always present — [Microsoft Learn](https://learn.microsoft.com/azure/virtual-network/network-security-groups-overview#default-security-rules))
+| Priority | Name | Direction | Action |
+|---|---|---|---|
+| 65000 | AllowVNetInBound | Inbound | Allow |
+| 65001 | AllowAzureLoadBalancerInBound | Inbound | Allow |
+| 65500 | DenyAllInBound | Inbound | Deny |
+| 65000 | AllowVnetOutBound | Outbound | Allow |
+| 65001 | AllowInternetOutBound | Outbound | Allow |
+| 65500 | DenyAllOutBound | Outbound | Deny |
+
+No custom Deny rules were added. Outbound internet (`AllowInternetOutBound` 65001) remains unblocked — required for the spoke → PA ILB (10.0.0.68) → Internet breakout flow.
+
+---
+
+## IaC Change
+
+**File:** `nva-spoke-internet-paloalto/bicep/modules/spoke.bicep`
+
+Added `Microsoft.Network/networkSecurityGroups@2023-11-01` resource named `nsg-${vnetName}-workload` before the VNet resource, and added `networkSecurityGroup: { id: nsg.id }` to the `snet-workload` subnet properties alongside the existing `routeTable`. Because spoke.bicep is instantiated twice from main.bicep (for spoke1 and spoke2), this covers both spokes automatically. main.bicep required no changes.
+
+---
+
+## Validate-Flow Impact
+
+`validate-flow.ps1` check **[2g] IP-flow-verify** was previously SKIP (no NSG on the subnet). Now that NSG is associated, it will **RUN** and is expected to **PASS** (Allow-SSH-Inbound covers inbound TCP/22 from VirtualNetwork; outbound internet is permitted by platform AllowInternetOutBound).
+
+---
+
+## Live Verification (2026-07-28)
+
+```
+az network vnet subnet show -g rg-nva-spoke-internet-pa --vnet-name vnet-spoke1 -n snet-workload --query "networkSecurityGroup.id" -o tsv
+→ /subscriptions/.../Microsoft.Network/networkSecurityGroups/nsg-vnet-spoke1-workload  ✔
+
+az network vnet subnet show -g rg-nva-spoke-internet-pa --vnet-name vnet-spoke2 -n snet-workload --query "networkSecurityGroup.id" -o tsv
+→ /subscriptions/.../Microsoft.Network/networkSecurityGroups/nsg-vnet-spoke2-workload  ✔
+
+az vm run-command invoke -n vm-spoke1 ... "curl -s -m 10 ifconfig.me"
+→ 20.163.105.237 (Palo Alto Public LB SNAT IP — internet breakout intact)  ✔
+```
+
+---
+
+# Decision: Post-NSG Baseline Validation (nva-spoke-internet-paloalto)
+
+**Date:** 2026-07-28
+**Author:** Amos (Tester)
+**Lab:** nva-spoke-internet-paloalto
+**RG:** rg-nva-spoke-internet-pa
+**Subscription:** DMAUSER-FDPO (78216abe-8139-4b45-8715-6bab2010101e)
+**Region:** westus3
+**Status:** GO — approved for production
+
+---
+
+## Validation Result Summary
+
+| Metric | Prior baseline | Post-NSG |
+|--------|---------------|----------|
+| PASS   | 11            | **12**   |
+| FAIL   | 0             | **0**    |
+| WARN   | 2             | **2**    |
+| SKIP   | 1             | **0**    |
+
+The 1 SKIP (check [2g] `NsgsNotAppliedOnNic`) converted to 1 new PASS. No new FAILs. WARNs unchanged and pre-existing/acceptable.
+
+---
+
+## Key Finding: [2g] NW IP Flow Verify Now PASS
+
+**Before:** NSG-less NIC → `NsgsNotAppliedOnNic` → SKIP
+**After:** NSGs applied → `access: Allow   ruleName: defaultSecurityRules/AllowVnetOutBound` → **PASS**
+
+Check [2g] now successfully evaluates IP flow for `vm-spoke1 (10.1.0.4) -> 8.8.8.8:443 TCP Outbound`. The NSG allows outbound via the default `AllowVnetOutBound` rule, which is correct for this topology.
+
+---
+
+## All Checks Summary
+
+| Check | Result | Detail |
+|-------|--------|--------|
+| [1]   | PASS   | Hub `hub-nva-si` routingState = Provisioned |
+| [2a]  | PASS   | defaultRouteTable contains 0.0.0.0/0 → conn-dmz |
+| [2b]  | PASS   | conn-dmz static route 0.0.0.0/0 → 10.0.0.68 (ILB) |
+| [2c]  | PASS   | Spoke1 NIC: 0.0.0.0/0 via VirtualNetworkGateway |
+| [2d]  | PASS   | Spoke2 NIC: 0.0.0.0/0 via VirtualNetworkGateway |
+| [2e]  | PASS   | vHub effective routes returned successfully |
+| [2f]  | PASS   | NW next-hop: VirtualHub (10.100.0.68) |
+| [2g]  | **PASS** | IP flow verify: Allow / AllowVnetOutBound ← **new PASS** |
+| [2h]  | PASS   | NW connectivity: vm-spoke1 → ifconfig.io:80 = Reachable (61ms) |
+| [3a]  | PASS   | vm-spoke1 egress = 20.163.105.237 (pip-lb-public) — SNAT confirmed |
+| [3b]  | PASS   | vm-spoke2 egress = 20.163.105.237 (pip-lb-public) — SNAT confirmed |
+| [4a pa-fw-0] | PASS | PA mgmt IP discovered: 20.106.90.158 |
+| [4a pa-fw-1] | PASS | PA mgmt IP discovered: 20.106.90.240 |
+| [4 WARN] | WARN | PA forwarding evidence MANUAL (pre-existing, by design) |
+| [4 WARN] | WARN | PA forwarding evidence MANUAL (pre-existing, by design) |
+| [5]  | PASS   | ILB nva-backend pool: 2 NICs registered; VipAvail avg 99.97%, DipAvail 100% |
+
+---
+
+## Internet Breakout Confirmed
+
+Both spoke VMs return egress IP `20.163.105.237` (pip-lb-public) — SNAT through PA NVA → Public LB is functioning. NSG addition caused zero disruption to data-plane traffic.
+
+---
+
+## LB Metrics (healthy)
+
+- **UsedSnatPorts avg:** 4.27 — active SNAT in use
+- **SnatConnectionCount avg:** 156.5 — non-zero, confirms real outbound sessions
+- **VipAvailability avg:** 99.97% — Public LB healthy
+- **DipAvailability avg:** 100% — Both Public LB and ILB backends healthy
+
+---
+
+## Pre-existing WARNs (acceptable, no action needed)
+
+Phase 4 WARNs (pa-fw-0 and pa-fw-1) are structural — the lab has no PA API/CLI provisioned for automated session/NAT counter reads. These emit WARN by design and were present before the NSG change. No action required.
+
+---
+
+## Conclusion
+
+Naomi's NSG addition is validated. The new NSGs on snet-workload (spoke1 and spoke2) are correctly configured, do not block outbound traffic, and unlock the [2g] IP flow verify check. Deployment is GO.
+

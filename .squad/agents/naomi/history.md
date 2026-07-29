@@ -67,6 +67,10 @@ Completed full Palo Alto virtual WAN lab deployment in westus3 (rg-nva-spoke-int
 
 ---
 
+### 2026-07-29 — [Cross-agent] Baseline NSG deployment shipped via PR #15 (4a7b93d) — coordinated with Amos validation
+
+---
+
 ## Legacy Learnings (Archived 2026-07-28)
 
 **Phase summaries, historical PA deploy details, and pre-2026-07-28 technical documentation moved to history-archive.md for institutional reference.**
