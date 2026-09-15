@@ -16,8 +16,8 @@ can build, break and delete the on-prem side without touching the vWAN.
 ```mermaid
 flowchart LR
     subgraph GCP["GCP — us-south1 (Dallas)"]
-        VM["erfo-onprem-vm<br/>e2-micro<br/>192.168.100.10"]
-        SUB["subnet<br/>192.168.100.0/24"]
+        VM["erfo-onprem-vm<br/>e2-micro<br/>10.100.0.10"]
+        SUB["subnet<br/>10.100.0.0/24"]
         CR["Cloud Router<br/>erfo-onprem-router<br/>ASN 16550"]
         ATT["VLAN attachment<br/>erfo-onprem-attach<br/>PARTNER"]
     end
@@ -88,16 +88,16 @@ appear to Azure as a normal on-premises site, reachable over *either* circuit.
 |------|-------|
 | GCP region / zone | `us-south1` / `us-south1-a` (physically Dallas) |
 | VPC | `erfo-onprem` — custom subnet mode, global BGP routing, MTU 1460 |
-| Subnet | `192.168.100.0/24`, Private Google Access on |
-| VM | `erfo-onprem-vm`, `e2-micro`, Ubuntu 22.04, `192.168.100.10`, **no external IP** |
+| Subnet | `10.100.0.0/24`, Private Google Access on |
+| VM | `erfo-onprem-vm`, `e2-micro`, Ubuntu 22.04, `10.100.0.10`, **no external IP** |
 | Cloud Router ASN | **16550** (forced for Partner Interconnect) |
 | Advertised | `ALL_SUBNETS` + `10.0.0.0/8` |
 | Attachment | `erfo-onprem-attach`, `PARTNER`, `availability-domain-1` |
 | Interconnect location | `Chicago (ord-zone1-7)` — assigned by Megaport, *not* the GCP region |
 | Reaches Azure via | the MCR, over **both** `erfo-er-dallas` and `erfo-er-chicago` |
 
-`192.168.100.0/24` was chosen because it does not collide with anything on the
-Azure side:
+`10.100.0.0/24` is deliberately chosen to sit **inside the advertised
+`10.0.0.0/8` supernet** while colliding with nothing on the Azure side:
 
 | Azure prefix | Used by |
 |---|---|
@@ -108,6 +108,16 @@ Azure side:
 | `169.254.172.16/30`, `.20/30` | Dallas ER private peering (Megaport-assigned) |
 | `169.254.171.248/30`, `.252/30` | Chicago ER private peering (Megaport-assigned) |
 | `169.254.40.248/29` | GCP Partner Interconnect BGP link (GCP-assigned) |
+
+> **The on-prem subnet must be inside the advertised supernet.** The Cloud
+> Router advertises `ALL_SUBNETS` **plus** the custom range `10.0.0.0/8`. If the
+> subnet were, say, `192.168.100.0/24`, it would sit *outside* the `/8` and ride
+> to Azure only via the `ALL_SUBNETS` group — making the `/8` a prefix with no
+> real hosts behind it. Keeping the subnet inside the supernet means the
+> advertisement is truthful: `10.0.0.0/8` genuinely covers the on-prem host
+> range, so failing a circuit moves a prefix that actually carries traffic.
+> `scripts/gcp-deploy.ps1` / `.sh` enforce this with a fail-fast containment
+> check before anything is created.
 
 > **The Partner Interconnect link subnet is allocated by GCP, not by you and not
 > by Megaport.** GCP always hands out a **/29** for a partner attachment and
@@ -128,6 +138,11 @@ Every Azure prefix above sits *inside* `10.0.0.0/8`, but every one of them is a
 longer match. Advertising the supernet therefore changes nothing about how
 traffic moves inside Azure — longest-prefix-match still wins, and each spoke
 keeps reaching every other spoke exactly as before.
+
+The on-prem subnet `10.100.0.0/24` is *also* inside the `/8`, which is the point:
+the supernet is not a synthetic prefix bolted on for the lab, it is a genuine
+aggregate of the on-prem estate. Azure installs the `/8` and forwards on-prem
+traffic over it; `10.100.0.10` really is reachable through that route.
 
 What it *does* give you is **one prefix whose next hop visibly moves**:
 

@@ -109,7 +109,7 @@ on arrival.
 
 This reflection does **not** stop a hub preferring its own circuit. With both
 private peerings established, `erfo-hub-wus2` and `erfo-hub-scus` each install
-`10.0.0.0/8` and `192.168.100.0/24` via their own `ExpressRouteGateway`, and
+`10.0.0.0/8` and `10.100.0.0/24` via their own `ExpressRouteGateway`, and
 carry only the peer hub's *spoke* prefix as `Remote Hub`. That is the correct
 steady state.
 

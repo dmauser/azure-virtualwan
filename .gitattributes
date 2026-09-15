@@ -1,3 +1,8 @@
+# Shell scripts must be LF in the repo and in the working tree. A CRLF checkout
+# makes them fail on Linux with `\r: command not found` and trips shellcheck
+# SC1017.
+*.sh text eol=lf
+
 # Squad: union merge for append-only team state files
 .squad/decisions.md merge=union
 .squad/agents/*/history.md merge=union

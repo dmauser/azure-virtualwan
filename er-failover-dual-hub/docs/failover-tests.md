@@ -70,11 +70,11 @@ each one reaches on-premises over its own local ExpressRoute gateway:
 | Hub | Prefix | nextHopType | Meaning |
 | --- | --- | --- | --- |
 | `erfo-hub-wus2` | `10.0.0.0/8` | `ExpressRouteGateway` | local, via Chicago |
-| `erfo-hub-wus2` | `192.168.100.0/24` | `ExpressRouteGateway` | local, via Chicago |
+| `erfo-hub-wus2` | `10.100.0.0/24` | `ExpressRouteGateway` | local, via Chicago |
 | `erfo-hub-wus2` | `10.20.0.0/24` | `Remote Hub` | SCUS spoke, over branch-to-branch |
 | `erfo-hub-wus2` | `10.1.0.0/23` | `ExpressRouteGateway` | SCUS hub prefix, **reflected by the MCR** |
 | `erfo-hub-scus` | `10.0.0.0/8` | `ExpressRouteGateway` | local, via Dallas |
-| `erfo-hub-scus` | `192.168.100.0/24` | `ExpressRouteGateway` | local, via Dallas |
+| `erfo-hub-scus` | `10.100.0.0/24` | `ExpressRouteGateway` | local, via Dallas |
 | `erfo-hub-scus` | `10.10.0.0/24` | `Remote Hub` | WUS2 spoke, over branch-to-branch |
 | `erfo-hub-scus` | `10.0.0.0/23` | `ExpressRouteGateway` | WUS2 hub prefix, **reflected by the MCR** |
 
@@ -151,7 +151,7 @@ neighbor          as      upDown    statePfxRcd
 169.254.172.21    65001   39m59s    Idle         <- secondary down
 ```
 
-with `10.0.0.0/8` and `192.168.100.0/24` absent from the Dallas learned-route
+with `10.0.0.0/8` and `10.100.0.0/24` absent from the Dallas learned-route
 table entirely, and South Central US falling back to `Remote Hub`. Layer 2 was
 fine throughout — ARP still showed `169.254.172.17` at MAC `025a.011e.0923`, the
 same MCR interface that serves Chicago. Re-enabling the peering restored the
@@ -362,7 +362,7 @@ and the Dallas break to move none.
 
 | Check | Pass criteria |
 |---|---|
-| Steady state | Each hub uses its own local circuit (`ExpressRouteGateway`) for `10.0.0.0/8` and `192.168.100.0/24`, and `Remote Hub` only for the peer hub's spoke prefix. Confirm both private peerings are established first — see step 1. |
+| Steady state | Each hub uses its own local circuit (`ExpressRouteGateway`) for `10.0.0.0/8` and `10.100.0.0/24`, and `Remote Hub` only for the peer hub's spoke prefix. Confirm both private peerings are established first — see step 1. |
 | Failure detection | BGP withdraws the failed path within hold-timer |
 | Reroute | Surviving hub's circuit is installed as the new next hop |
 | Data plane | Ping resumes, typically inside 60 s |

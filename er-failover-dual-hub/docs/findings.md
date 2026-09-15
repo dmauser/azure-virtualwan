@@ -122,7 +122,8 @@ redundancy is missing.
 
 ## 3 — `10.0.0.0/8` overlaps the entire Azure address plan
 
-GCP advertises `10.0.0.0/8` alongside `192.168.100.0/24`. The `/8` is a supernet
+GCP advertises `10.0.0.0/8` alongside the on-prem subnet `10.100.0.0/24` (which
+now sits *inside* the `/8` — see the note below). The `/8` is a supernet
 of every Azure prefix here (`10.0.0.0/23`, `10.1.0.0/23`, `10.10.0.0/24`,
 `10.20.0.0/24`).
 
@@ -133,7 +134,16 @@ that spoke matches the `/8` and is sent to GCP instead of being dropped.
 
 If you want a failover probe with no overlap, advertise something outside
 `10.0.0.0/8` — `172.31.0.0/16` works and keeps the same "one prefix visibly
-moves" property.
+moves" property. Note that the on-prem subnet would then have to move with it,
+since the deploy scripts now require the subnet to be contained in the
+advertised range.
+
+> **Resolved sub-issue.** The on-prem subnet used to be `192.168.100.0/24`,
+> i.e. *outside* the advertised `10.0.0.0/8`. The supernet was therefore a
+> prefix with no hosts behind it, while real on-prem traffic rode the separate
+> `ALL_SUBNETS` advertisement. It has been renumbered to `10.100.0.0/24` so the
+> `/8` genuinely aggregates the on-prem estate, and `gcp-deploy.ps1` / `.sh`
+> now fail fast if the two are ever inconsistent again.
 
 ---
 

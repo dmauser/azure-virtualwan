@@ -21,7 +21,8 @@
 #   -r, --region REGION       GCP region          (default: us-south1 = Dallas)
 #   -z, --zone ZONE           GCP zone            (default: <region>-a)
 #   -n, --name-prefix PREFIX  Resource name prefix (default: erfo-onprem)
-#   -c, --subnet-cidr CIDR    Subnet range        (default: 192.168.100.0/24)
+#   -c, --subnet-cidr CIDR    Subnet range        (default: 10.100.0.0/24)
+#                             Must be inside --advertise-range.
 #   -a, --advertise-range CIDR  Supernet to advertise (default: 10.0.0.0/8)
 #       --spot                Use a Spot VM (much cheaper, can be preempted)
 #       --with-nat            Also create Cloud NAT (adds hourly cost)
@@ -104,7 +105,7 @@ GCP_PROJECT="${GCP_PROJECT:-}"
 REGION="us-south1"
 ZONE=""
 PREFIX="erfo-onprem"
-SUBNET_CIDR="192.168.100.0/24"
+SUBNET_CIDR="10.100.0.0/24"
 ADVERTISE_RANGE="10.0.0.0/8"
 MACHINE_TYPE="e2-micro"
 USE_SPOT=0
@@ -119,7 +120,7 @@ warn() { echo -e "  \033[33m[WARN] $*\033[0m"; }
 fail() { echo -e "  \033[31m[FAIL] $*\033[0m"; exit 1; }
 skip() { echo -e "  \033[36m[SKIP] $*\033[0m"; }
 
-usage() { sed -n '2,35p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
 
 confirm() {
   local prompt="$1"
@@ -160,6 +161,32 @@ TAG="${PREFIX}"
 
 # VM private IP = .10 of the subnet
 VM_IP="$(echo "$SUBNET_CIDR" | awk -F'[./]' '{print $1"."$2"."$3".10"}')"
+
+# ---------------------------------------------------------------------------
+# Guard: the on-prem subnet MUST sit inside the advertised supernet.
+#
+# The Cloud Router advertises $ADVERTISE_RANGE to the MCR, and that is the
+# prefix the failover test watches swinging between circuits. If the subnet
+# lives outside it, the supernet advertises address space nobody owns while
+# the real host prefix rides along separately — exactly the bug this lab hit
+# with the original 192.168.100.0/24 subnet.
+# ---------------------------------------------------------------------------
+ip_to_int() {
+  local IFS=.; read -r a b c d <<<"$1"
+  echo $(( (a << 24) + (b << 16) + (c << 8) + d ))
+}
+
+cidr_contains() {   # cidr_contains <outer> <inner> -> 0 when outer contains inner
+  local o_ip="${1%/*}" o_len="${1#*/}"
+  local i_ip="${2%/*}" i_len="${2#*/}"
+  (( i_len < o_len )) && return 1
+  local mask=$(( o_len == 0 ? 0 : (0xFFFFFFFF << (32 - o_len)) & 0xFFFFFFFF ))
+  (( ($(ip_to_int "$o_ip") & mask) == ($(ip_to_int "$i_ip") & mask) ))
+}
+
+if ! cidr_contains "$ADVERTISE_RANGE" "$SUBNET_CIDR"; then
+  fail "--subnet-cidr $SUBNET_CIDR is not inside --advertise-range $ADVERTISE_RANGE. The advertised supernet must contain the on-prem subnet."
+fi
 
 # ---------- Auth -------------------------------------------------------------
 log "Checking gcloud authentication..."

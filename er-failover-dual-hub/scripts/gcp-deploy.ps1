@@ -32,11 +32,19 @@
     Prefix for every created resource. Default 'erfo-onprem'.
 
 .PARAMETER SubnetCidr
-    Subnet range for the on-prem VPC. Default 192.168.100.0/24.
+    Subnet range for the on-prem VPC. Default 10.100.0.0/24.
+
+    This MUST sit inside -AdvertiseRange. The Cloud Router advertises the
+    supernet, so Azure installs a single route for it and forwards on-prem
+    traffic accordingly; a subnet outside that supernet would be advertised
+    only by ALL_SUBNETS and would not be covered by the prefix the failover
+    test actually watches. 10.100.0.0/24 is inside 10.0.0.0/8 and does not
+    collide with any Azure prefix in this lab (10.0.0.0/23, 10.1.0.0/23,
+    10.10.0.0/24, 10.20.0.0/24).
 
 .PARAMETER AdvertiseRange
     Supernet advertised to the MCR in addition to ALL_SUBNETS.
-    Default 10.0.0.0/8.
+    Default 10.0.0.0/8. -SubnetCidr must be inside this range.
 
 .PARAMETER Spot
     Use a Spot VM. Much cheaper, but can be preempted at any time.
@@ -60,7 +68,7 @@ param(
     [string]$Region = 'us-south1',
     [string]$Zone,
     [string]$NamePrefix = 'erfo-onprem',
-    [string]$SubnetCidr = '192.168.100.0/24',
+    [string]$SubnetCidr = '10.100.0.0/24',
     [string]$AdvertiseRange = '10.0.0.0/8',
     [switch]$Spot,
     [switch]$WithNat,
@@ -142,6 +150,37 @@ $MachineType = 'e2-micro'
 # VM private IP = .10 of the subnet
 $octets = ($SubnetCidr -split '/')[0] -split '\.'
 $VmIp   = "$($octets[0]).$($octets[1]).$($octets[2]).10"
+
+# ---------------------------------------------------------------------------
+# Guard: the on-prem subnet MUST sit inside the advertised supernet.
+#
+# The Cloud Router advertises $AdvertiseRange to the MCR, and that is the
+# prefix the failover test watches swinging between circuits. If the subnet
+# lives outside it, the supernet advertises address space nobody owns while
+# the real host prefix rides along separately - which is exactly the bug this
+# lab hit with the original 192.168.100.0/24 subnet.
+# ---------------------------------------------------------------------------
+function ConvertTo-UInt32Ip {
+    param([string]$Ip)
+    $b = [System.Net.IPAddress]::Parse($Ip).GetAddressBytes()
+    [array]::Reverse($b)
+    return [System.BitConverter]::ToUInt32($b, 0)
+}
+
+function Test-CidrContains {
+    param([string]$Outer, [string]$Inner)
+    $oParts = $Outer -split '/'; $iParts = $Inner -split '/'
+    $oLen = [int]$oParts[1];     $iLen = [int]$iParts[1]
+    if ($iLen -lt $oLen) { return $false }
+    $mask = if ($oLen -eq 0) { [uint32]0 } else { [uint32](0xFFFFFFFFL -shl (32 - $oLen)) }
+    return ((ConvertTo-UInt32Ip $oParts[0]) -band $mask) -eq ((ConvertTo-UInt32Ip $iParts[0]) -band $mask)
+}
+
+if (-not (Test-CidrContains -Outer $AdvertiseRange -Inner $SubnetCidr)) {
+    Write-Host "  [FAIL] -SubnetCidr $SubnetCidr is not inside -AdvertiseRange $AdvertiseRange." -ForegroundColor Red
+    Write-Host '         The advertised supernet must contain the on-prem subnet.' -ForegroundColor Red
+    exit 1
+}
 
 # ---------------------------------------------------------------------------
 # Auth
