@@ -1,0 +1,29 @@
+{
+  "adminEnabled": true,
+  "bandwidth": "BPS_50M",
+  "cloudRouterIpAddress": "169.254.40.249/29",
+  "creationTimestamp": "2026-09-14T19:41:49.139-05:00",
+  "customerRouterIpAddress": "169.254.40.250/29",
+  "dataplaneVersion": 2,
+  "description": "er-failover-dual-hub on-prem -> Megaport MCR -> erfo-er-dallas",
+  "edgeAvailabilityDomain": "AVAILABILITY_DOMAIN_1",
+  "encryption": "NONE",
+  "id": "1789033445796948643",
+  "kind": "compute#interconnectAttachment",
+  "labelFingerprint": "42WmSpB8rSM=",
+  "name": "erfo-onprem-attach",
+  "pairingKey": "6270086a-58da-4884-8f9b-fd315f1188aa/us-south1/1",
+  "partnerAsn": "65001",
+  "partnerMetadata": {
+    "interconnectName": "Chicago (ord-zone1-7)",
+    "partnerName": "Megaport",
+    "portalUrl": "https://megaport.al"
+  },
+  "region": "https://www.googleapis.com/compute/v1/projects/angular-expanse-327722/regions/us-south1",
+  "router": "https://www.googleapis.com/compute/v1/projects/angular-expanse-327722/regions/us-south1/routers/erfo-onprem-router",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/angular-expanse-327722/regions/us-south1/interconnectAttachments/erfo-onprem-attach",
+  "stackType": "IPV4_ONLY",
+  "state": "ACTIVE",
+  "type": "PARTNER",
+  "vlanTag8021q": 3033
+}

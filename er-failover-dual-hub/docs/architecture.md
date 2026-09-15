@@ -1,0 +1,168 @@
+# Architecture
+
+## Address plan
+
+| Item | Region | Prefix | Notes |
+|---|---|---|---|
+| Virtual Hub wus2 | `westus2` | `10.0.0.0/23` | `erfo-hub-wus2` |
+| Virtual Hub SCUS | `southcentralus` | `10.1.0.0/23` | `erfo-hub-scus` |
+| Spoke wus2 | `westus2` | `10.10.0.0/24` | subnet `main` = `10.10.0.0/27` |
+| Spoke SCUS | `southcentralus` | `10.20.0.0/24` | subnet `main` = `10.20.0.0/27` |
+| On-premises | — | your prefixes | advertised over both circuits |
+
+A `/23` is the minimum Microsoft recommends for a Virtual Hub and leaves room for the ExpressRoute Gateway plus future VPN/NVA additions without a redeploy.
+
+The spoke prefixes are deliberately far apart from the hub ranges so on-prem summary routes are unambiguous during failover testing.
+
+## Resource inventory
+
+| Resource | Count | Name pattern |
+|---|---|---|
+| Virtual WAN | 1 | `erfo-vwan` |
+| Virtual Hub | 2 | `erfo-hub-{wus2,scus}` |
+| Spoke VNet | 2 | `erfo-spoke-{wus2,scus}` |
+| Hub VNet connection | 2 | `erfo-spoke-{key}-conn` |
+| ExpressRoute Gateway | 2 | `erfo-hub-{key}-ergw` |
+| ExpressRoute circuit | 2 | `erfo-er-{chicago,dallas}` |
+| ExpressRoute connection | 2 | `erfo-erconn-{chicago,dallas}` |
+| Linux VM | 2 | `erfo-vm-{wus2,scus}` |
+| NIC | 2 | `nic-erfo-vm-{key}` |
+| NSG | 2 | `nsg-erfo-spoke-{key}` |
+| User-assigned identity | 1 | `erfo-erwait-identity` |
+| Deployment script (poller) | 2 | `erfo-erwait-{chicago,dallas}` |
+
+## Circuit-to-hub mapping
+
+Each circuit terminates on its **geographically local** hub only. There is no cross-connect.
+
+| Circuit | Peering location | Circuit region | Hub |
+|---|---|---|---|
+| `erfo-er-chicago` | Chicago | `northcentralus` | `erfo-hub-wus2` |
+| `erfo-er-dallas` | Dallas | `southcentralus` | `erfo-hub-scus` |
+
+Chicago's circuit resource lives in North Central US — the Azure region paired with the Chicago ExpressRoute edge — while the hub it feeds lives in West US 2. That mismatch is intentional and harmless: a circuit's *region* is an ARM placement detail, and a Standard-SKU circuit can attach to any Virtual WAN hub in the same geopolitical region (here, the US). What determines connectivity is the **peering location**, so the Chicago edge still fronts the West US 2 hub.
+
+Cross-connecting both circuits to both hubs would give faster convergence but would mask the behavior this lab targets — hub-to-hub transit as the failover path.
+
+## Route propagation
+
+Both hubs use the default route table with default propagation. The relevant flows:
+
+```
+on-prem prefix  --BGP-->  Chicago circuit  -->  ER GW (wus2)  -->  hub-wus2 default RT
+                                                                      |
+                                              branch-to-branch transit |
+                                                                      v
+                                                             hub-scus default RT
+```
+
+…and symmetrically from Dallas into `hub-scus` and across to `hub-wus2`.
+
+So each hub ends up with **two** candidate paths for every on-prem prefix:
+
+1. Direct, via its own ER Gateway — short AS path.
+2. Indirect, via the peer hub — the peer hub's AS is prepended, so longer.
+
+## AS-path selection
+
+`hubRoutingPreference` on a Virtual Hub decides the order in which the hub router breaks ties.
+
+| Value | Order |
+|---|---|
+| `ExpressRoute` | ER source first, then VPN/NVA, then AS path |
+| `VpnGateway` | VPN source first, then ER, then AS path |
+| `ASPath` | **AS path length first**, then source |
+
+This lab sets `ASPath` on both hubs.
+
+**Steady state.** `hub-scus` has the Dallas path at AS-path length *n* and the Chicago-via-`hub-wus2` path at length *n+1*. Shortest wins, so Dallas is installed and the transit path sits in the RIB as a backup.
+
+**Dallas fails.** The direct path is withdrawn. Only the transit path remains, so `hub-scus` installs Chicago-via-`hub-wus2`. Traffic from `erfo-vm-scus` now takes:
+
+```
+erfo-vm-scus -> erfo-spoke-scus -> hub-scus -> hub-wus2 -> ER GW (wus2) -> Chicago -> on-prem
+```
+
+**Dallas returns.** The shorter direct path reappears and is preferred again. Failback is automatic.
+
+Had the hubs been left on the default `ExpressRoute` preference, both candidate paths would be ExpressRoute-sourced, and the selection would fall through to AS path anyway — but source-based preference would take precedence over AS path in mixed-source topologies, which is exactly the ambiguity `ASPath` removes.
+
+### Caveat: one MCR means the two circuits share a failure domain
+
+The description above assumes each circuit reaches on-premises over its own
+provider router. In this lab both circuits terminate on a **single Megaport
+MCR** in AS 65001 — a deliberate cost compromise. The MCR re-originates each
+circuit's prefixes into the other, so the two "independent" paths share a
+next-hop AS and, more importantly, a single physical failure domain: an
+MCR-wide outage takes both circuits down at once and no failover is possible.
+
+Two tells show the reflection: `10.1.0.0/23` appears at `erfo-hub-wus2` with AS
+path `12076-65001-12076` (South Central US's own hub prefix arriving back at
+West US 2 through the MCR), and the Dallas MSEE learns West US 2's `10.0.0.0/23`
+and `10.10.0.0/24` with path `65001 12076`. Azure discards routes whose AS path
+already contains its own ASN, so part of what the MCR offers each hub is dropped
+on arrival.
+
+This reflection does **not** stop a hub preferring its own circuit. With both
+private peerings established, `erfo-hub-wus2` and `erfo-hub-scus` each install
+`10.0.0.0/8` and `192.168.100.0/24` via their own `ExpressRouteGateway`, and
+carry only the peer hub's *spoke* prefix as `Remote Hub`. That is the correct
+steady state.
+
+> **A down BGP session produces a `Remote Hub` next hop for the on-prem
+> prefixes.** An earlier revision of these docs read that symptom as a shared-MCR
+> preference artifact; it was in fact the Dallas private peering being
+> administratively disabled. Always confirm peering state at the circuit before
+> attributing anything to topology — see the peering pre-check in
+> `failover-tests.md` step 1.
+
+If you want the two paths to be genuinely independent, give each circuit its own
+provider router / MCR. AS-path shaping (prepending on a VXC) is also a
+Megaport-side change; nothing in this repo's Bicep sets AS path — peering and
+AS-path policy are owned by the MCR by design. See `failover-tests.md` step 1
+for the full capture and what it means for the test
+procedure.
+
+## Branch-to-branch
+
+`allowBranchToBranchTraffic: true` is set on the Virtual WAN. Without it:
+
+- Hubs do not re-advertise ExpressRoute routes learned from one hub to the other.
+- Each hub only ever knows its own circuit.
+- A circuit failure becomes a hard outage for that region with **no** failover path.
+
+This single flag is the difference between a working lab and a broken one.
+
+## The provider-wait gate
+
+ExpressRoute circuits are created immediately but start in `serviceProviderProvisioningState = NotProvisioned`. Attempting to create an `expressRouteConnection` against an unprovisioned circuit fails, and the private peering that the connection references does not exist yet.
+
+Rather than splitting the lab into two deployments, `er-wait.bicep` deploys a `deploymentScripts` resource per circuit that polls the circuit until it is ready:
+
+```
+erCircuits[i]  ->  erWaits[i]  ->  erPeerings[i] (conditional)  ->  erConnections[i]
+```
+
+The poller is an `AzureCLI` container that:
+
+1. Reads `CIRCUIT_ID`, `POLL_SECONDS`, `TIMEOUT_SECONDS`, `REQUIRE_PRIVATE_PEERING` from the environment.
+2. Loops on `az network express-route show --ids "$CIRCUIT_ID"`.
+3. Succeeds when `serviceProviderProvisioningState == "Provisioned"` — and, when `REQUIRE_PRIVATE_PEERING=true`, also when an `AzurePrivatePeering` entry exists.
+4. Writes `{ ready, providerState, elapsedSeconds }` to `$AZ_SCRIPTS_OUTPUT_PATH`.
+5. Exits non-zero on timeout with a diagnostic message.
+
+`forceUpdateTag` defaults to `utcNow()` so a redeploy re-runs the poll instead of short-circuiting on a cached success. `cleanupPreference: 'OnSuccess'` keeps the container and its logs around when a poll fails so you can read them.
+
+The container timeout is `PT2H` while the script's own deadline defaults to 6600 s (110 min), deliberately under it — that way the script exits with a readable error rather than the container being killed.
+
+## Design choices
+
+| Choice | Rationale |
+|---|---|
+| No Azure Firewall / Routing Intent | Keeps AS-path selection observable; saves ~$600/mo |
+| No public IPs on the test VMs | Failover testing needs an interactive shell running `mtr`, but a public IP would keep working while the private path is broken. Serial Console rides the control plane instead, so the shell survives the failure you are testing. Managed boot diagnostics make it work with no storage account. |
+| NSG allows RFC1918 only | With no public IP there is nothing to protect against from the internet; the single rule at priority 200 is what carries spoke-to-spoke and on-prem test traffic |
+| Spoke connections built in Bicep | Whole topology is reproducible from one deployment |
+| Circuit `provider` as a parameter | Chicago and Dallas can use different carriers if needed |
+| User-defined types for `hubs` | Compile-time validation of the hub/circuit shape, and a single place to see what a hub definition must contain |
+| Reader role assignment optional | Deployers without User Access Administrator can pre-assign out of band |

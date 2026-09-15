@@ -1,0 +1,31 @@
+WARNING: The private SSH key file for gcloud does not exist.
+WARNING: The public SSH key file for gcloud does not exist.
+WARNING: The PuTTY PPK SSH key file for gcloud does not exist.
+WARNING: You do not have an SSH key for gcloud.
+WARNING: SSH keygen will be executed to generate a key.
+Updating project ssh metadata...
+...............................................Updated [https://www.googleapis.com/compute/v1/projects/angular-expanse-327722].
+.done.
+Waiting for SSH key to propagate.
+The host key is not cached for this server:
+  compute.4181477998018767612 (port 22)
+You have no guarantee that the server is the computer you
+think it is.
+The server's ssh-ed25519 key fingerprint is:
+  ssh-ed25519 255 SHA256:1MUafnN8d1Pvkb9HNZku5dfDOjRjZ6T0IHzwQ1iKu3s
+If you trust this host, enter "y" to add the key to Plink's
+cache and carry on connecting.
+If you want to carry on connecting just once, without adding
+the key to the cache, enter "n".
+If you do not trust this host, press Return to abandon the
+connection.
+### ip -4 route show
+default via 192.168.100.1 dev ens4 proto dhcp src 192.168.100.10 metric 100 
+169.254.169.254 via 192.168.100.1 dev ens4 proto dhcp src 192.168.100.10 metric 100 
+192.168.100.1 dev ens4 proto dhcp scope link src 192.168.100.10 metric 100 
+
+### addresses
+lo               UNKNOWN        127.0.0.1/8 
+ens4             UP             192.168.100.10/32 metric 100 
+Store key in cache? (y/n, Return cancels connection, i for more info) 
+

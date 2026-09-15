@@ -1,0 +1,184 @@
+[
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "10.10.0.0/24",
+    "nextHopType": "VnetLocal",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "10.0.0.0/23",
+    "nextHopType": "VNetPeering",
+    "nextHop": ""
+  },
+  {
+    "source": "VirtualNetworkGateway",
+    "state": "Active",
+    "prefix": "10.0.0.0/8",
+    "nextHopType": "VirtualNetworkGateway",
+    "nextHop": "10.3.129.0"
+  },
+  {
+    "source": "VirtualNetworkGateway",
+    "state": "Active",
+    "prefix": "192.168.100.0/24",
+    "nextHopType": "VirtualNetworkGateway",
+    "nextHop": "10.3.129.0"
+  },
+  {
+    "source": "VirtualNetworkGateway",
+    "state": "Active",
+    "prefix": "10.20.0.0/24",
+    "nextHopType": "VirtualNetworkGateway",
+    "nextHop": "10.0.0.68"
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "0.0.0.0/0",
+    "nextHopType": "Internet",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "127.0.0.0/8",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "100.64.0.0/10",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "172.16.0.0/12",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.176.0.0/13",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.152.0.0/14",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.184.0.0/14",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.4.0.0/14",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.148.0.0/15",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "198.18.0.0/15",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.150.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.156.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "25.159.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "40.109.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "192.168.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "104.147.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "157.59.0.0/16",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "40.108.0.0/17",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "104.146.0.0/17",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "23.103.0.0/18",
+    "nextHopType": "None",
+    "nextHop": ""
+  },
+  {
+    "source": "Default",
+    "state": "Active",
+    "prefix": "20.35.252.0/22",
+    "nextHopType": "None",
+    "nextHop": ""
+  }
+]

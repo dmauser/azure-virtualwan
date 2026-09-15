@@ -1,0 +1,14 @@
+[
+  {
+    "age": 0,
+    "interface": "",
+    "ipAddress": "-:",
+    "macAddress": "(configuration"
+  },
+  {
+    "age": 0,
+    "interface": "Microsoft",
+    "ipAddress": "169.254.171.254",
+    "macAddress": "e478.7668.9fe5"
+  }
+]

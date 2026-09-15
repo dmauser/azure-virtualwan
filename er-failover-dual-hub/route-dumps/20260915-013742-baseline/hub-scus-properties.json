@@ -1,0 +1,9 @@
+{
+  "name": "erfo-hub-scus",
+  "location": "southcentralus",
+  "addressSpace": "10.1.0.0/23",
+  "routingPref": "ASPath",
+  "state": "Succeeded",
+  "routerAsn": 65515,
+  "routerIps": "10.1.0.69, 10.1.0.70"
+}

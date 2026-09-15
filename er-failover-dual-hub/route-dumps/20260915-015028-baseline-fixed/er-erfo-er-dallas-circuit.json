@@ -1,0 +1,10 @@
+{
+  "name": "erfo-er-dallas",
+  "location": "southcentralus",
+  "provisioning": "Succeeded",
+  "provider": "Megaport",
+  "peeringLoc": "Dallas",
+  "bandwidthMbps": 50,
+  "providerState": "Provisioned",
+  "sku": "Standard_MeteredData"
+}

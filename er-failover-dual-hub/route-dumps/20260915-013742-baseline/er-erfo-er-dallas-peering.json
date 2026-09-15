@@ -1,0 +1,8 @@
+{
+  "peerASN": 65001,
+  "vlanId": 100,
+  "primary": "169.254.172.16/30",
+  "secondary": "169.254.172.20/30",
+  "azureASN": 12076,
+  "state": "Succeeded"
+}

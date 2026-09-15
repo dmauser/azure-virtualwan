@@ -1,0 +1,23 @@
+[
+  {
+    "prefix": "10.0.0.0/8",
+    "nextHopType": "ExpressRouteGateway",
+    "nextHop": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/rg-er-failover-dual-hub/providers/Microsoft.Network/expressRouteGateways/erfo-hub-wus2-ergw",
+    "asPath": "12076-65001-16550",
+    "origin": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/rg-er-failover-dual-hub/providers/Microsoft.Network/expressRouteGateways/erfo-hub-wus2-ergw"
+  },
+  {
+    "prefix": "192.168.100.0/24",
+    "nextHopType": "ExpressRouteGateway",
+    "nextHop": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/rg-er-failover-dual-hub/providers/Microsoft.Network/expressRouteGateways/erfo-hub-wus2-ergw",
+    "asPath": "12076-65001-16550",
+    "origin": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/rg-er-failover-dual-hub/providers/Microsoft.Network/expressRouteGateways/erfo-hub-wus2-ergw"
+  },
+  {
+    "prefix": "10.20.0.0/24",
+    "nextHopType": "Remote Hub",
+    "nextHop": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/rg-er-failover-dual-hub/providers/Microsoft.Network/virtualHubs/erfo-hub-scus",
+    "asPath": "65520-65520",
+    "origin": "/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/rg-er-failover-dual-hub/providers/Microsoft.Network/virtualHubs/erfo-hub-scus"
+  }
+]

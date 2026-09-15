@@ -1,0 +1,23 @@
+[
+  {
+    "as": 65515,
+    "neighbor": "10.0.0.12",
+    "statePfxRcd": "3",
+    "upDown": "13m11s",
+    "v": 4
+  },
+  {
+    "as": 65515,
+    "neighbor": "10.0.0.13",
+    "statePfxRcd": "3",
+    "upDown": "13m12s",
+    "v": 4
+  },
+  {
+    "as": 65001,
+    "neighbor": "169.254.171.253",
+    "statePfxRcd": "Active",
+    "upDown": "37m44s",
+    "v": 4
+  }
+]
