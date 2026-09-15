@@ -1,0 +1,99 @@
+name: Validate er-failover-dual-hub
+
+# Static validation only — compiles the Bicep and syntax-checks the shell and
+# PowerShell tooling. Nothing here touches Azure or needs credentials.
+
+on:
+  push:
+    paths:
+      - 'er-failover-dual-hub/**'
+      - '.github/workflows/lab-er-failover-validate.yml'
+  pull_request:
+    paths:
+      - 'er-failover-dual-hub/**'
+      - '.github/workflows/lab-er-failover-validate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: er-failover-dual-hub
+
+jobs:
+  bicep:
+    name: Bicep build + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bicep CLI
+        run: |
+          az bicep install
+          az bicep version
+
+      - name: Build main template
+        run: az bicep build --file infra/bicep/main.bicep --stdout > /dev/null
+
+      - name: Build every module
+        run: |
+          status=0
+          for f in infra/bicep/modules/*.bicep; do
+            echo "::group::$f"
+            az bicep build --file "$f" --stdout > /dev/null || status=1
+            echo "::endgroup::"
+          done
+          exit $status
+
+      - name: Validate parameter file
+        run: az bicep build-params --file infra/bicep/main.bicepparam --stdout > /dev/null
+
+  shell:
+    name: Shell syntax + shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n
+        run: |
+          status=0
+          for f in scripts/*.sh; do
+            bash -n "$f" || { echo "syntax error: $f"; status=1; }
+          done
+          exit $status
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          # SC2086 (word splitting) and SC1091 (sourced file not followed) are
+          # noisy in az-cli heavy scripts and are not defects here.
+          shellcheck --severity=warning --exclude=SC2086,SC1091 scripts/*.sh
+
+  powershell:
+    name: PowerShell parse + PSScriptAnalyzer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse every script
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($f in Get-ChildItem scripts -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              $failed = $true
+              Write-Host "::error file=$($f.FullName)::$($errors -join '; ')"
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+          $r = Invoke-ScriptAnalyzer -Path scripts -Recurse -Severity Error
+          if ($r) { $r | Format-Table -AutoSize | Out-String | Write-Host; exit 1 }
