@@ -7,6 +7,7 @@ For the full catalog of all 30+ labs with descriptions and difficulty levels, se
 ## Articles/Lab
 
 - [Lab: Virtual WAN scenario: any-to-any](https://github.com/dmauser/azure-virtualwan/tree/main/any-to-any)
+- [Lab: Dual-hub ExpressRoute failover with AS-Path hub routing preference (Bicep IaC)](https://github.com/dmauser/azure-virtualwan/tree/main/er-failover-dual-hub)
 - [Lab: Virtual WAN scenario: Route traffic through an Azure Firewall spoke](https://github.com/dmauser/azure-virtualwan/tree/main/inter-region-azfw)
 - [Lab: Virtual WAN scenario: Route traffic through an NVA spoke](https://github.com/dmauser/azure-virtualwan/tree/main/inter-region-nva)
 - [Lab: Virtual WAN scenario: Route traffic through an NVA spoke using BGP Peering](https://github.com/dmauser/azure-virtualwan/tree/main/inter-region-nvabgp)

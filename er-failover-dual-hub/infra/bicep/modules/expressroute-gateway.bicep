@@ -34,7 +34,11 @@ resource erGateway 'Microsoft.Network/expressRouteGateways@2023-11-01' = {
     }
     autoScaleConfiguration: {
       bounds: {
+        // Pin min == max so the gateway cannot autoscale past the requested
+        // scale unit. Leaving `max` unset lets Azure add scale units under
+        // load and bill for them, which defeats the lab's cost ceiling.
         min: scaleUnits
+        max: scaleUnits
       }
     }
   }

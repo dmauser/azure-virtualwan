@@ -17,10 +17,9 @@ can build, break and delete the on-prem side without touching the vWAN.
 flowchart LR
     subgraph GCP["GCP — us-south1 (Dallas)"]
         VM["erfo-onprem-vm<br/>e2-micro<br/>192.168.100.10"]
-        SUB["subnet 192.168.100.0/24"]
+        SUB["subnet<br/>192.168.100.0/24"]
         CR["Cloud Router<br/>erfo-onprem-router<br/>ASN 16550"]
         ATT["VLAN attachment<br/>erfo-onprem-attach<br/>PARTNER"]
-        VM --- SUB --- CR --- ATT
     end
 
     subgraph MP["Megaport"]
@@ -28,17 +27,32 @@ flowchart LR
     end
 
     subgraph AZ["Azure"]
-        ERC["erfo-er-dallas<br/>ExpressRoute circuit"]
+        ERD["erfo-er-dallas<br/>ExpressRoute circuit"]
         HUB1["erfo-hub-scus<br/>South Central US"]
-        HUB2["erfo-hub-wus2<br/>West US 2"]
         SP1["erfo-vm-scus<br/>10.20.0.4"]
+        B2B{{"hub-to-hub<br/>transit"}}
+        ERC["erfo-er-chicago<br/>ExpressRoute circuit"]
+        HUB2["erfo-hub-wus2<br/>West US 2"]
         SP2["erfo-vm-wus2<br/>10.10.0.4"]
-        ERC --- HUB1 --- SP1
-        HUB1 <-->|hub-to-hub| HUB2 --- SP2
     end
 
-    ATT -->|VXC 1| MCR
-    MCR -->|VXC 2| ERC
+    VM --- SUB --- CR --- ATT
+    ATT -->|"VXC 1"| MCR
+    MCR -->|"VXC 2"| ERD
+    MCR -->|"VXC 3"| ERC
+    ERD --- HUB1 --- SP1
+    ERC --- HUB2 --- SP2
+    HUB1 -.- B2B
+    HUB2 -.- B2B
+
+    classDef gcp fill:#e8f0fe,stroke:#4285f4,color:#1b1b1b
+    classDef mp fill:#fde7e9,stroke:#e31937,color:#1b1b1b
+    classDef az fill:#dbe9f7,stroke:#0b5394,color:#1b1b1b
+    classDef transit fill:#fff4ce,stroke:#8a6d00,color:#1b1b1b
+    class VM,SUB,CR,ATT gcp
+    class MCR mp
+    class ERC,ERD,HUB1,HUB2,SP1,SP2 az
+    class B2B transit
 ```
 
 Megaport is a Layer 2 provider. It **cannot** bridge a GCP Partner Interconnect
@@ -49,10 +63,22 @@ two clouds each expect to speak BGP to the provider, not to each other. An
 | VXC | From | To | BGP |
 |-----|------|----|-----|
 | 1 | MCR | GCP `erfo-onprem-attach` | MCR uses ASN **16550** (GCP requirement) |
+| VXC | From | To | BGP |
+|-----|------|----|-----|
+| 1 | MCR | GCP `erfo-onprem-attach` | MCR uses ASN **16550** (GCP requirement) |
 | 2 | MCR | Azure `erfo-er-dallas` | MCR uses ASN **65001** (matches the circuit's private peering) |
+| 3 | MCR | Azure `erfo-er-chicago` | MCR uses ASN **65001** (matches the circuit's private peering) |
 
-The MCR re-advertises between the two sessions. That is what makes the GCP VM
-appear to Azure as a normal on-premises site.
+The MCR re-advertises between all three sessions. That is what makes the GCP VM
+appear to Azure as a normal on-premises site, reachable over *either* circuit.
+
+> ⚠️ **The MCR is a shared failure domain and a transit AS.** Because the same
+> MCR terminates both Azure VXCs, it re-advertises each circuit's Azure routes to
+> the other one. Each hub therefore learns the *other* hub's address space back
+> over its own ExpressRoute circuit (AS-path `65001 12076`) instead of over
+> branch-to-branch transit. See
+> [`findings.md`](./findings.md#1--megaport-mcr-transits-azure-prefixes-between-the-two-circuits)
+> for the evidence and the filter that fixes it.
 
 ---
 
@@ -67,7 +93,8 @@ appear to Azure as a normal on-premises site.
 | Cloud Router ASN | **16550** (forced for Partner Interconnect) |
 | Advertised | `ALL_SUBNETS` + `10.0.0.0/8` |
 | Attachment | `erfo-onprem-attach`, `PARTNER`, `availability-domain-1` |
-| Pairs with | `erfo-er-dallas` → `erfo-hub-scus` |
+| Interconnect location | `Chicago (ord-zone1-7)` — assigned by Megaport, *not* the GCP region |
+| Reaches Azure via | the MCR, over **both** `erfo-er-dallas` and `erfo-er-chicago` |
 
 `192.168.100.0/24` was chosen because it does not collide with anything on the
 Azure side:
@@ -104,12 +131,14 @@ keeps reaching every other spoke exactly as before.
 
 What it *does* give you is **one prefix whose next hop visibly moves**:
 
-- **Steady state** — `10.0.0.0/8` is learned at `erfo-hub-scus` over the Dallas
-  circuit. AS-path from the GCP side is short, so Dallas is preferred.
-- **Failure** — drop the Dallas circuit (or shut the BGP session on the MCR) and
-  the same `/8` has to be relearned at `erfo-hub-wus2` and carried over hub-to-hub
-  transit. The AS-path lengthens, which is precisely what `hubRoutingPreference =
-  ASPath` is there to act on.
+- **Steady state** — `10.0.0.0/8` is learned over **both** circuits (the MCR
+  advertises it on each Azure VXC), so each hub resolves it through its own local
+  ExpressRoute gateway. Verify with `scripts/dump-routes.ps1`.
+- **Failure** — drop one circuit (or shut that BGP session on the MCR) and the
+  affected hub has to relearn the same `/8` from the *other* hub over
+  branch-to-branch transit. The AS-path lengthens by the `65520 65520` prepend
+  that Virtual WAN adds hub-to-hub, which is precisely what
+  `hubRoutingPreference = ASPath` is there to act on.
 
 Watching a single prefix flip hubs is far easier to read in `az network vhub
 get-effective-routes` output than diffing four spoke prefixes.

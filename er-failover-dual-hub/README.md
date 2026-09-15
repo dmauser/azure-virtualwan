@@ -17,34 +17,50 @@ Each hub has its own local ExpressRoute circuit. When a circuit goes down, the h
 ## Topology
 
 ```mermaid
-graph TB
+flowchart LR
     subgraph onprem["On-premises / Megaport"]
-        CHI["Chicago edge<br/>Megaport"]
-        DAL["Dallas edge<br/>Megaport"]
+        CHI["Chicago edge<br/>Megaport MCR"]
+        DAL["Dallas edge<br/>Megaport MCR"]
     end
 
-    subgraph vwan["Virtual WAN (Standard)"]
+    subgraph circuits["ExpressRoute circuits"]
+        ERC["erfo-er-chicago<br/>North Central US<br/>50 Mbps"]
+        ERD["erfo-er-dallas<br/>South Central US<br/>50 Mbps"]
+    end
+
+    subgraph vwan["erfo-vwan — Virtual WAN (Standard)"]
         subgraph wus2["West US 2"]
-            HUBC["erfo-hub-wus2<br/>10.0.0.0/23<br/>hubRoutingPreference: ASPath"]
-            GWC["ER Gateway"]
+            GWC["ER Gateway<br/>erfo-hub-wus2-ergw"]
+            HUBC["erfo-hub-wus2<br/>10.0.0.0/23<br/>routing pref: ASPath"]
             SPC["erfo-spoke-wus2<br/>10.10.0.0/24"]
-            VMC["erfo-vm-wus2"]
+            VMC["erfo-vm-wus2<br/>10.10.0.4"]
         end
+        B2B{{"branch-to-branch<br/>hub-to-hub transit"}}
         subgraph scus["South Central US"]
-            HUBS["erfo-hub-scus<br/>10.1.0.0/23<br/>hubRoutingPreference: ASPath"]
-            GWS["ER Gateway"]
+            GWS["ER Gateway<br/>erfo-hub-scus-ergw"]
+            HUBS["erfo-hub-scus<br/>10.1.0.0/23<br/>routing pref: ASPath"]
             SPS["erfo-spoke-scus<br/>10.20.0.0/24"]
-            VMS["erfo-vm-scus"]
+            VMS["erfo-vm-scus<br/>10.20.0.4"]
         end
     end
 
-    CHI -->|"erfo-er-chicago"| GWC
-    DAL -->|"erfo-er-dallas"| GWS
-    GWC --- HUBC
-    GWS --- HUBS
-    HUBC --- SPC --- VMC
-    HUBS --- SPS --- VMS
-    HUBC <-->|"hub-to-hub transit<br/>(branch-to-branch)"| HUBS
+    CHI --- ERC --- GWC --- HUBC --- SPC --- VMC
+    DAL --- ERD --- GWS --- HUBS --- SPS --- VMS
+    HUBC -.- B2B
+    HUBS -.- B2B
+
+    classDef edge fill:#fde7e9,stroke:#e31937,color:#1b1b1b
+    classDef ckt fill:#e5f1fb,stroke:#0078d4,color:#1b1b1b
+    classDef gw fill:#cfe4f7,stroke:#0078d4,color:#1b1b1b
+    classDef hub fill:#dbe9f7,stroke:#0b5394,color:#1b1b1b
+    classDef vm fill:#ede4fb,stroke:#773adc,color:#1b1b1b
+    classDef transit fill:#fff4ce,stroke:#8a6d00,color:#1b1b1b
+    class CHI,DAL edge
+    class ERC,ERD ckt
+    class GWC,GWS gw
+    class HUBC,HUBS hub
+    class SPC,SPS,VMC,VMS vm
+    class B2B transit
 ```
 
 | Resource | Region | Address space |
@@ -407,6 +423,7 @@ The VMs are rounding error next to the two ExpressRoute Gateways, which are ~60%
 | [docs/failover-tests.md](docs/failover-tests.md) | Step-by-step failover validation |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | Poller, peering, RBAC and routing issues |
 | [docs/gcp-onprem.md](docs/gcp-onprem.md) | GCP on-prem simulator: MCR wiring, `10.0.0.0/8` rationale, cost |
+| [docs/findings.md](docs/findings.md) | What the live route captures actually showed, and what to fix |
 | [docs/diagrams/](docs/diagrams/) | `gen_diagram.py` plus the generated `.drawio` (editable) and `.svg` (embedded above) |
 
 ### Scripts
@@ -437,6 +454,7 @@ er-failover-dual-hub/
 │   ├── architecture.md
 │   ├── failover-tests.md
 │   ├── gcp-onprem.md
+│   ├── findings.md
 │   ├── troubleshooting.md
 │   └── diagrams/
 │       ├── er-failover-architecture.drawio   # editable source (Azure + GCP icon libraries)

@@ -5,3 +5,8 @@ infra/bicep/modules/*.json
 # Local parameter overrides containing secrets
 *.local.bicepparam
 *.local.parameters.json
+
+# Route captures from scripts/dump-routes.ps1|sh.
+# These contain subscription IDs, MAC addresses and BGP peer IPs, and they are
+# regenerated on demand. Keep curated baselines under docs/ instead.
+route-dumps/

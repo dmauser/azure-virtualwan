@@ -1,9 +1,0 @@
-{
-  "name": "erfo-hub-wus2",
-  "location": "westus2",
-  "addressSpace": "10.0.0.0/23",
-  "routingPref": "ASPath",
-  "state": "Succeeded",
-  "routerAsn": 65515,
-  "routerIps": "10.0.0.69, 10.0.0.70"
-}

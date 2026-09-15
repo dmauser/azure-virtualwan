@@ -24,6 +24,7 @@
 18. **vrf-vwan** — VRF scenarios in Virtual WAN
 19. **migration-single-region** — Migrate hub-spoke to Virtual WAN (single region)
 20. **migration-multi-region** — Migrate hub-spoke to Virtual WAN (multi-region)
+21. **er-failover-dual-hub** — Dual-hub ExpressRoute failover with AS-Path hub routing preference (Bicep)
 
 ## Full Lab Catalog
 
@@ -31,6 +32,7 @@
 |-----------|-------|-------------|--------|--------|
 | [any-to-any](./any-to-any/) | Basic any-to-any connectivity | a2a-deploy.azcli, a2a-validate.azcli | ✅ | Complete |
 | [3vhub-er-ri](./3vhub-er-ri/) | 3-region vWAN, ER on 2 hubs, AzFw Basic + Routing Intent (ASPath) | 3vhub-er-ri-deploy.azcli, 3vhub-er-ri-validate.azcli | ✅ | Complete |
+| [er-failover-dual-hub](./er-failover-dual-hub/) | Dual-hub ExpressRoute failover, AS-Path hub routing preference, GCP on-prem simulator — **Bicep IaC** | deploy.ps1/.sh, validate.ps1/.sh, dump-routes.ps1/.sh | ✅ | Complete |
 | [ft-wan](./ft-wan/) | Forced tunneling over ExpressRoute | ft-deploy-vwan.azcli | ✅ | Complete |
 | [gr-vwan](./gr-vwan/) | Global routing / multi-region VWAN | deploy-vwan.azcli, deploy-branches.azcli | — | 📝 Scripts only |
 | [inter-region-azfw](./inter-region-azfw/) | Route traffic through Azure Firewall spoke | irazfw-deploy.azcli, irazfw-validate.azcli | ✅ | Complete |
