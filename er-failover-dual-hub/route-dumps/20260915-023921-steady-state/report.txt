@@ -44,3 +44,11 @@ network            nextHop         path          locPrf weight
 192.168.100.0/24   169.254.171.249 65001 16550 ? 100         0
 
 -- erfo-er-chicago - ARP (primary)
+
+ipAddress       macAddress     interface age
+---------       ----------     --------- ---
+-:              (configuration             0
+169.254.171.249 025a.011e.0923 On-Prem     0
+169.254.171.250 e478.7668.fafb Microsoft   0
+
+-- erfo-er-chicago - BGP neighbours (secondary)
