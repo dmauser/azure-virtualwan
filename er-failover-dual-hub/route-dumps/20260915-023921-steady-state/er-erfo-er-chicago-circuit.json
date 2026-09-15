@@ -1,0 +1,10 @@
+{
+  "name": "erfo-er-chicago",
+  "location": "northcentralus",
+  "provisioning": "Succeeded",
+  "provider": "Megaport",
+  "peeringLoc": "Chicago",
+  "bandwidthMbps": 50,
+  "providerState": "Provisioned",
+  "sku": "Standard_MeteredData"
+}
