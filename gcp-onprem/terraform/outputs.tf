@@ -38,3 +38,21 @@ output "network_self_links" {
     k => mod.network_self_link
   }
 }
+
+output "environment_details" {
+  description = "Per-environment resource details used by validate scripts to discover what/where to check."
+  value = {
+    for k, mod in module.gcp_onprem :
+    k => {
+      network_name    = mod.network_name
+      subnet_name     = mod.subnet_name
+      region          = mod.region
+      zone            = mod.zone
+      vm_name         = mod.vm_name
+      vm_private_ip   = mod.vm_private_ip
+      router_name     = mod.router_name
+      attachment_name = mod.attachment_name
+      firewall_name   = mod.firewall_name
+    }
+  }
+}

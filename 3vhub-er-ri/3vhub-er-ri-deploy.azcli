@@ -42,12 +42,11 @@ vm3name=vm-spoke-central             # VM in spoke-central
 username=azureuser                   # VM admin username
 VM_SKU_CANDIDATES=(Standard_B2s Standard_D2s_v5 Standard_D2s_v3) # VM size candidates, in preference order
 
-# ExpressRoute variables (East = Washington DC, West = Silicon Valley, both Megaport)
-ername1=er-vhub-eastus               # ER circuit name for East hub
-perloc1="Washington DC"              # ER peering location (East)
-ername2=er-vhub-westus               # ER circuit name for West hub
-perloc2="Silicon Valley"             # ER peering location (West)
-erprovider=Megaport                  # ER provider for both circuits
+# ExpressRoute variables (single shared circuit — Silicon Valley / Megaport)
+# Both vhub-eastus-ergw and vhub-westus-ergw peer with this one circuit.
+ername=er-vhub-westus                # ER circuit name (shared by East + West hubs)
+perloc="Silicon Valley"              # ER peering location
+erprovider=Megaport                  # ER provider
 erbandwidth=50                       # ER bandwidth in Mbps
 ersku=Standard                       # ER SKU tier
 erfamily=MeteredData                 # ER billing family
@@ -120,38 +119,29 @@ az network vwan create -g $rg -n $vwanname --branch-to-branch-traffic true \
   --location $region1 --type Standard --output none
 
 # ============================================================
-# Phase 3: Create ExpressRoute circuits early + service-key handoff
+# Phase 3: Create shared ExpressRoute circuit early + service-key handoff
 # ============================================================
 echo ""
-echo "### Phase 3: Creating ExpressRoute circuits early ###"
-az network express-route create --bandwidth $erbandwidth -n $ername1 \
-  --peering-location "$perloc1" -g $rg --provider $erprovider \
-  -l $region1 --sku-family $erfamily --sku-tier $ersku -o none &
-er_create_pid1=$!
-az network express-route create --bandwidth $erbandwidth -n $ername2 \
-  --peering-location "$perloc2" -g $rg --provider $erprovider \
-  -l $region2 --sku-family $erfamily --sku-tier $ersku -o none &
-er_create_pid2=$!
-wait $er_create_pid1
-wait $er_create_pid2
+echo "### Phase 3: Creating shared ExpressRoute circuit early ###"
+az network express-route create --bandwidth $erbandwidth -n $ername \
+  --peering-location "$perloc" -g $rg --provider $erprovider \
+  -l $region2 --sku-family $erfamily --sku-tier $ersku -o none
 
 echo ""
 echo "######################################################################"
-echo "#  ExpressRoute Service Keys — provide these to Megaport             #"
+echo "#  ExpressRoute Service Key — provide this to Megaport               #"
 echo "######################################################################"
 echo ""
-echo "  Circuit : $ername1  (Provider: $erprovider / Location: $perloc1)"
-echo "  Service Key: $(az network express-route show -g $rg -n $ername1 --query serviceKey -o tsv)"
+echo "  Circuit : $ername  (Provider: $erprovider / Location: $perloc)"
+echo "  Service Key: $(az network express-route show -g $rg -n $ername --query serviceKey -o tsv)"
 echo ""
-echo "  Circuit : $ername2  (Provider: $erprovider / Location: $perloc2)"
-echo "  Service Key: $(az network express-route show -g $rg -n $ername2 --query serviceKey -o tsv)"
-echo ""
-echo "  ➤ Log in to the Megaport portal and place orders using the keys above."
-echo "  ➤ The script will continue Azure deployment work, then poll both circuits"
+echo "  ➤ Log in to the Megaport portal and place ONE VXC order to this circuit."
+echo "  ➤ Both the East-US and West-US vHub ER gateways will share this single circuit."
+echo "  ➤ The script will continue Azure deployment work, then poll the circuit"
 echo "    for serviceProviderProvisioningState = Provisioned before ER gateways."
 echo "  ➤ Note: provider provisioning typically takes hours to days."
 echo ""
-read -p "Press ENTER once you have placed the ER orders with Megaport..."
+read -p "Press ENTER once you have placed the ER order with Megaport..."
 
 # ============================================================
 # Phase 4: Start 3 vHubs in parallel with ASPath routing preference
@@ -294,19 +284,17 @@ while true; do
     elapsed=$(( $(date +%s) - er_poll_start ))
     if (( elapsed > max_er_secs )); then
         echo ""
-        echo "ERROR: Timeout after ${MAX_WAIT_MIN} minutes waiting for ER circuits to be Provisioned."
-        echo "  Both circuits must show serviceProviderProvisioningState=Provisioned before proceeding."
+        echo "ERROR: Timeout after ${MAX_WAIT_MIN} minutes waiting for ER circuit to be Provisioned."
+        echo "  Circuit must show serviceProviderProvisioningState=Provisioned before proceeding."
         echo "  To resume: wait for provider provisioning, then re-run this script from Phase 8 onward"
         echo "  (set rg/hub/ername variables and run the gateway+connection+firewall+RI steps manually)."
         exit 1
     fi
-    state1=$(az network express-route show -g $rg -n $ername1 \
+    state=$(az network express-route show -g $rg -n $ername \
       --query serviceProviderProvisioningState -o tsv)
-    state2=$(az network express-route show -g $rg -n $ername2 \
-      --query serviceProviderProvisioningState -o tsv)
-    echo "  $ername1: $state1  |  $ername2: $state2  (elapsed: $((elapsed/60))m/$((max_er_secs/60))m)"
-    if [[ "$state1" == "Provisioned" && "$state2" == "Provisioned" ]]; then
-        echo "  Both circuits are Provisioned. Proceeding..."
+    echo "  $ername: $state  (elapsed: $((elapsed/60))m/$((max_er_secs/60))m)"
+    if [[ "$state" == "Provisioned" ]]; then
+        echo "  Circuit is Provisioned. Proceeding..."
         break
     fi
     sleep 30
@@ -334,33 +322,27 @@ while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]]; do
 done
 
 # ============================================================
-# Phase 9: Create ER gateway connections (circuit peering → hub gateway)
+# Phase 9: Create ER gateway connections (both hubs share one circuit peering)
 # ============================================================
+# Both vhub-eastus-ergw and vhub-westus-ergw attach to the same circuit's
+# AzurePrivatePeering. Routing Intent is enabled later in Phase 12, so we MUST
+# OMIT --associated-route-table / --propagated-route-tables / --labels here —
+# otherwise Azure returns ConnectionRoutingConfigConflictsWithRoutingIntent
+# once RI is added. The hub's defaultRouteTable association and noneRouteTable
+# propagation (labels=none) are then populated automatically by RI.
 echo ""
-echo "### Phase 9: Creating ER gateway connections in parallel ###"
+echo "### Phase 9: Creating ER gateway connections in parallel (single shared circuit) ###"
 
-echo "  Connecting $hub1name to $ername1..."
-peering1=$(az network express-route show -g $rg -n $ername1 --query 'peerings[0].id' -o tsv)
-routetableid1=$(az network vhub route-table show --name defaultRouteTable \
-  --vhub-name $hub1name -g $rg --query id -o tsv)
-echo "  Connecting $hub2name to $ername2..."
-peering2=$(az network express-route show -g $rg -n $ername2 --query 'peerings[0].id' -o tsv)
-routetableid2=$(az network vhub route-table show --name defaultRouteTable \
-  --vhub-name $hub2name -g $rg --query id -o tsv)
+peering=$(az network express-route show -g $rg -n $ername --query 'peerings[0].id' -o tsv)
+echo "  Connecting $hub1name-ergw and $hub2name-ergw to $ername (peering: AzurePrivatePeering)..."
 
 az network express-route gateway connection create \
-  --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw \
-  --peering $peering1 \
-  --associated-route-table $routetableid1 \
-  --propagated-route-tables $routetableid1 \
-  --labels default -o none &
+  --name $hub1name-conn-to-$ername -g $rg --gateway-name $hub1name-ergw \
+  --peering $peering -o none &
 er_conn_pid1=$!
 az network express-route gateway connection create \
-  --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw \
-  --peering $peering2 \
-  --associated-route-table $routetableid2 \
-  --propagated-route-tables $routetableid2 \
-  --labels default -o none &
+  --name $hub2name-conn-to-$ername -g $rg --gateway-name $hub2name-ergw \
+  --peering $peering -o none &
 er_conn_pid2=$!
 wait $er_conn_pid1
 wait $er_conn_pid2
@@ -368,12 +350,12 @@ wait $er_conn_pid2
 prState1=''; prState2=''
 while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' ]]; do
     prState1=$(az network express-route gateway connection show \
-      --name $hub1name-conn-to-$ername1 -g $rg --gateway-name $hub1name-ergw \
+      --name $hub1name-conn-to-$ername -g $rg --gateway-name $hub1name-ergw \
       --query 'provisioningState' -o tsv 2>/dev/null)
     prState2=$(az network express-route gateway connection show \
-      --name $hub2name-conn-to-$ername2 -g $rg --gateway-name $hub2name-ergw \
+      --name $hub2name-conn-to-$ername -g $rg --gateway-name $hub2name-ergw \
       --query 'provisioningState' -o tsv 2>/dev/null)
-    echo "  $hub1name-conn-to-$ername1=$prState1  $hub2name-conn-to-$ername2=$prState2"
+    echo "  $hub1name-conn-to-$ername=$prState1  $hub2name-conn-to-$ername=$prState2"
     sleep 30
 done
 
@@ -501,7 +483,7 @@ echo "### Phase 12: Enabling Routing Intent (private traffic only) on all 3 hubs
 {
     fwid=$(az network firewall show -g $rg -n $hub1name-azfw --query id -o tsv)
     echo "  Creating routing intent $hub1name-ri (nextHop → $hub1name-azfw)..."
-    az network vhub routing-intent create -g $rg --vhub-name $hub1name -n $hub1name-ri \
+    az network vhub routing-intent create -g $rg --vhub $hub1name -n $hub1name-ri \
       --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]' \
       --output none
 } &
@@ -509,7 +491,7 @@ ri_pid1=$!
 {
     fwid=$(az network firewall show -g $rg -n $hub2name-azfw --query id -o tsv)
     echo "  Creating routing intent $hub2name-ri (nextHop → $hub2name-azfw)..."
-    az network vhub routing-intent create -g $rg --vhub-name $hub2name -n $hub2name-ri \
+    az network vhub routing-intent create -g $rg --vhub $hub2name -n $hub2name-ri \
       --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]' \
       --output none
 } &
@@ -517,7 +499,7 @@ ri_pid2=$!
 {
     fwid=$(az network firewall show -g $rg -n $hub3name-azfw --query id -o tsv)
     echo "  Creating routing intent $hub3name-ri (nextHop → $hub3name-azfw)..."
-    az network vhub routing-intent create -g $rg --vhub-name $hub3name -n $hub3name-ri \
+    az network vhub routing-intent create -g $rg --vhub $hub3name -n $hub3name-ri \
       --routing-policies '[{"name":"PrivateTraffic","destinations":["PrivateTraffic"],"nextHop":"'"$fwid"'"}]' \
       --output none
 } &
@@ -529,11 +511,11 @@ wait $ri_pid3
 echo "Polling Routing Intent provisioning state..."
 prState1=''; prState2=''; prState3=''
 while [[ $prState1 != 'Succeeded' || $prState2 != 'Succeeded' || $prState3 != 'Succeeded' ]]; do
-    prState1=$(az network vhub routing-intent show -g $rg --vhub-name $hub1name \
+    prState1=$(az network vhub routing-intent show -g $rg --vhub $hub1name \
       -n $hub1name-ri --query 'provisioningState' -o tsv 2>/dev/null)
-    prState2=$(az network vhub routing-intent show -g $rg --vhub-name $hub2name \
+    prState2=$(az network vhub routing-intent show -g $rg --vhub $hub2name \
       -n $hub2name-ri --query 'provisioningState' -o tsv 2>/dev/null)
-    prState3=$(az network vhub routing-intent show -g $rg --vhub-name $hub3name \
+    prState3=$(az network vhub routing-intent show -g $rg --vhub $hub3name \
       -n $hub3name-ri --query 'provisioningState' -o tsv 2>/dev/null)
     echo "  $hub1name-ri=$prState1  $hub2name-ri=$prState2  $hub3name-ri=$prState3"
     sleep 30
@@ -566,9 +548,8 @@ for nicname in $(az network nic list -g $rg --query '[].name' -o tsv); do
 done
 
 echo ""
-echo "=== ExpressRoute Circuit Service Keys ==="
-echo "  $ername1 ($perloc1): $(az network express-route show -g $rg -n $ername1 --query serviceKey -o tsv)"
-echo "  $ername2 ($perloc2): $(az network express-route show -g $rg -n $ername2 --query serviceKey -o tsv)"
+echo "=== ExpressRoute Circuit Service Key ==="
+echo "  $ername ($perloc): $(az network express-route show -g $rg -n $ername --query serviceKey -o tsv)"
 
 echo ""
 echo "=== Azure Firewall Private IPs ==="

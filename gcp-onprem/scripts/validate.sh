@@ -89,8 +89,11 @@ lab_require_tools() {
   fi
 }
 # Replace the tool list below with the tools THIS script actually needs:
-lab_require_tools gcloud
+lab_require_tools gcloud terraform jq
 
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TERRAFORM_DIR="${SCRIPT_DIR}/../terraform"
 
 # Defaults
 GCP_PROJECT="${GCP_PROJECT:-}"
@@ -127,21 +130,33 @@ fi
 [[ -z "$GCP_PROJECT" ]] && { echo "[FAIL] GCP project ID required."; exit 1; }
 log "Project: ${GCP_PROJECT}"
 
-# ---------- Environments -----------------------------------------------------
-declare -a NAMES=("env1" "env2")
-declare -a NETWORKS=("onprem-la" "onprem-lv")
-declare -a REGIONS=("us-west2" "us-west4")
-declare -a ZONES=("us-west2-a" "us-west4-a")
+# ---------- Discover environments from terraform output ----------------------
+# Read what was actually deployed so this scales to one or many environments.
+DETAILS_JSON="$(cd "${TERRAFORM_DIR}" && terraform output -json environment_details 2>/dev/null || true)"
+if [[ -z "$DETAILS_JSON" || "$DETAILS_JSON" == "null" ]]; then
+  echo "[FAIL] Could not read 'environment_details' from terraform output."
+  echo "       Run terraform apply (or deploy.sh) first, from ${TERRAFORM_DIR}."
+  exit 1
+fi
 
-for i in 0 1; do
-  NAME="${NAMES[$i]}"
-  NET="${NETWORKS[$i]}"
-  REGION="${REGIONS[$i]}"
-  ZONE="${ZONES[$i]}"
-  VM="${NET}-vm"
-  ROUTER="${NET}-router"
-  ATTACHMENT="${NET}-partner-attachment"
-  FIREWALL="${NET}-allow"
+mapfile -t ENV_KEYS < <(echo "$DETAILS_JSON" | jq -r 'keys[]' | sort)
+if [[ ${#ENV_KEYS[@]} -eq 0 ]]; then
+  echo "[FAIL] No environments found in terraform output."
+  exit 1
+fi
+log "Discovered ${#ENV_KEYS[@]} environment(s): ${ENV_KEYS[*]}"
+
+jq_field() { echo "$DETAILS_JSON" | jq -r --arg k "$1" --arg f "$2" '.[$k][$f]'; }
+
+for NAME in "${ENV_KEYS[@]}"; do
+  NET="$(jq_field "$NAME" network_name)"
+  SUBNET="$(jq_field "$NAME" subnet_name)"
+  REGION="$(jq_field "$NAME" region)"
+  ZONE="$(jq_field "$NAME" zone)"
+  VM="$(jq_field "$NAME" vm_name)"
+  ROUTER="$(jq_field "$NAME" router_name)"
+  ATTACHMENT="$(jq_field "$NAME" attachment_name)"
+  FIREWALL="$(jq_field "$NAME" firewall_name)"
 
   hdr "Validating ${NAME} — ${NET} (${REGION})"
 
@@ -154,12 +169,12 @@ for i in 0 1; do
   fi
 
   # Subnet
-  sn_val="$(gcloud_val compute networks subnets describe "${NET}-subnet" \
+  sn_val="$(gcloud_val compute networks subnets describe "${SUBNET}" \
              --project="${GCP_PROJECT}" --region="${REGION}" --format="value(name)")"
-  if [[ "$sn_val" == "${NET}-subnet" ]]; then
-    pass "Subnet '${NET}-subnet' exists in ${REGION}"
+  if [[ "$sn_val" == "${SUBNET}" ]]; then
+    pass "Subnet '${SUBNET}' exists in ${REGION}"
   else
-    fail "Subnet '${NET}-subnet' not found in ${REGION}"
+    fail "Subnet '${SUBNET}' not found in ${REGION}"
   fi
 
   # VM status

@@ -1,17 +1,24 @@
 #!/usr/bin/env bash
 # =============================================================================
-# deploy.sh — Deploy the gcp-onprem lab (two GCP Partner Interconnect envs)
+# deploy.sh — Deploy the gcp-onprem lab (one or more Partner Interconnect envs)
 #
 # Usage:
-#   ./deploy.sh                              # fully interactive
-#   ./deploy.sh -p my-project -y            # non-interactive
+#   ./deploy.sh                                   # fully interactive
+#   ./deploy.sh -p my-project -n 1 -r us-central1 -y
+#   ./deploy.sh -p my-project -n 3 -r us-central1 -r us-west2 -r us-east4 -y
 #   GCP_PROJECT=my-project ./deploy.sh -y
 #
 # Options:
 #   -p, --project PROJECT    GCP project ID (or set GCP_PROJECT env var)
-#   -1, --env1-region REGION env1 region (default: us-west2)
-#   -2, --env2-region REGION env2 region (default: us-west4)
+#   -n, --count N            Number of on-prem environments (default: 1)
+#   -r, --region REGION      Region for the next env (repeatable; fills in order)
 #   -y, --yes                Skip confirmation prompts
+#
+# Environment N is auto-named:
+#   network_name  = onprem-<N>
+#   network_cidr  = subnet_cidr = 192.168.<N>.0/24
+#   vm_private_ip = 192.168.<N>.10
+#   zone          = <region>-a
 #
 # WARNING — LAB ONLY. Not for production use.
 # =============================================================================
@@ -92,8 +99,9 @@ TERRAFORM_DIR="${SCRIPT_DIR}/../terraform"
 
 # Defaults
 GCP_PROJECT="${GCP_PROJECT:-}"
-ENV1_REGION="us-west2"
-ENV2_REGION="us-west4"
+DEFAULT_REGION="us-central1"
+COUNT=1
+REGIONS=()
 NON_INTERACTIVE=0
 
 # ---------- Helpers ----------------------------------------------------------
@@ -110,13 +118,49 @@ confirm() {
   [[ "$ans" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
 }
 
+# ---------- Region picker ----------------------------------------------------
+# Coast-grouped menu of common US regions. Echoes the chosen region. Accepts a
+# menu number, a free-text region, or empty for the default. Prompt text is sent
+# to stderr so command substitution captures only the region id.
+REGION_IDS=(us-west1 us-west2 us-west3 us-west4 us-central1 us-south1 us-east1 us-east4 us-east5)
+
+select_gcp_region() {
+  local title="$1"
+  {
+    echo ""
+    echo "${title}"
+    echo "  -- West --"
+    echo "    [1] us-west1     Oregon"
+    echo "    [2] us-west2     Los Angeles"
+    echo "    [3] us-west3     Salt Lake City"
+    echo "    [4] us-west4     Las Vegas"
+    echo "  -- Central --"
+    echo "    [5] us-central1  Iowa (default)"
+    echo "    [6] us-south1    Dallas"
+    echo "  -- East --"
+    echo "    [7] us-east1     South Carolina"
+    echo "    [8] us-east4     Northern Virginia"
+    echo "    [9] us-east5     Columbus"
+    echo "  (Enter a number, type any other region id, or press Enter for default '${DEFAULT_REGION}')"
+  } >&2
+  local choice=""
+  read -r -p "  Region: " choice
+  if [[ -z "$choice" ]]; then
+    echo "$DEFAULT_REGION"; return
+  fi
+  if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#REGION_IDS[@]} )); then
+    echo "${REGION_IDS[$((choice - 1))]}"; return
+  fi
+  echo "$choice"
+}
+
 # ---------- Parse arguments --------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -p|--project)      GCP_PROJECT="$2";    shift 2 ;;
-    -1|--env1-region)  ENV1_REGION="$2";    shift 2 ;;
-    -2|--env2-region)  ENV2_REGION="$2";    shift 2 ;;
-    -y|--yes)          NON_INTERACTIVE=1;   shift   ;;
+    -p|--project)  GCP_PROJECT="$2";    shift 2 ;;
+    -n|--count)    COUNT="$2";          shift 2 ;;
+    -r|--region)   REGIONS+=("$2");     shift 2 ;;
+    -y|--yes)      NON_INTERACTIVE=1;   shift   ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
 done
@@ -141,16 +185,31 @@ fi
 [[ -z "$GCP_PROJECT" ]] && fail "GCP project ID is required."
 info "Project : ${GCP_PROJECT}"
 
-# ---------- Regions ----------------------------------------------------------
+# ---------- Environment count ------------------------------------------------
 if [[ "$NON_INTERACTIVE" -eq 0 ]]; then
-  read -r -p "env1 region [default: ${ENV1_REGION}]: " r1_input
-  [[ -n "$r1_input" ]] && ENV1_REGION="$r1_input"
-
-  read -r -p "env2 region [default: ${ENV2_REGION}]: " r2_input
-  [[ -n "$r2_input" ]] && ENV2_REGION="$r2_input"
+  read -r -p "How many on-prem environments to deploy? [default: ${COUNT}]: " c_input
+  [[ -n "$c_input" ]] && COUNT="$c_input"
 fi
-info "env1 region : ${ENV1_REGION}"
-info "env2 region : ${ENV2_REGION}"
+if ! [[ "$COUNT" =~ ^[0-9]+$ ]] || (( COUNT < 1 )); then
+  fail "Count must be a positive integer."
+fi
+(( COUNT > 254 )) && fail "Count must be 254 or fewer (CIDR third-octet limit)."
+info "On-prem environments : ${COUNT}"
+
+# ---------- Regions per environment -----------------------------------------
+ENV_REGIONS=()
+for (( i = 1; i <= COUNT; i++ )); do
+  if [[ "$NON_INTERACTIVE" -eq 0 ]]; then
+    r="$(select_gcp_region "Select region for env${i}")"
+  elif (( i <= ${#REGIONS[@]} )); then
+    r="${REGIONS[$((i - 1))]}"
+  else
+    r="$DEFAULT_REGION"
+  fi
+  [[ -z "$r" ]] && r="$DEFAULT_REGION"
+  ENV_REGIONS+=("$r")
+  info "env${i} region : ${r}"
+done
 
 # ---------- Write tfvars -----------------------------------------------------
 TFVARS_PATH="${TERRAFORM_DIR}/terraform.tfvars"
@@ -161,7 +220,7 @@ cat > "${TFVARS_PATH}" <<EOF
 # Re-run deploy.sh to regenerate or edit manually.
 
 project        = "${GCP_PROJECT}"
-default_region = "${ENV1_REGION}"
+default_region = "${ENV_REGIONS[0]}"
 
 allowed_source_ranges = [
   "192.168.0.0/16",
@@ -171,25 +230,23 @@ allowed_source_ranges = [
 ]
 
 environments = {
-  env1 = {
-    region           = "${ENV1_REGION}"
-    zone             = "${ENV1_REGION}-a"
-    network_name     = "onprem-la"
-    network_cidr     = "192.168.100.0/24"
-    subnet_cidr      = "192.168.100.0/24"
-    vm_private_ip    = "192.168.100.10"
-  }
-
-  env2 = {
-    region           = "${ENV2_REGION}"
-    zone             = "${ENV2_REGION}-a"
-    network_name     = "onprem-lv"
-    network_cidr     = "192.168.200.0/24"
-    subnet_cidr      = "192.168.200.0/24"
-    vm_private_ip    = "192.168.200.10"
-  }
-}
 EOF
+
+for (( i = 1; i <= COUNT; i++ )); do
+  region="${ENV_REGIONS[$((i - 1))]}"
+  cat >> "${TFVARS_PATH}" <<EOF
+  env${i} = {
+    region        = "${region}"
+    zone          = "${region}-a"
+    network_name  = "onprem-${i}"
+    network_cidr  = "192.168.${i}.0/24"
+    subnet_cidr   = "192.168.${i}.0/24"
+    vm_private_ip = "192.168.${i}.10"
+  }
+EOF
+done
+
+echo "}" >> "${TFVARS_PATH}"
 ok "terraform.tfvars written"
 
 # ---------- Terraform --------------------------------------------------------
@@ -218,6 +275,7 @@ echo "================================================================"
 terraform output -json pairing_keys
 echo ""
 echo "Next steps:"
-echo "  1. Create Megaport VXC for env1 (LA)      -> paste env1 key -> connect to vwanlab-er1"
-echo "  2. Create Megaport VXC for env2 (Phoenix) -> paste env2 key -> connect to vwanlab-er2"
+echo "  For each environment above, create a Megaport VXC, paste its pairing"
+echo "  key, and connect it to the matching Azure ExpressRoute circuit"
+echo "  (e.g. vwanlab-er1, vwanlab-er2, ...)."
 echo "  See docs/megaport-cross-connect.md for detailed instructions."

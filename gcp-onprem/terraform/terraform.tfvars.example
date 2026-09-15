@@ -8,7 +8,7 @@
 # =============================================================================
 
 project        = "your-gcp-project-id"
-default_region = "us-west2"
+default_region = "us-central1"
 
 # ---------------------------------------------------------------------------
 # Firewall allowed source ranges
@@ -23,27 +23,59 @@ allowed_source_ranges = [
 ]
 
 # ---------------------------------------------------------------------------
-# Environments
+# Environments (DYNAMIC — deploy one or many)
 # ---------------------------------------------------------------------------
-# env1 — Los Angeles (us-west2), pairs with Azure vwanlab-er1 via Megaport
-# env2 — Las Vegas  (us-west4), pairs with Azure vwanlab-er2 via Megaport
+# The deployment loops over this map, so you can define a SINGLE on-prem
+# environment or as many as you need. deploy.ps1 / deploy.sh generate this
+# block for you (prompting for a count N and a region per env) using the
+# convention below, but you may also edit it by hand:
+#
+#   network_name  = onprem-<N>
+#   network_cidr  = subnet_cidr = 192.168.<N>.0/24
+#   vm_private_ip = 192.168.<N>.10
+#   zone          = <region>-a
+#
+# Map keys (env1, env2, ...) are arbitrary labels — outputs are keyed by them.
 # ---------------------------------------------------------------------------
+
+# --- Example A: a SINGLE on-prem environment --------------------------------
+# environments = {
+#   env1 = {
+#     region        = "us-central1"
+#     zone          = "us-central1-a"
+#     network_name  = "onprem-1"
+#     network_cidr  = "192.168.1.0/24"
+#     subnet_cidr   = "192.168.1.0/24"
+#     vm_private_ip = "192.168.1.10"
+#   }
+# }
+
+# --- Example B: MULTIPLE on-prem environments (3) ---------------------------
 environments = {
   env1 = {
-    region        = "us-west2"    # Los Angeles
-    zone          = "us-west2-a"
-    network_name  = "onprem-la"
-    network_cidr  = "192.168.100.0/24"
-    subnet_cidr   = "192.168.100.0/24"
-    vm_private_ip = "192.168.100.10"
+    region        = "us-central1"
+    zone          = "us-central1-a"
+    network_name  = "onprem-1"
+    network_cidr  = "192.168.1.0/24"
+    subnet_cidr   = "192.168.1.0/24"
+    vm_private_ip = "192.168.1.10"
   }
 
   env2 = {
-    region        = "us-west4"    # Las Vegas (nearest to Phoenix circuits)
-    zone          = "us-west4-a"
-    network_name  = "onprem-lv"
-    network_cidr  = "192.168.200.0/24"
-    subnet_cidr   = "192.168.200.0/24"
-    vm_private_ip = "192.168.200.10"
+    region        = "us-west2"
+    zone          = "us-west2-a"
+    network_name  = "onprem-2"
+    network_cidr  = "192.168.2.0/24"
+    subnet_cidr   = "192.168.2.0/24"
+    vm_private_ip = "192.168.2.10"
+  }
+
+  env3 = {
+    region        = "us-east4"
+    zone          = "us-east4-a"
+    network_name  = "onprem-3"
+    network_cidr  = "192.168.3.0/24"
+    subnet_cidr   = "192.168.3.0/24"
+    vm_private_ip = "192.168.3.10"
   }
 }

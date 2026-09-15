@@ -28,3 +28,28 @@ output "vm_private_ip" {
   description = "Private IP address assigned to the on-prem simulation VM."
   value       = google_compute_instance.onprem.network_interface[0].network_ip
 }
+
+output "region" {
+  description = "Region in which the environment's regional resources are created."
+  value       = var.region
+}
+
+output "zone" {
+  description = "Zone in which the on-prem simulation VM is created."
+  value       = var.zone
+}
+
+output "network_name" {
+  description = "Name of the VPC network."
+  value       = google_compute_network.onprem.name
+}
+
+output "vm_name" {
+  description = "Name of the on-prem simulation VM instance."
+  value       = google_compute_instance.onprem.name
+}
+
+output "firewall_name" {
+  description = "Name of the ingress firewall rule."
+  value       = google_compute_firewall.onprem_allow.name
+}

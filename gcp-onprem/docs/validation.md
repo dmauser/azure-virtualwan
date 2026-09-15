@@ -30,69 +30,50 @@ The scripts check each environment for:
 
 ## Manual gcloud checks
 
-### env1 (us-west2)
+Resource names follow the `onprem-<N>` convention (`onprem-1`, `onprem-2`, …). The block below is **per-environment** — set the variables for the environment you want to check (the values come from your `terraform.tfvars` / `terraform output environment_details`):
 
 ```bash
 PROJECT=YOUR_PROJECT
 
+# --- Per-environment variables (example: env1) ---
+NET=onprem-1            # network_name
+REGION=us-central1      # region
+ZONE=us-central1-a      # zone
+
 # VPC network
-gcloud compute networks describe onprem-la --project=$PROJECT --format="value(name,routingConfig.routingMode)"
+gcloud compute networks describe "$NET" --project=$PROJECT --format="value(name,routingConfig.routingMode)"
 
 # Subnet
-gcloud compute networks subnets describe onprem-la-subnet \
-  --project=$PROJECT --region=us-west2 \
+gcloud compute networks subnets describe "${NET}-subnet" \
+  --project=$PROJECT --region=$REGION \
   --format="value(name,ipCidrRange)"
 
 # VM status
-gcloud compute instances describe onprem-la-vm \
-  --project=$PROJECT --zone=us-west2-a \
+gcloud compute instances describe "${NET}-vm" \
+  --project=$PROJECT --zone=$ZONE \
   --format="value(name,status,networkInterfaces[0].networkIP)"
 
 # Cloud Router
-gcloud compute routers describe onprem-la-router \
-  --project=$PROJECT --region=us-west2 \
+gcloud compute routers describe "${NET}-router" \
+  --project=$PROJECT --region=$REGION \
   --format="value(name,bgp.asn)"
 
 # Interconnect attachment + pairing key
-gcloud compute interconnects attachments describe onprem-la-partner-attachment \
-  --project=$PROJECT --region=us-west2 \
+gcloud compute interconnects attachments describe "${NET}-partner-attachment" \
+  --project=$PROJECT --region=$REGION \
   --format="value(name,state,pairingKey)"
 
 # Firewall rule
-gcloud compute firewall-rules describe onprem-la-allow \
+gcloud compute firewall-rules describe "${NET}-allow" \
   --project=$PROJECT --format="value(name,network,sourceRanges)"
 ```
 
-### env2 (us-west4)
-
-```bash
-# VPC network
-gcloud compute networks describe onprem-lv --project=$PROJECT --format="value(name,routingConfig.routingMode)"
-
-# Subnet
-gcloud compute networks subnets describe onprem-lv-subnet \
-  --project=$PROJECT --region=us-west4 \
-  --format="value(name,ipCidrRange)"
-
-# VM status
-gcloud compute instances describe onprem-lv-vm \
-  --project=$PROJECT --zone=us-west4-a \
-  --format="value(name,status,networkInterfaces[0].networkIP)"
-
-# Cloud Router
-gcloud compute routers describe onprem-lv-router \
-  --project=$PROJECT --region=us-west4 \
-  --format="value(name,bgp.asn)"
-
-# Interconnect attachment + pairing key
-gcloud compute interconnects attachments describe onprem-lv-partner-attachment \
-  --project=$PROJECT --region=us-west4 \
-  --format="value(name,state,pairingKey)"
-
-# Firewall rule
-gcloud compute firewall-rules describe onprem-lv-allow \
-  --project=$PROJECT --format="value(name,network,sourceRanges)"
-```
+> **Tip**: List every deployed environment and its names/region/zone with:
+> ```bash
+> cd gcp-onprem/terraform
+> terraform output -json environment_details | jq
+> ```
+> Then repeat the block above for each environment (`onprem-2`, `onprem-3`, …).
 
 ---
 
@@ -102,16 +83,10 @@ These commands verify that BGP sessions are established on the Cloud Routers.
 Run after completing the Megaport VXC setup described in [`megaport-cross-connect.md`](megaport-cross-connect.md).
 
 ```bash
-# env1 BGP peer status
-gcloud compute routers get-status onprem-la-router \
+# BGP peer status for an environment (repeat per env, e.g. onprem-2 in its region)
+gcloud compute routers get-status onprem-1-router \
   --project=$PROJECT \
-  --region=us-west2 \
-  --format="json(result.bgpPeerStatus)"
-
-# env2 BGP peer status
-gcloud compute routers get-status onprem-lv-router \
-  --project=$PROJECT \
-  --region=us-west4 \
+  --region=us-central1 \
   --format="json(result.bgpPeerStatus)"
 ```
 
@@ -148,7 +123,7 @@ az network express-route list-route-tables \
   --path Primary \
   --output table
 
-# Expected: 192.168.100.0/24 with AS path containing 16550
+# Expected: the env's CIDR (e.g. 192.168.1.0/24) with AS path containing 16550
 ```
 
 ---
@@ -156,11 +131,11 @@ az network express-route list-route-tables \
 ## VM connectivity test (after full end-to-end activation)
 
 ```bash
-# SSH into env1 VM via IAP
-gcloud compute ssh onprem-la-vm \
+# SSH into an environment VM via IAP (VM name = onprem-<N>-vm)
+gcloud compute ssh onprem-1-vm \
   --tunnel-through-iap \
   --project=$PROJECT \
-  --zone=us-west2-a
+  --zone=us-central1-a
 
 # Test reachability to Azure spoke VM (replace IP with your Azure spoke VM IP)
 ping -c 4 10.x.x.x

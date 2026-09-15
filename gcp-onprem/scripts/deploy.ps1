@@ -1,12 +1,19 @@
 ﻿#Requires -Version 7.0
 <#
 .SYNOPSIS
-  Deploy the gcp-onprem lab (two GCP Partner Interconnect environments).
+  Deploy the gcp-onprem lab (one or more GCP Partner Interconnect environments).
 
 .DESCRIPTION
-  Checks for gcloud and terraform, prompts for GCP project + regions,
-  writes terraform.tfvars, then runs terraform init / plan / apply.
+  Checks for gcloud and terraform, prompts for GCP project + how many on-prem
+  environments to create and a region per environment (with a coast-grouped
+  picker), writes terraform.tfvars, then runs terraform init / plan / apply.
   After a successful apply the pairing keys are printed to the console.
+
+  Environment N is auto-named:
+    network_name  = onprem-<N>
+    network_cidr  = subnet_cidr = 192.168.<N>.0/24
+    vm_private_ip = 192.168.<N>.10
+    zone          = <region>-a
 
   WARNING — LAB ONLY. Not for production use.
 
@@ -14,25 +21,28 @@
   GCP project ID. Prompted interactively if omitted.
   Alternatively set env var GCP_PROJECT.
 
-.PARAMETER Env1Region
-  GCP region for env1 (default: us-west2 / Los Angeles).
+.PARAMETER Count
+  Number of on-prem environments to deploy (default: 1).
 
-.PARAMETER Env2Region
-  GCP region for env2 (default: us-west4 / Las Vegas).
+.PARAMETER Regions
+  One region per environment, e.g. -Regions us-central1,us-west2. Used for
+  non-interactive runs. If fewer regions than -Count are given, the default
+  region (us-central1) fills the remainder.
 
 .PARAMETER Yes
   Skip all interactive confirmation prompts (non-interactive mode).
 
 .EXAMPLE
   .\deploy.ps1
-  .\deploy.ps1 -Project my-gcp-project -Yes
+  .\deploy.ps1 -Project my-gcp-project -Count 1 -Regions us-central1 -Yes
+  .\deploy.ps1 -Project my-gcp-project -Count 3 -Regions us-central1,us-west2,us-east4 -Yes
   $env:GCP_PROJECT="my-gcp-project"; .\deploy.ps1 -Yes
 #>
 
 param(
-  [string]$Project     = "",
-  [string]$Env1Region  = "us-west2",
-  [string]$Env2Region  = "us-west4",
+  [string]$Project    = "",
+  [int]$Count         = 1,
+  [string[]]$Regions  = @(),
   [switch]$Yes
 )
 
@@ -136,6 +146,47 @@ function Confirm-Continue([string]$Prompt) {
   if ($ans -notmatch '^[Yy]') { Write-Host "Aborted."; exit 0 }
 }
 
+# ---------- Region picker ----------------------------------------------------
+# Coast-grouped menu of common US regions. Returns a region string. Accepts a
+# menu number, a free-text region (e.g. "europe-west1"), or empty for default.
+$DefaultRegion = "us-central1"
+$RegionMenu = @(
+  @{ Label = "West";    Regions = @(
+      @{ Id = "us-west1"; Desc = "Oregon" },
+      @{ Id = "us-west2"; Desc = "Los Angeles" },
+      @{ Id = "us-west3"; Desc = "Salt Lake City" },
+      @{ Id = "us-west4"; Desc = "Las Vegas" }) },
+  @{ Label = "Central"; Regions = @(
+      @{ Id = "us-central1"; Desc = "Iowa (default)" },
+      @{ Id = "us-south1";   Desc = "Dallas" }) },
+  @{ Label = "East";    Regions = @(
+      @{ Id = "us-east1"; Desc = "South Carolina" },
+      @{ Id = "us-east4"; Desc = "Northern Virginia" },
+      @{ Id = "us-east5"; Desc = "Columbus" }) }
+)
+
+function Select-GcpRegion([string]$Title) {
+  # Build a flat numbered list across the coast groups.
+  $flat = New-Object System.Collections.Generic.List[object]
+  Write-Host ""
+  Write-Host $Title -ForegroundColor Cyan
+  foreach ($group in $RegionMenu) {
+    Write-Host ("  -- {0} --" -f $group.Label) -ForegroundColor DarkCyan
+    foreach ($r in $group.Regions) {
+      $flat.Add($r.Id) | Out-Null
+      Write-Host ("    [{0}] {1,-12} {2}" -f $flat.Count, $r.Id, $r.Desc)
+    }
+  }
+  Write-Host ("  (Enter a number, type any other region id, or press Enter for default '{0}')" -f $DefaultRegion)
+  $choice = Read-Host "  Region"
+  if ([string]::IsNullOrWhiteSpace($choice)) { return $DefaultRegion }
+  $n = 0
+  if ([int]::TryParse($choice, [ref]$n) -and $n -ge 1 -and $n -le $flat.Count) {
+    return $flat[$n - 1]
+  }
+  return $choice.Trim()
+}
+
 # ---------- Auth check -------------------------------------------------------
 Log "Checking gcloud authentication..."
 $ActiveAccount = gcloud config get-value account 2>$null
@@ -162,27 +213,60 @@ if ([string]::IsNullOrWhiteSpace($Project)) {
 }
 Info "Project : $Project"
 
-# ---------- Regions ----------------------------------------------------------
+# ---------- Environment count ------------------------------------------------
 if (-not $Yes) {
-  $r1Input = Read-Host "env1 region [default: $Env1Region]"
-  if (-not [string]::IsNullOrWhiteSpace($r1Input)) { $Env1Region = $r1Input }
-
-  $r2Input = Read-Host "env2 region [default: $Env2Region]"
-  if (-not [string]::IsNullOrWhiteSpace($r2Input)) { $Env2Region = $r2Input }
+  $cInput = Read-Host "How many on-prem environments to deploy? [default: $Count]"
+  if (-not [string]::IsNullOrWhiteSpace($cInput)) {
+    $parsed = 0
+    if ([int]::TryParse($cInput, [ref]$parsed)) { $Count = $parsed }
+  }
 }
-Info "env1 region : $Env1Region"
-Info "env2 region : $Env2Region"
+if ($Count -lt 1)   { Fail "Count must be at least 1." }
+if ($Count -gt 254) { Fail "Count must be 254 or fewer (CIDR third-octet limit)." }
+Info "On-prem environments : $Count"
+
+# ---------- Regions per environment -----------------------------------------
+$envRegions = @()
+for ($i = 1; $i -le $Count; $i++) {
+  if (-not $Yes) {
+    $r = Select-GcpRegion "Select region for env$i"
+  }
+  elseif ($i -le $Regions.Count) {
+    $r = $Regions[$i - 1]
+  }
+  else {
+    $r = $DefaultRegion
+  }
+  if ([string]::IsNullOrWhiteSpace($r)) { $r = $DefaultRegion }
+  $envRegions += $r
+  Info "env$i region : $r"
+}
 
 # ---------- Write tfvars -----------------------------------------------------
 $TfVarsPath = Join-Path $TerraformDir "terraform.tfvars"
 Log "Writing $TfVarsPath ..."
+
+$envBlocks = for ($i = 1; $i -le $Count; $i++) {
+  $region = $envRegions[$i - 1]
+@"
+  env$i = {
+    region        = "$region"
+    zone          = "${region}-a"
+    network_name  = "onprem-$i"
+    network_cidr  = "192.168.$i.0/24"
+    subnet_cidr   = "192.168.$i.0/24"
+    vm_private_ip = "192.168.$i.10"
+  }
+"@
+}
+$envBlock = $envBlocks -join "`n"
 
 $tfvarsContent = @"
 # Auto-generated by deploy.ps1 on $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 # Re-run deploy.ps1 to regenerate or edit manually.
 
 project        = "$Project"
-default_region = "$Env1Region"
+default_region = "$($envRegions[0])"
 
 allowed_source_ranges = [
   "192.168.0.0/16",
@@ -192,23 +276,7 @@ allowed_source_ranges = [
 ]
 
 environments = {
-  env1 = {
-    region           = "$Env1Region"
-    zone             = "${Env1Region}-a"
-    network_name     = "onprem-la"
-    network_cidr     = "192.168.100.0/24"
-    subnet_cidr      = "192.168.100.0/24"
-    vm_private_ip    = "192.168.100.10"
-  }
-
-  env2 = {
-    region           = "$Env2Region"
-    zone             = "${Env2Region}-a"
-    network_name     = "onprem-lv"
-    network_cidr     = "192.168.200.0/24"
-    subnet_cidr      = "192.168.200.0/24"
-    vm_private_ip    = "192.168.200.10"
-  }
+$envBlock
 }
 "@
 
@@ -243,8 +311,9 @@ try {
   terraform output -json pairing_keys | ConvertFrom-Json | Format-List
   Write-Host ""
   Write-Host "Next steps:" -ForegroundColor Yellow
-  Write-Host "  1. Create Megaport VXC for env1 (LA) -> paste env1 pairing key -> connect to vwanlab-er1"
-  Write-Host "  2. Create Megaport VXC for env2 (Phoenix) -> paste env2 pairing key -> connect to vwanlab-er2"
+  Write-Host "  For each environment above, create a Megaport VXC, paste its pairing"
+  Write-Host "  key, and connect it to the matching Azure ExpressRoute circuit"
+  Write-Host "  (e.g. vwanlab-er1, vwanlab-er2, ...)."
   Write-Host "  See docs\megaport-cross-connect.md for detailed instructions."
 }
 finally {

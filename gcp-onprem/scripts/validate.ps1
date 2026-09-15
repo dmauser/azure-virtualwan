@@ -107,7 +107,7 @@ function Invoke-LabPrereqCheck {
     }
 }
 # Replace the tool list below with the tools THIS script actually needs:
-Invoke-LabPrereqCheck -Tools @('gcloud')
+Invoke-LabPrereqCheck -Tools @('gcloud','terraform')
 
 
 $script:PassCount = 0
@@ -143,15 +143,51 @@ if ([string]::IsNullOrWhiteSpace($Project)) {
 }
 Log "Project: $Project"
 
-# ---------- Environments to validate ----------------------------------------
-$Envs = @(
-  @{ Name="env1"; Network="onprem-la"; Region="us-west2"; Zone="us-west2-a";
-     VM="onprem-la-vm"; Router="onprem-la-router"; Attachment="onprem-la-partner-attachment";
-     Firewall="onprem-la-allow" },
-  @{ Name="env2"; Network="onprem-lv"; Region="us-west4"; Zone="us-west4-a";
-     VM="onprem-lv-vm"; Router="onprem-lv-router"; Attachment="onprem-lv-partner-attachment";
-     Firewall="onprem-lv-allow" }
-)
+# ---------- Discover environments from terraform output ----------------------
+# Instead of a hardcoded env list, read what was actually deployed so this
+# scales to one or many on-prem environments.
+$ScriptDir    = $PSScriptRoot
+$TerraformDir = Join-Path $ScriptDir "..\terraform"
+
+$Envs = @()
+Push-Location $TerraformDir
+try {
+  $detailsJson = terraform output -json environment_details 2>$null
+  if ([string]::IsNullOrWhiteSpace($detailsJson)) {
+    Write-Host "[FAIL] Could not read 'environment_details' from terraform output." -ForegroundColor Red
+    Write-Host "       Run terraform apply (or deploy.ps1) first, from $TerraformDir." -ForegroundColor Red
+    exit 1
+  }
+  try {
+    $details = $detailsJson | ConvertFrom-Json
+  } catch {
+    Write-Host "[FAIL] Failed to parse terraform output JSON: $_" -ForegroundColor Red
+    exit 1
+  }
+  foreach ($key in ($details.PSObject.Properties.Name | Sort-Object)) {
+    $d = $details.$key
+    $Envs += @{
+      Name       = $key
+      Network    = $d.network_name
+      Subnet     = $d.subnet_name
+      Region     = $d.region
+      Zone       = $d.zone
+      VM         = $d.vm_name
+      Router     = $d.router_name
+      Attachment = $d.attachment_name
+      Firewall   = $d.firewall_name
+    }
+  }
+}
+finally {
+  Pop-Location
+}
+
+if ($Envs.Count -eq 0) {
+  Write-Host "[FAIL] No environments found in terraform output." -ForegroundColor Red
+  exit 1
+}
+Log "Discovered $($Envs.Count) environment(s): $(( $Envs | ForEach-Object { $_.Name }) -join ', ')"
 
 foreach ($e in $Envs) {
   Hdr "Validating $($e.Name) — $($e.Network) ($($e.Region))"
@@ -162,10 +198,10 @@ foreach ($e in $Envs) {
   else                      { Fail "VPC network '$($e.Network)' not found" }
 
   # Subnet
-  $sn = GCloud @("compute", "networks", "subnets", "describe", "$($e.Network)-subnet",
+  $sn = GCloud @("compute", "networks", "subnets", "describe", $e.Subnet,
                   "--project=$Project", "--region=$($e.Region)", "--format=value(name)")
-  if ($sn -eq "$($e.Network)-subnet") { Pass "Subnet '$($e.Network)-subnet' exists in $($e.Region)" }
-  else                                 { Fail "Subnet '$($e.Network)-subnet' not found in $($e.Region)" }
+  if ($sn -eq $e.Subnet) { Pass "Subnet '$($e.Subnet)' exists in $($e.Region)" }
+  else                    { Fail "Subnet '$($e.Subnet)' not found in $($e.Region)" }
 
   # VM status
   $vmStatus = GCloud @("compute", "instances", "describe", $e.VM,

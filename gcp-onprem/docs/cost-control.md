@@ -10,8 +10,8 @@
 
 - Billed **per hour** from the moment the attachment is created, regardless of whether it is active or passing traffic.
 - Rate: approximately **$0.05–$0.10 USD/hour per attachment** (varies by region and capacity).
-- This lab creates **2 attachments** (one per environment).
-- **~$2.40–$4.80 USD/day** just for attachments if left running.
+- This lab creates **one attachment per environment** (`N` total — you choose `N` at deploy time).
+- **~$1.20–$2.40 USD/day per attachment** if left running (multiply by `N`).
 
 > **Action**: Run `terraform destroy` (or the cleanup scripts) when you finish the lab.
 
@@ -19,14 +19,14 @@
 
 - Billed by Megaport at a per-Mbps-per-month or port rate.
 - Minimum circuit bandwidth typically 50 Mbps.
-- Estimated: **$2–$10 USD/day** depending on bandwidth tier and region.
+- Estimated: **$2–$10 USD/day per VXC** depending on bandwidth tier and region.
 - VXCs are **not managed by Terraform** — you must delete them manually in the Megaport portal.
 
 ### 3. GCP VM — `e2-micro`
 
-- Approximately **$0.0084 USD/hour** on-demand in us-west2.
-- This lab creates 2 VMs → **~$0.40 USD/day**.
-- `e2-micro` qualifies for the GCP free tier in `us-central1`, but **not in us-west2 or us-west4** under this lab config.
+- Approximately **$0.0084 USD/hour** on-demand (varies by region).
+- This lab creates **one VM per environment** → **~$0.20 USD/day each**.
+- `e2-micro` qualifies for the GCP free tier in `us-central1`, but **not in most other regions** under this lab config.
 
 ### 4. Cloud Router
 
@@ -42,13 +42,17 @@
 
 ## Cost summary (approximate, per day)
 
+Costs scale **linearly with the number of environments (`N`)** you deploy. Example for `N = 2`:
+
 | Resource                          | Est. cost/day   |
 |-----------------------------------|----------------|
-| VLAN attachments × 2              | $2.40 – $4.80  |
-| Megaport VXC × 2 (50 Mbps each)   | $4 – $20       |
-| VM e2-micro × 2                   | $0.40          |
+| VLAN attachments × N (here 2)     | $2.40 – $4.80  |
+| Megaport VXC × N (50 Mbps each)   | $4 – $20       |
+| VM e2-micro × N (here 2)          | $0.40          |
 | Data transfer (light lab traffic) | < $1           |
-| **Total (rough estimate)**        | **$7 – $26/day** |
+| **Total (rough estimate, N=2)**   | **$7 – $26/day** |
+
+> For a single-environment deployment (`N = 1`), roughly halve these figures.
 
 ---
 
@@ -58,8 +62,9 @@
 2. **Delete Megaport VXCs first** to stop Megaport billing before running terraform destroy.
 3. **Stop VMs** when not actively testing (does not stop attachment billing):
    ```bash
-   gcloud compute instances stop onprem-la-vm --zone=us-west2-a --project=YOUR_PROJECT
-   gcloud compute instances stop onprem-lv-vm --zone=us-west4-a --project=YOUR_PROJECT
+   # Stop each environment's VM (onprem-<N>-vm) in its zone
+   gcloud compute instances stop onprem-1-vm --zone=us-central1-a --project=YOUR_PROJECT
+   gcloud compute instances stop onprem-2-vm --zone=us-west2-a --project=YOUR_PROJECT
    ```
 4. **Use budget alerts** in GCP Billing to get notified if costs exceed a threshold.
 5. **Shorter sessions**: the lab can be redeployed from scratch in under 10 minutes with `deploy.sh -y`.
@@ -68,8 +73,7 @@
 
 ## Cleanup checklist
 
-- [ ] Delete Megaport VXC for env1 (LA) in the Megaport portal
-- [ ] Delete Megaport VXC for env2 (Phoenix) in the Megaport portal
+- [ ] Delete the Megaport VXC for **each** environment (`env1`, `env2`, …) in the Megaport portal
 - [ ] Run `./cleanup.sh` or `.\cleanup.ps1` to terraform destroy all GCP resources
 - [ ] Verify no remaining VLAN attachments: `gcloud compute interconnects attachments list --project=YOUR_PROJECT`
 - [ ] Verify no remaining VMs: `gcloud compute instances list --project=YOUR_PROJECT`

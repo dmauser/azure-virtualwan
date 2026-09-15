@@ -12,8 +12,7 @@ rg=lab-3vhub-er-ri
 hub1name=vhub-eastus
 hub2name=vhub-westus
 hub3name=vhub-centralus
-ername1=er-vhub-eastus
-ername2=er-vhub-westus
+ername=er-vhub-westus    # single shared ER circuit (Silicon Valley / Megaport)
 
 # ============================================================
 # 1) VM connectivity — Public and Private IPs
@@ -116,12 +115,10 @@ echo "######################################################################"
 echo "# 6. ExpressRoute Circuit State                                       #"
 echo "######################################################################"
 echo ""
-for ername in $ername1 $ername2; do
-    echo "=== Circuit: $ername ==="
-    az network express-route show -g $rg -n $ername \
-      --query "{Name:name, CircuitProvisioningState:circuitProvisioningState, ServiceProviderProvisioningState:serviceProviderProvisioningState, ServiceKey:serviceKey}" \
-      -o table
-done
+echo "=== Circuit: $ername ==="
+az network express-route show -g $rg -n $ername \
+  --query "{Name:name, CircuitProvisioningState:circuitProvisioningState, ServiceProviderProvisioningState:serviceProviderProvisioningState, ServiceKey:serviceKey}" \
+  -o table
 
 # ============================================================
 # 7) ER gateway connection state (East + West)
@@ -151,9 +148,9 @@ echo "# 8. Routing Intent Provisioning State (expected: Succeeded)          #"
 echo "######################################################################"
 echo ""
 for hubname in $hub1name $hub2name $hub3name; do
-    riState=$(az network vhub routing-intent show -g $rg --vhub-name $hubname \
+    riState=$(az network vhub routing-intent show -g $rg --vhub $hubname \
       -n $hubname-ri --query 'provisioningState' -o tsv 2>/dev/null)
-    riPolicies=$(az network vhub routing-intent show -g $rg --vhub-name $hubname \
+    riPolicies=$(az network vhub routing-intent show -g $rg --vhub $hubname \
       -n $hubname-ri --query 'routingPolicies[].{name:name,destinations:destinations}' \
       -o json 2>/dev/null)
     if [[ "$riState" == "Succeeded" ]]; then

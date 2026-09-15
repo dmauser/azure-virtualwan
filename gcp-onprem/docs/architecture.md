@@ -2,16 +2,18 @@
 
 ## Overview
 
-This lab creates two independent GCP "on-premises" simulation environments, each connected to Azure ExpressRoute via Megaport Partner Interconnect.
+This lab creates **one or more** independent GCP "on-premises" simulation environments, each connected to Azure ExpressRoute via Megaport Partner Interconnect. The environment count is dynamic — define it via the `environments` map in `terraform.tfvars` (the deploy scripts prompt for a count `N` and a region per environment).
 
 ---
 
 ## Address / ASN Plan
 
-| Env  | Network/Subnet    | VM IP          | Region    | Zone       | Cloud Router ASN | Google Peer ASN | Azure ER circuit  |
-|------|-------------------|----------------|-----------|------------|-----------------|----------------|------------------|
-| env1 | 192.168.100.0/24  | 192.168.100.10 | us-west2  | us-west2-a | 16550           | 16550          | vwanlab-er1 (LA)  |
-| env2 | 192.168.200.0/24  | 192.168.200.10 | us-west4  | us-west4-a | 16550           | 16550          | vwanlab-er2 (PHX) |
+Each environment *N* is generated as `onprem-<N>` with CIDR `192.168.<N>.0/24` and VM IP `192.168.<N>.10`. Example showing a 2-environment deployment:
+
+| Env  | Network/Subnet   | VM IP         | Region      | Zone          | Cloud Router ASN | Google Peer ASN | Azure ER circuit |
+|------|------------------|---------------|-------------|---------------|------------------|-----------------|------------------|
+| env1 | 192.168.1.0/24   | 192.168.1.10  | us-central1 | us-central1-a | 16550            | 16550           | vwanlab-er1      |
+| env2 | 192.168.2.0/24   | 192.168.2.10  | us-west2    | us-west2-a    | 16550            | 16550           | vwanlab-er2      |
 
 ### Cloud Router ASN — must be 16550 for Partner Interconnect
 
@@ -28,28 +30,28 @@ This is a Google-owned ASN and cannot be changed. When configuring the Megaport 
 
 ```mermaid
 graph TD
-  subgraph gcpenv1["GCP env1 — us-west2"]
-    vpc1["VPC: onprem-la\n192.168.100.0/24"]
-    vm1["VM: onprem-la-vm\n192.168.100.10\nno public IP"]
+  subgraph gcpenv1["GCP env1 — onprem-1"]
+    vpc1["VPC: onprem-1\n192.168.1.0/24"]
+    vm1["VM: onprem-1-vm\n192.168.1.10\nno public IP"]
     router1["Cloud Router\nASN 16550"]
     att1["Partner Attachment\nAVAILABILITY_DOMAIN_1"]
   end
 
-  subgraph gcpenv2["GCP env2 — us-west4"]
-    vpc2["VPC: onprem-lv\n192.168.200.0/24"]
-    vm2["VM: onprem-lv-vm\n192.168.200.10\nno public IP"]
+  subgraph gcpenv2["GCP env2 — onprem-2"]
+    vpc2["VPC: onprem-2\n192.168.2.0/24"]
+    vm2["VM: onprem-2-vm\n192.168.2.10\nno public IP"]
     router2["Cloud Router\nASN 16550"]
     att2["Partner Attachment\nAVAILABILITY_DOMAIN_1"]
   end
 
   subgraph megaport["Megaport"]
-    vxc1["VXC — LA\n(pairing key env1)"]
-    vxc2["VXC — Phoenix\n(pairing key env2)"]
+    vxc1["VXC — env1\n(pairing key env1)"]
+    vxc2["VXC — env2\n(pairing key env2)"]
   end
 
   subgraph azure["Azure — svh-dynamic-er-ri"]
-    er1["vwanlab-er1\nLA ER circuit"]
-    er2["vwanlab-er2\nPhoenix ER circuit"]
+    er1["vwanlab-er1\nER circuit"]
+    er2["vwanlab-er2\nER circuit"]
     hub["Virtual WAN\nSecured vHub"]
   end
 
@@ -99,7 +101,7 @@ A single VPC-level firewall rule per environment allows TCP, UDP, and ICMP from:
 | 192.168.0.0/16   | Lab RFC-1918 space            |
 | 35.235.240.0/20  | GCP IAP TCP forwarding range  |
 
-The firewall rule uses `target_tags` (`onprem-la-vm` / `onprem-lv-vm`) so it applies only to tagged VMs, not all instances in the VPC.
+The firewall rule uses `target_tags` (`onprem-<N>-vm`, e.g. `onprem-1-vm`) so it applies only to tagged VMs, not all instances in the VPC.
 
 ---
 

@@ -5,8 +5,8 @@ variable "project" {
 
 variable "default_region" {
   type        = string
-  description = "Default provider region. Typically set to the region of env1."
-  default     = "us-west2"
+  description = "Default provider region. Typically set to the region of the first environment."
+  default     = "us-central1"
 }
 
 variable "environments" {
