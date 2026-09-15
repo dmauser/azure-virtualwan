@@ -57,7 +57,7 @@ done
 [[ -n "$RESOURCE_GROUP" ]] || { echo "error: -g/--resource-group is required" >&2; usage 1; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
+
 # ---------------------------------------------------------------------------
 # Azure CLI preflight
 #

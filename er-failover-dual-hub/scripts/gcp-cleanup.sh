@@ -156,13 +156,21 @@ for rule in "$FW_INTERNAL" "$FW_IAP"; do
 done
 
 # ---------------------------------------------------------------------------
-log "6/7  Subnet '${SUBNET}'..."
-if "${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" >/dev/null 2>&1; then
-  "${G[@]}" compute networks subnets delete "$SUBNET" --region="$REGION" \
-    && ok "subnet deleted" \
-    || warn "failed to delete subnet ${SUBNET}"
+# Delete every subnet in the VPC, not just "${PREFIX}-subnet". A lab whose
+# subnet was re-created under another name (e.g. "-subnet-v2" after a
+# re-addressing) would otherwise leave an orphan that blocks the VPC delete.
+log "6/7  Subnets..."
+subnet_names="$("${G[@]}" compute networks subnets list \
+  --filter="network:${NETWORK} AND region:${REGION}" --format='value(name)' 2>/dev/null)"
+if [[ -z "$subnet_names" ]]; then
+  skip "no subnets found in VPC ${NETWORK} / ${REGION}"
 else
-  skip "subnet ${SUBNET} not found"
+  while read -r s; do
+    [[ -n "$s" ]] || continue
+    "${G[@]}" compute networks subnets delete "$s" --region="$REGION" \
+      && ok "subnet ${s} deleted" \
+      || warn "failed to delete subnet ${s}"
+  done <<< "$subnet_names"
 fi
 
 # ---------------------------------------------------------------------------

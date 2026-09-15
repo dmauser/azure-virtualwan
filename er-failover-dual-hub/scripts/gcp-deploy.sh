@@ -249,9 +249,23 @@ else
 fi
 
 # ---------- Subnet -----------------------------------------------------------
+# Reuse whatever subnet already exists in the VPC rather than keying off the
+# derived name, so a lab re-addressed into "-subnet-v2" is not given a second,
+# conflicting subnet on re-run.
+existing_subnets="$("${G[@]}" compute networks subnets list \
+  --filter="network:${NETWORK} AND region:${REGION}" --format='value(name)' 2>/dev/null)"
 log "Subnet '${SUBNET}' (${SUBNET_CIDR})..."
-if "${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" >/dev/null 2>&1; then
-  skip "subnet ${SUBNET} already exists"
+if [[ -n "$existing_subnets" ]]; then
+  if ! printf '%s\n' "$existing_subnets" | grep -qx "$SUBNET"; then
+    SUBNET="$(printf '%s\n' "$existing_subnets" | head -1)"
+  fi
+  existing_cidr="$("${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" --format='value(ipCidrRange)' 2>/dev/null)"
+  skip "subnet ${SUBNET} already exists (${existing_cidr})"
+  if [[ -n "$existing_cidr" && "$existing_cidr" != "$SUBNET_CIDR" ]]; then
+    warn "existing subnet is ${existing_cidr}, not the requested ${SUBNET_CIDR}. A subnet's primary range cannot be renumbered in place — create a new subnet in the same VPC, move the VM, then delete the old one."
+    VM_IP="$(echo "$existing_cidr" | awk -F'[./]' '{print $1"."$2"."$3".10"}')"
+    info "VM IP adjusted to ${VM_IP} to match the existing subnet"
+  fi
 else
   # Private Google Access is free and lets the VM reach Google APIs without a
   # public IP or Cloud NAT.

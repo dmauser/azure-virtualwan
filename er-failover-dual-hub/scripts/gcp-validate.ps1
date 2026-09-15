@@ -93,6 +93,9 @@ if (-not $Project) {
 $script:GcpProject = $Project
 
 $Network    = $NamePrefix
+# The subnet name is resolved from the VPC below rather than assumed, so a lab
+# whose subnet was re-created under a different name (e.g. "-subnet-v2" after a
+# re-addressing) still validates. This is the preferred name when several exist.
 $Subnet     = "$NamePrefix-subnet"
 $FwInternal = "$NamePrefix-allow-internal"
 $FwIap      = "$NamePrefix-allow-iap"
@@ -119,7 +122,17 @@ if (Test-GCloud compute networks describe $Network) {
     Fail "VPC $Network not found"
 }
 
-if (Test-GCloud compute networks subnets describe $Subnet --region=$Region) {
+$subnetNames = @((Invoke-GCloud compute networks subnets list `
+        --filter="network:$Network AND region:$Region" --format='value(name)') |
+    Where-Object { $_ })
+
+if ($subnetNames.Count -eq 0) {
+    Fail "no subnet found in VPC $Network / $Region"
+} else {
+    if ($subnetNames -notcontains $Subnet) { $Subnet = $subnetNames[0] }
+    if ($subnetNames.Count -gt 1) {
+        Warn "VPC $Network has $($subnetNames.Count) subnets in $Region ($($subnetNames -join ', ')); validating '$Subnet'"
+    }
     $range = Invoke-GCloud compute networks subnets describe $Subnet --region=$Region --format='value(ipCidrRange)'
     $pga   = Invoke-GCloud compute networks subnets describe $Subnet --region=$Region --format='value(privateIpGoogleAccess)'
     Pass "subnet $Subnet exists ($range)"
@@ -133,8 +146,6 @@ if (Test-GCloud compute networks subnets describe $Subnet --region=$Region) {
     } else {
         Warn 'Private Google Access disabled - the VM cannot reach Google APIs without a public IP or Cloud NAT'
     }
-} else {
-    Fail "subnet $Subnet not found in $Region"
 }
 
 # ---------------------------------------------------------------------------

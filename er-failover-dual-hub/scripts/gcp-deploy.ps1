@@ -257,10 +257,25 @@ if (Test-GCloud compute networks describe $Network) {
 
 # ---------------------------------------------------------------------------
 # Subnet
+#
+# Reuse whatever subnet already exists in the VPC rather than keying off the
+# derived name, so a lab re-addressed into "-subnet-v2" is not given a second,
+# conflicting subnet on re-run.
 # ---------------------------------------------------------------------------
+$existingSubnets = @((Invoke-GCloud compute networks subnets list `
+        --filter="network:$Network AND region:$Region" --format='value(name)') |
+    Where-Object { $_ })
 Log "Subnet '$Subnet' ($SubnetCidr)..."
-if (Test-GCloud compute networks subnets describe $Subnet --region=$Region) {
-    Skip "subnet $Subnet already exists"
+if ($existingSubnets.Count -gt 0) {
+    if ($existingSubnets -notcontains $Subnet) { $Subnet = $existingSubnets[0] }
+    $existingCidr = Invoke-GCloud compute networks subnets describe $Subnet --region=$Region --format='value(ipCidrRange)'
+    Skip "subnet $Subnet already exists ($existingCidr)"
+    if ($existingCidr -and $existingCidr -ne $SubnetCidr) {
+        Warn "existing subnet is $existingCidr, not the requested $SubnetCidr. A subnet's primary range cannot be renumbered in place - create a new subnet in the same VPC, move the VM, then delete the old one."
+        $exOctets = ($existingCidr -split '/')[0] -split '\.'
+        $VmIp     = "$($exOctets[0]).$($exOctets[1]).$($exOctets[2]).10"
+        Info "VM IP adjusted to $VmIp to match the existing subnet"
+    }
 } else {
     # Private Google Access is free and lets the VM reach Google APIs without a
     # public IP or Cloud NAT.

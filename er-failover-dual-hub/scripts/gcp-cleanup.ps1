@@ -172,13 +172,21 @@ foreach ($rule in @($FwInternal, $FwIap)) {
 }
 
 # ---------------------------------------------------------------------------
-Log "6/7  Subnet '$Subnet'..."
-if (Test-GCloud compute networks subnets describe $Subnet --region=$Region) {
-    Invoke-GCloud compute networks subnets delete $Subnet --region=$Region | Out-Null
-    if ($script:GCloudExit -eq 0) { Ok 'subnet deleted' }
-    else { Warn "failed to delete subnet $Subnet" }
+# Delete every subnet in the VPC, not just "$NamePrefix-subnet". A lab whose
+# subnet was re-created under another name (e.g. "-subnet-v2" after a
+# re-addressing) would otherwise leave an orphan that blocks the VPC delete.
+Log '6/7  Subnets...'
+$subnetNames = @((Invoke-GCloud compute networks subnets list `
+        --filter="network:$Network AND region:$Region" --format='value(name)') |
+    Where-Object { $_ })
+if ($subnetNames.Count -eq 0) {
+    Skip "no subnets found in VPC $Network / $Region"
 } else {
-    Skip "subnet $Subnet not found"
+    foreach ($s in $subnetNames) {
+        Invoke-GCloud compute networks subnets delete $s --region=$Region | Out-Null
+        if ($script:GCloudExit -eq 0) { Ok "subnet $s deleted" }
+        else { Warn "failed to delete subnet $s" }
+    }
 }
 
 # ---------------------------------------------------------------------------

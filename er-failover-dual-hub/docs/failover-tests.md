@@ -234,6 +234,54 @@ az network express-route list-route-table \
   --peering-name AzurePrivatePeering --path primary -o table
 ```
 
+### Validated steady-state baseline
+
+Captured after the on-premises re-addressing to `10.100.0.0/24`. This is the
+known-good reference: if a failover test does not fall back to these numbers,
+something did not converge.
+
+**Azure → on-premises** (via `az vm run-command invoke`, so the probe itself
+does not ride the circuit under test):
+
+```text
+=== erfo-vm-wus2  10.10.0.4 ===
+4 packets transmitted, 4 received, 0% packet loss
+rtt min/avg/max/mdev = 65.168/68.001/70.328/1.890 ms
+traceroute: 1  169.254.171.250 → 2  169.254.171.249 → 5  10.100.0.10     # Chicago
+
+=== erfo-vm-scus  10.20.0.4 ===
+4 packets transmitted, 4 received, 0% packet loss
+rtt min/avg/max/mdev = 52.426/58.832/75.753/9.797 ms
+traceroute: 1  169.254.172.18  → 2  169.254.172.17  → 5  10.100.0.10     # Dallas
+```
+
+**On-premises → Azure** (from `erfo-onprem-vm`, `10.100.0.10`):
+
+```text
+10.10.0.4  → 4/4 received, 0% loss, avg 68.022 ms
+10.20.0.4  → 4/4 received, 0% loss, avg 51.978 ms
+```
+
+The second hop in each traceroute is the Megaport-side `/30` of that hub's
+**own** circuit — hard evidence that each hub prefers its local ExpressRoute
+rather than transiting the other one. This independently re-confirms
+[Finding 1](./findings.md).
+
+Both circuits learn **two** on-premises prefixes, not one:
+
+```text
+erfo-er-chicago   10.0.0.0/8      via 169.254.171.249   path 65001 16550 ?
+                  10.100.0.0/24   via 169.254.171.249   path 65001 16550 ?
+erfo-er-dallas    10.0.0.0/8      via 169.254.172.17    path 65001 16550 ?
+                  10.100.0.0/24   via 169.254.172.17    path 65001 16550 ?
+```
+
+`ALL_SUBNETS` contributes the `/24` and the custom advertisement contributes the
+`/8`. Real traffic follows the more specific `/24`; the `/8` is the probe prefix
+whose next hop you watch swing during a failover. Because the `/24` now sits
+*inside* the `/8`, both move together — which is the whole point of the
+re-addressing.
+
 ---
 
 ## 3. Break a circuit

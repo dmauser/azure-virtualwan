@@ -77,6 +77,9 @@ fi
 [[ -z "$GCP_PROJECT" ]] && { echo "GCP project ID is required (-p / GCP_PROJECT)." >&2; exit 1; }
 
 NETWORK="${PREFIX}"
+# The subnet name is resolved from the VPC below rather than assumed, so a lab
+# whose subnet was re-created under a different name (e.g. "-subnet-v2" after a
+# re-addressing) still validates. This is the preferred name when several exist.
 SUBNET="${PREFIX}-subnet"
 FW_INTERNAL="${PREFIX}-allow-internal"
 FW_IAP="${PREFIX}-allow-iap"
@@ -103,7 +106,19 @@ else
   fail "VPC ${NETWORK} not found"
 fi
 
-if "${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" >/dev/null 2>&1; then
+subnet_names="$("${G[@]}" compute networks subnets list \
+  --filter="network:${NETWORK} AND region:${REGION}" --format='value(name)' 2>/dev/null)"
+
+if [[ -z "$subnet_names" ]]; then
+  fail "no subnet found in VPC ${NETWORK} / ${REGION}"
+else
+  if ! printf '%s\n' "$subnet_names" | grep -qx "$SUBNET"; then
+    SUBNET="$(printf '%s\n' "$subnet_names" | head -1)"
+  fi
+  subnet_count="$(printf '%s\n' "$subnet_names" | wc -l | tr -d ' ')"
+  if [[ "$subnet_count" -gt 1 ]]; then
+    warn "VPC ${NETWORK} has ${subnet_count} subnets in ${REGION} ($(printf '%s' "$subnet_names" | tr '\n' ',' | sed 's/,$//')); validating '${SUBNET}'"
+  fi
   range="$("${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" --format='value(ipCidrRange)' 2>/dev/null)"
   pga="$("${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" --format='value(privateIpGoogleAccess)' 2>/dev/null)"
   pass "subnet ${SUBNET} exists (${range})"
@@ -117,8 +132,6 @@ if "${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" >/de
   else
     warn "Private Google Access disabled — the VM cannot reach Google APIs without a public IP or Cloud NAT"
   fi
-else
-  fail "subnet ${SUBNET} not found in ${REGION}"
 fi
 
 # ---------------------------------------------------------------------------
