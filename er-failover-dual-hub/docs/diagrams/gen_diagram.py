@@ -34,7 +34,7 @@ LBL = (16, 30, 44)  # label baselines below the icon, one per line
 # id, x, y, w, h, title, stroke, fill, dashed
 ZONES = [
     ("zgcp",   40, 130,  270, 500, "Google Cloud  ·  us-south1",            GCP_BLUE, "#F6FAFF", False),
-    ("zvpc",   58, 166,  234, 152, "VPC erfo-onprem  ·  192.168.100.0/24",  GCP_BLUE, "#FFFFFF", True),
+    ("zvpc",   58, 166,  234, 152, "VPC erfo-onprem  ·  10.100.0.0/24",     GCP_BLUE, "#FFFFFF", True),
 
     ("zmp",   350, 130,  190, 500, "Megaport",                              MP_RED,   "#FFF8F6", False),
 
@@ -62,7 +62,7 @@ AZ_VMI = ("img", "compute/Virtual_Machine.svg")
 # id, cx, icon-top-y, svg icon key, colour, drawio shape, label lines
 NODES = [
     ("gvm",   175, 200, "gcp_vm",       GCP_BLUE,  ("stencil", "gcp2.compute_engine"),
-     ["erfo-onprem-vm", "192.168.100.10"]),
+     ["erfo-onprem-vm", "10.100.0.10"]),
     ("grtr",  175, 330, "gcp_router",   GCP_BLUE,  ("stencil", "gcp2.cloud_router"),
      ["Cloud Router  ·  AS 16550", "advertises 10.0.0.0/8"]),
     ("gatt",  175, 470, "gcp_intercon", GCP_BLUE,  ("stencil", "gcp2.partner_interconnect"),

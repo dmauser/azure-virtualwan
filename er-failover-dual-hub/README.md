@@ -18,9 +18,15 @@ Each hub has its own local ExpressRoute circuit. When a circuit goes down, the h
 
 ```mermaid
 flowchart LR
-    subgraph onprem["On-premises / Megaport"]
-        CHI["Chicago edge<br/>Megaport MCR"]
-        DAL["Dallas edge<br/>Megaport MCR"]
+    subgraph gcp["GCP — us-south1 · on-premises simulator"]
+        GVM["erfo-onprem-vm<br/>10.100.0.10"]
+        GSUB["subnet<br/>10.100.0.0/24"]
+        GCR["Cloud Router<br/>erfo-onprem-router<br/>ASN 16550<br/>advertises 10.0.0.0/8"]
+        GATT["VLAN attachment<br/>erfo-onprem-attach<br/>Partner Interconnect"]
+    end
+
+    subgraph onprem["Megaport"]
+        MCR["Megaport MCR<br/>ASN 16550 ⇄ GCP<br/>ASN 65001 ⇄ Azure"]
     end
 
     subgraph circuits["ExpressRoute circuits"]
@@ -44,18 +50,24 @@ flowchart LR
         end
     end
 
-    CHI --- ERC --- GWC --- HUBC --- SPC --- VMC
-    DAL --- ERD --- GWS --- HUBS --- SPS --- VMS
+    GVM --- GSUB --- GCR --- GATT
+    GATT -->|"VXC 1"| MCR
+    MCR -->|"VXC 2 · Chicago"| ERC
+    MCR -->|"VXC 3 · Dallas"| ERD
+    ERC --- GWC --- HUBC --- SPC --- VMC
+    ERD --- GWS --- HUBS --- SPS --- VMS
     HUBC -.- B2B
     HUBS -.- B2B
 
+    classDef gcpc fill:#e8f0fe,stroke:#4285f4,color:#1b1b1b
     classDef edge fill:#fde7e9,stroke:#e31937,color:#1b1b1b
     classDef ckt fill:#e5f1fb,stroke:#0078d4,color:#1b1b1b
     classDef gw fill:#cfe4f7,stroke:#0078d4,color:#1b1b1b
     classDef hub fill:#dbe9f7,stroke:#0b5394,color:#1b1b1b
     classDef vm fill:#ede4fb,stroke:#773adc,color:#1b1b1b
     classDef transit fill:#fff4ce,stroke:#8a6d00,color:#1b1b1b
-    class CHI,DAL edge
+    class GVM,GSUB,GCR,GATT gcpc
+    class MCR edge
     class ERC,ERD ckt
     class GWC,GWS gw
     class HUBC,HUBS hub
