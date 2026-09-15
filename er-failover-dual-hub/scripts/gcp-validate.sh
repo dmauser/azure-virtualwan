@@ -35,6 +35,24 @@ fail() { echo -e "  \033[31m[FAIL]\033[0m $*"; FAILURES=$((FAILURES + 1)); }
 warn() { echo -e "  \033[33m[WARN]\033[0m $*"; }
 info() { echo -e "  \033[36m[INFO]\033[0m $*"; }
 
+ip_to_int() {
+  local IFS=.
+  # shellcheck disable=SC2086
+  set -- $1
+  echo $(( ($1 << 24) + ($2 << 16) + ($3 << 8) + $4 ))
+}
+
+# cidr_contains <outer-cidr> <inner-cidr> -> 0 when inner is fully inside outer
+cidr_contains() {
+  local outer="$1" inner="$2"
+  [[ "$outer" =~ ^[0-9.]+/[0-9]+$ && "$inner" =~ ^[0-9.]+/[0-9]+$ ]] || return 1
+  local o_ip="${outer%/*}" o_len="${outer#*/}"
+  local i_ip="${inner%/*}" i_len="${inner#*/}"
+  (( i_len < o_len )) && return 1
+  local mask=$(( o_len == 0 ? 0 : (0xFFFFFFFF << (32 - o_len)) & 0xFFFFFFFF ))
+  (( ($(ip_to_int "$o_ip") & mask) == ($(ip_to_int "$i_ip") & mask) ))
+}
+
 usage() { sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
@@ -89,6 +107,11 @@ if "${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" >/de
   range="$("${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" --format='value(ipCidrRange)' 2>/dev/null)"
   pga="$("${G[@]}" compute networks subnets describe "$SUBNET" --region="$REGION" --format='value(privateIpGoogleAccess)' 2>/dev/null)"
   pass "subnet ${SUBNET} exists (${range})"
+  if cidr_contains "$ADVERTISE_RANGE" "$range"; then
+    pass "subnet ${range} is inside the advertised supernet ${ADVERTISE_RANGE}"
+  else
+    fail "subnet ${range} is OUTSIDE the advertised supernet ${ADVERTISE_RANGE} - the supernet would carry no real on-prem hosts; re-run gcp-deploy.sh with a contained --subnet-cidr"
+  fi
   if [[ "$pga" == "True" || "$pga" == "true" ]]; then
     pass "Private Google Access enabled"
   else

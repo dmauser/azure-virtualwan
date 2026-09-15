@@ -57,6 +57,23 @@ function Test-GCloud {
     return ($script:GCloudExit -eq 0)
 }
 
+function ConvertTo-UInt32Ip {
+    param([string]$Ip)
+    $o = $Ip.Split('.')
+    return ([uint32]$o[0] -shl 24) -bor ([uint32]$o[1] -shl 16) -bor ([uint32]$o[2] -shl 8) -bor [uint32]$o[3]
+}
+
+# True when $Inner (CIDR) is fully contained inside $Outer (CIDR).
+function Test-CidrContains {
+    param([string]$Outer, [string]$Inner)
+    if ($Outer -notmatch '^\d+\.\d+\.\d+\.\d+/\d+$' -or $Inner -notmatch '^\d+\.\d+\.\d+\.\d+/\d+$') { return $false }
+    $oParts = $Outer.Split('/'); $iParts = $Inner.Split('/')
+    $oLen = [int]$oParts[1]; $iLen = [int]$iParts[1]
+    if ($iLen -lt $oLen) { return $false }
+    $mask = if ($oLen -eq 0) { [uint32]0 } else { [uint32]((0xFFFFFFFFL -shl (32 - $oLen)) -band 0xFFFFFFFFL) }
+    return ((ConvertTo-UInt32Ip $oParts[0]) -band $mask) -eq ((ConvertTo-UInt32Ip $iParts[0]) -band $mask)
+}
+
 if (-not (Get-Command gcloud -ErrorAction SilentlyContinue)) {
     Write-Host 'gcloud is required.' -ForegroundColor Red
     exit 1
@@ -106,6 +123,11 @@ if (Test-GCloud compute networks subnets describe $Subnet --region=$Region) {
     $range = Invoke-GCloud compute networks subnets describe $Subnet --region=$Region --format='value(ipCidrRange)'
     $pga   = Invoke-GCloud compute networks subnets describe $Subnet --region=$Region --format='value(privateIpGoogleAccess)'
     Pass "subnet $Subnet exists ($range)"
+    if (Test-CidrContains $AdvertiseRange $range) {
+        Pass "subnet $range is inside the advertised supernet $AdvertiseRange"
+    } else {
+        Fail "subnet $range is OUTSIDE the advertised supernet $AdvertiseRange - the supernet would carry no real on-prem hosts; re-run gcp-deploy with a contained -SubnetCidr"
+    }
     if ($pga -match '^(True|true)$') {
         Pass 'Private Google Access enabled'
     } else {

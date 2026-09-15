@@ -291,11 +291,15 @@ session riding ExpressRoute will drop when you break that circuit.
 Failover is only observable from *outside* Azure, so the lab ships an optional on-premises site in Google Cloud: one `e2-micro` Linux VM behind a Partner Interconnect VLAN attachment in `us-south1` (physically Dallas).
 
 ```
-GCP us-south1                Megaport                 Azure
-erfo-onprem-vm  ──▶ attach ──▶ MCR ──▶ erfo-er-dallas ──▶ erfo-hub-scus
-192.168.100.10     ASN 16550   65001                       │
-                                                           └─▶ erfo-hub-wus2
+                                               ┌──▶ erfo-er-chicago ──▶ erfo-hub-wus2
+erfo-onprem-vm ──▶ erfo-onprem-router ──▶ MCR ─┤
+                                               └──▶ erfo-er-dallas  ──▶ erfo-hub-scus
+  10.100.0.10      ASN 16550           ASN 65001
+  10.100.0.0/24    advertises 10.0.0.0/8
 ```
+
+The two hubs also reach each other over branch-to-branch transit, which is what
+lets the surviving circuit carry traffic for the region whose circuit went down.
 
 Megaport is Layer 2, so it cannot bridge a GCP attachment straight onto an ExpressRoute circuit. An **MCR** sits in the middle running BGP on both sides — ASN `16550` toward GCP (a GCP requirement for Partner Interconnect) and `65001` toward Azure.
 

@@ -172,7 +172,7 @@ function Test-CidrContains {
     $oParts = $Outer -split '/'; $iParts = $Inner -split '/'
     $oLen = [int]$oParts[1];     $iLen = [int]$iParts[1]
     if ($iLen -lt $oLen) { return $false }
-    $mask = if ($oLen -eq 0) { [uint32]0 } else { [uint32](0xFFFFFFFFL -shl (32 - $oLen)) }
+    $mask = if ($oLen -eq 0) { [uint32]0 } else { [uint32]((0xFFFFFFFFL -shl (32 - $oLen)) -band 0xFFFFFFFFL) }
     return ((ConvertTo-UInt32Ip $oParts[0]) -band $mask) -eq ((ConvertTo-UInt32Ip $iParts[0]) -band $mask)
 }
 
