@@ -1,3 +1,10 @@
+# Pre-Requisites
+# Check if virtual wan extension is installed if not install it
+if ! az extension list | grep -q virtual-wan; then
+    echo "virtual-wan extension is not installed, installing it now..."
+    az extension add --name virtual-wan --only-show-errors
+fi
+
 #Variables
 region=westus3
 rg=lab-vwan-vpn
@@ -6,7 +13,6 @@ hubname=vhub1
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_D2s_v5 #VM Size
-firewallsku=Premium #Azure Firewall SKU Standard or Premium
 
 echo Creating branch2 VNET...
 # Creating location1 branch2 virtual network
@@ -15,7 +21,7 @@ az network vnet subnet create -g $rg --vnet-name branch2 -n GatewaySubnet --addr
 
 echo Creating VMs in the branch2...
 # Creating a VM in each branch2 spoke
-az vm create -n branch2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branch2VM  -g $rg --image Ubuntu2404 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch2 --admin-username $username --admin-password $password --nsg "" --no-wait
 
 # Associating NSG to the VNET subnets (Spokes and branch2es)
 # Update only the 'main' subnet on branch2 VNET and exclude GatewaySubnet
@@ -28,9 +34,9 @@ az network vnet subnet update \
 
 echo Creating VPN Gateway in the branch2...
 # Creating pips for VPN GW's in each branch2
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $region --output none --only-show-errors
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $region --sku Standard --output none --only-show-errors
 # Creating VPN gateways
-az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
 
 echo Checking vHub provisioning status...
 # Checking vHub provisioning and routing state 
@@ -56,7 +62,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch2-vpngw -g $rg
-    az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65509 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''

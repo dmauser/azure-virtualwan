@@ -1,122 +1,37 @@
+# Miscellaneous troubleshooting commands for the single-region-vpn lab
+# Run bgpinfo.azcli for formatted BGP peer status tables.
+
+# Parameters
 rg=lab-vwan-vpn
+hubname=vhub1
 subid=$(az account show --query id -o tsv)
-subid=78216abe-8139-4b45-8715-6bab2010101e
-vhub1name=hub1
-vhubgate1name=$(az network vnet-gateway list --resource-group $rg --query "[?contains(name, '$vhub1name')].name" -o tsv)
+vhubgwname=$(az network vpn-gateway list --resource-group $rg --query "[?contains(name, '$hubname')].name" -o tsv)
+branchgw=branch-vpngw
+bgppeer=$(az network vnet-gateway show -n $branchgw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
 
+# vHub VPN Gateway BGP settings and connections
+az network vpn-gateway show -g $rg -n $vhubgwname --query bgpSettings
+az network vpn-gateway connection list -g $rg --gateway-name $vhubgwname --query '[].{name:name,enableBgp:enableBgp,protocol:vpnConnectionProtocolType,state:provisioningState}' -o table
 
+# vHub effective routes (defaultRouteTable)
+az network vhub get-effective-routes -g $rg -n $hubname \
+ --resource-type RouteTable \
+ --resource-id $(az network vhub route-table show --name defaultRouteTable --vhub-name $hubname -g $rg --query id -o tsv) \
+ --query 'value[].{prefix:addressPrefixes[0],asPath:asPath,nextHopType:nextHopType}' -o table
 
+# Spoke VM effective routes
+az network nic show-effective-route-table -g $rg -n spoke1VMVMNic -o table
 
+# Routing intent (only present if routing intent is configured on the hub)
+az rest --method get --uri "/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hubname/routingIntent?api-version=2022-01-01"
+
+# Branch VNG: connection status, learned and advertised routes
+for conn in $(az network vpn-connection list -g $rg --query '[].name' -o tsv); do
+    echo "$conn: $(az network vpn-connection show -g $rg -n $conn --query connectionStatus -o tsv)"
+done
+az network vnet-gateway list-learned-routes -g $rg -n $branchgw -o table
+az network vnet-gateway list-advertised-routes -g $rg -n $branchgw --peer $(az network vpn-gateway show -g $rg -n $vhubgwname --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv) -o table
+
+# vHub VPN Gateway BGP peer status for the branch peer (long-running POST - see bgpinfo.azcli for polling the result)
 az rest --method post \
-    --url "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01"
-
-az rest --method post \
-    --url "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/vpnGateways/vhub1-vpngw/getbgppeerstatus?api-version=2023-06-01" \
-    --body '{"peer": "10.100.100.62"}' \
-    --output-file bgpinfo.json
-
-
-az rest --method post \
-    --url "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/vpnGateways/vhub1-vpngw/getbgppeerstatus?api-version=2023-06-01" \
-    --output-file bgpinfo.json
-
-
-az account get-access-token --query accessToken -o tsv
-
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
-
-curl -X POST \
- -H "Authorization: Bearer $ACCESS_TOKEN" \
- -H "Content-Type: application/json" \
- -d '{"peer": "10.100.100.62"}' \
- "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/vpnGateways/vhub1-vpngw/getbgppeerstatus?api-version=2023-06-01"
-
-
-az rest --method get --uri /subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualHubs/$hub1name/routingIntent/$hub1name_RoutingIntent?api-version=2022-01-01 --query 'value[].properties.provisioningState' -o tsv
-
-
-
-
-az rest --method post \
-  --url "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/vpnGateways/vhub1-vpngw/getadvertisedroutes?api-version=2023-06-01&peer=10.100.100.62"
-  
- az network vpn-gateway show --resource-group lab-vwan-vpn --name vhub1-vpngw --query "bgpConnections"
-
-
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
-
-
-
-# VNG VPN Gateway
-
-
-az rest --method post \
- --url "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/virtualNetworkGateways/branch-vpngw/getBgpPeerStatus?api-version=2024-05-01" \
- --body '{"peer": "10.100.100.62"}'
-
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
-
-response=$(curl -i -X POST \
- -H "Authorization: Bearer $ACCESS_TOKEN" \
- -H "Content-Type: application/json" \
- -d '{"peer": "10.100.100.62"}' \
- "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/virtualNetworkGateways/branch-vpngw/getBgpPeerStatus?api-version=2024-05-01")
-
-location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
-sleep 5
-if [ -n "$location" ]; then
-    # Wait for the operation to complete (optional: add sleep/retry logic if needed)
-    final_result=$(curl -X GET -H "Authorization: Bearer $ACCESS_TOKEN" "$location")
-    echo "$final_result"
-else
-    echo "No Location header found. Response:"
-    echo "$response"
-fi
-
-# Output format table
-
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
-
-response=$(curl -i -X POST \
- -H "Authorization: Bearer $ACCESS_TOKEN" \
- -H "Content-Type: application/json" \
- -d '{"peer": ""}' \
- "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/virtualNetworkGateways/branch-vpngw/getBgpPeerStatus?api-version=2024-05-01")
-
-location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
-sleep 5
-if [ -n "$location" ]; then
-    # Wait for the operation to complete (optional: add sleep/retry logic if needed)
-    final_result=$(curl -s -X GET -H "Authorization: Bearer $ACCESS_TOKEN" "$location")
-    echo "$final_result" | jq -r '.value[] | [.neighbor, .state, .asn, .connectedDuration, .routesReceived, .routesAdvertised] | @tsv' | \
-    awk 'BEGIN {print "Neighbor\tState\tASN\tConnectedDuration\tRoutesReceived\tRoutesAdvertised"} {print $0}' | column -t -s $'\t'
-else
-    echo "No Location header found. Response:"
-    echo "$response"
-fi
-
-# Virtual Hub VPN Gateway
-rg=lab-vwan-vpn
-vhub1name=vhub1
-subid=$(az account show --query id -o tsv)
-vhubgwname=$(az network vpn-gateway list --resource-group $rg --query "[?contains(name, '$vhub1name')].name" -o tsv)
-
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
-
-response=$(curl -i -X POST \
- -H "Authorization: Bearer $ACCESS_TOKEN" \
- -H "Content-Type: application/json" \
- -d '{}' \
- "https://management.azure.com/subscriptions/78216abe-8139-4b45-8715-6bab2010101e/resourceGroups/lab-vwan-vpn/providers/Microsoft.Network/vpnGateways/vhub1-vpngw/getbgppeerstatus?api-version=2023-06-01&peer=10.100.100.62")
-
-location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
-sleep 5
-if [ -n "$location" ]; then
-    # Wait for the operation to complete (optional: add sleep/retry logic if needed)
-    final_result=$(curl -s -X GET -H "Authorization: Bearer $ACCESS_TOKEN" "$location")
-    echo "$final_result" | jq -r '.value[] | [.neighbor, .state, .asn, .connectedDuration, .routesReceived, .routesAdvertised] | @tsv' | \
-    awk 'BEGIN {print "Neighbor\tState\tASN\tConnectedDuration\tRoutesReceived\tRoutesAdvertised"} {print $0}' | column -t -s $'\t'
-else
-    echo "No Location header found. Response:"
-    echo "$response"
-fi
+ --url "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01&peer=$bgppeer"

@@ -13,7 +13,6 @@ hubname=vhub1
 username=azureuser
 password="Msft123Msft123" #Please change your password
 vmsize=Standard_D2s_v5 #VM Size
-firewallsku=Premium #Azure Firewall SKU Standard or Premium
 
 #Variables
 mypip=$(curl -4 ifconfig.io -s)
@@ -36,7 +35,7 @@ az network vnet create --address-prefixes 172.16.3.0/24 -n spoke3 -g $rg -l $reg
 
 echo Creating VMs in the branch...
 # Creating a VM in each branch spoke
-az vm create -n branchVM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n branchVM  -g $rg --image Ubuntu2404 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name branch --admin-username $username --admin-password $password --nsg "" --no-wait
 
 echo Associating NSG on Spokes and Branch VNETs
 
@@ -49,16 +48,16 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?cont
 
 echo Creating VPN Gateway in the branch...
 # Creating pips for VPN GW's in each branch
-az network public-ip create -n branch-vpngw-pip -g $rg --location $region --output none --only-show-errors
+az network public-ip create -n branch-vpngw-pip -g $rg --location $region --sku Standard --output none --only-show-errors
 
 # Creating VPN gateways
-az network vnet-gateway create -n branch-vpngw --public-ip-addresses branch-vpngw-pip -g $rg --vnet branch --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n branch-vpngw --public-ip-addresses branch-vpngw-pip -g $rg --vnet branch --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
-az vm create -n spoke1VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke2VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
-az vm create -n spoke3VM  -g $rg --image Ubuntu2204 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke1VM  -g $rg --image Ubuntu2404 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke1 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke2VM  -g $rg --image Ubuntu2404 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke2 --admin-username $username --admin-password $password --nsg "" --no-wait
+az vm create -n spoke3VM  -g $rg --image Ubuntu2404 --public-ip-sku Standard --size $vmsize -l $region --subnet main --vnet-name spoke3 --admin-username $username --admin-password $password --nsg "" --no-wait
 
 echo Waiting for VMs to be ready...
 # Waiting for VMs to be ready
@@ -111,7 +110,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch-vpngw -g $rg
-    az network vnet-gateway create -n branch-vpngw --public-ip-addresses branch-vpngw-pip -g $rg --vnet branch --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch-vpngw --public-ip-addresses branch-vpngw-pip -g $rg --vnet branch --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''

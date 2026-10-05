@@ -16,8 +16,8 @@ param gatewaySubnetPrefix string
 param bgpAsn int = 65010
 
 @description('VPN Gateway SKU (lab-grade)')
-@allowed(['VpnGw1', 'VpnGw2'])
-param gatewaySku string = 'VpnGw1'
+@allowed(['VpnGw1AZ', 'VpnGw2AZ'])
+param gatewaySku string = 'VpnGw1AZ'
 
 @description('Tags')
 param tags object = {}

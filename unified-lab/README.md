@@ -60,7 +60,7 @@ This lab builder uses minimal SKUs by default:
 | Resource | SKU/Size | Approx. cost/hr |
 |----------|----------|-----------------|
 | Test VMs | Standard_B2s | ~$0.04 |
-| VPN Gateway | VpnGw1 (1 scale unit) | ~$0.19 |
+| VPN Gateway | VpnGw1AZ (1 scale unit) | ~$0.19 |
 | Azure Firewall | Standard | ~$1.25 |
 | ER Gateway | 1 scale unit | ~$0.21 |
 

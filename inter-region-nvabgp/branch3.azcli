@@ -22,7 +22,7 @@ az network vnet subnet update -g $rg --name main --vnet-name branch3 --network-s
 echo Creating VPN Gateways in branch3
 az network vnet subnet create -g $rg --vnet-name branch3 -n GatewaySubnet --address-prefixes 10.250.100.0/26 --output none
 az network public-ip create -n branch3-vpngw-pip -g $rg --location $region2 --output none
-az network vnet-gateway create -n branch3-vpngw --public-ip-addresses branch3-vpngw-pip -g $rg --vnet branch3 --asn 65250 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait
+az network vnet-gateway create -n branch3-vpngw --public-ip-addresses branch3-vpngw-pip -g $rg --vnet branch3 --asn 65250 --gateway-type Vpn -l $region2 --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait
 
 echo Validating Branche3 VPN Gateways provisioning...
 prState=$(az network vnet-gateway show -g $rg -n branch3-vpngw --query provisioningState -o tsv)
@@ -30,7 +30,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch3-vpngw -g $rg
-    az network vnet-gateway create -n branch3-vpngw --public-ip-addresses branch3-vpngw-pip -g $rg --vnet branch3 --asn 65250 --gateway-type Vpn -l $region2 --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch3-vpngw --public-ip-addresses branch3-vpngw-pip -g $rg --vnet branch3 --asn 65250 --gateway-type Vpn -l $region2 --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''

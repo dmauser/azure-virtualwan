@@ -1,48 +1,51 @@
+# BGP peer status for the vHub VPN Gateway and the branch Virtual Network Gateways
+# Requires: az cli, curl, jq, column
+
 # Parameters
 rg=lab-vwan-vpn
-vhub1name=vhub1
+hubname=vhub1
 subid=$(az account show --query id -o tsv)
-vhubgwname=$(az network vpn-gateway list --resource-group $rg --query "[?contains(name, '$vhub1name')].name" -o tsv)
+vhubgwname=$(az network vpn-gateway list --resource-group $rg --query "[?contains(name, '$hubname')].name" -o tsv)
 
-# List all BGP peers
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
+# getBgpPeerStatus is a long-running operation: POST, then poll the Location header until results are returned
+get_bgp_peer_status() {
+    local url=$1
+    local token
+    token=$(az account get-access-token --query accessToken -o tsv)
+    local response location final_result
+    response=$(curl -s -i -X POST -H "Authorization: Bearer $token" -H "Content-Type: application/json" -d '{}' "$url")
+    location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
+    if [ -z "$location" ]; then
+        echo "No Location header found. Response:"
+        echo "$response"
+        return 1
+    fi
+    for i in $(seq 1 12); do
+        sleep 5
+        final_result=$(curl -s -X GET -H "Authorization: Bearer $token" "$location")
+        if echo "$final_result" | jq -e '.value' >/dev/null 2>&1; then
+            echo "$final_result" | jq -r '.value[] | [.neighbor, .state, .asn, (.connectedDuration // "-"), (.routesReceived // "-"), (.routesAdvertised // "-")] | @tsv' | \
+            awk 'BEGIN {print "Neighbor\tState\tASN\tConnectedDuration\tRoutesReceived\tRoutesAdvertised"} {print $0}' | column -t -s $'\t'
+            return 0
+        fi
+    done
+    echo "Timed out waiting for BGP peer status."
+    return 1
+}
 
-response=$(curl -i -X POST \
- -H "Authorization: Bearer $ACCESS_TOKEN" \
- -H "Content-Type: application/json" \
- -d '{}' \
- "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01")
+# vHub VPN Gateway - all BGP peers
+echo "*** $vhubgwname - all BGP peers ***"
+get_bgp_peer_status "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01"
 
-location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
-sleep 5
-if [ -n "$location" ]; then
-    # Wait for the operation to complete (optional: add sleep/retry logic if needed)
-    final_result=$(curl -s -X GET -H "Authorization: Bearer $ACCESS_TOKEN" "$location")
-    echo "$final_result" | jq -r '.value[] | [.neighbor, .state, .asn, .connectedDuration, .routesReceived, .routesAdvertised] | @tsv' | \
-    awk 'BEGIN {print "Neighbor\tState\tASN\tConnectedDuration\tRoutesReceived\tRoutesAdvertised"} {print $0}' | column -t -s $'\t'
-else
-    echo "No Location header found. Response:"
-    echo "$response"
-fi
+# vHub VPN Gateway - specific branch peers (BGP IPs discovered from the branch VNGs)
+for branchgw in $(az network vnet-gateway list -g $rg --query "[?contains(name,'vpngw')].name" -o tsv); do
+    bgppeer=$(az network vnet-gateway show -n $branchgw -g $rg --query 'bgpSettings.bgpPeeringAddresses[0].defaultBgpIpAddresses[0]' -o tsv)
+    echo "*** $vhubgwname - peer $bgppeer ($branchgw) ***"
+    get_bgp_peer_status "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01&peer=$bgppeer"
+done
 
-# List BGP status for a specific peer
-bgppeer=10.100.100.62
-ACCESS_TOKEN=$(az account get-access-token --query accessToken -o tsv)
-
-response=$(curl -i -X POST \
- -H "Authorization: Bearer $ACCESS_TOKEN" \
- -H "Content-Type: application/json" \
- -d '{}' \
- "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/vpnGateways/$vhubgwname/getbgppeerstatus?api-version=2023-06-01&peer=$bgppeer")
-
-location=$(echo "$response" | grep -i "^Location:" | awk '{print $2}' | tr -d '\r\n')
-sleep 5
-if [ -n "$location" ]; then
-    # Wait for the operation to complete (optional: add sleep/retry logic if needed)
-    final_result=$(curl -s -X GET -H "Authorization: Bearer $ACCESS_TOKEN" "$location")
-    echo "$final_result" | jq -r '.value[] | [.neighbor, .state, .asn, .connectedDuration, .routesReceived, .routesAdvertised] | @tsv' | \
-    awk 'BEGIN {print "Neighbor\tState\tASN\tConnectedDuration\tRoutesReceived\tRoutesAdvertised"} {print $0}' | column -t -s $'\t'
-else
-    echo "No Location header found. Response:"
-    echo "$response"
-fi
+# Branch Virtual Network Gateways - all BGP peers
+for branchgw in $(az network vnet-gateway list -g $rg --query "[?contains(name,'vpngw')].name" -o tsv); do
+    echo "*** $branchgw - all BGP peers ***"
+    get_bgp_peer_status "https://management.azure.com/subscriptions/$subid/resourceGroups/$rg/providers/Microsoft.Network/virtualNetworkGateways/$branchgw/getBgpPeerStatus?api-version=2024-05-01"
+done

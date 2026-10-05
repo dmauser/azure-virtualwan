@@ -5,8 +5,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.42.1.51946",
-      "templateHash": "15880290040195537638"
+      "version": "0.47.16.16243",
+      "templateHash": "18156154532712427453"
     },
     "description": "Azure Virtual WAN Unified Lab Builder\r\n======================================\r\nA decision-tree based deployment for Azure Virtual WAN lab scenarios.\r\nSelect your scenario through parameters — from a single hub with VPN\r\nto multi-hub with NVA BGP peering and custom routing.\r\n\r\nUsage:\r\n  az deployment group create -g <rg> -f main.bicep -p presets/single-hub-vpn.bicepparam\r\n  az deployment group create -g <rg> -f main.bicep -p presets/any-to-any.bicepparam\r\n"
   },
@@ -271,8 +271,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "8774870640944684111"
+              "version": "0.47.16.16243",
+              "templateHash": "11948820505767696424"
             },
             "description": "Deploys Virtual WAN and Virtual Hubs using AVM pattern module"
           },
@@ -557,8 +557,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "1696970471041602215"
+              "version": "0.47.16.16243",
+              "templateHash": "8544953334057520788"
             },
             "description": "Deploys a spoke VNet with subnet, NSG, and optional test VM"
           },
@@ -798,8 +798,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "3455971362878257411"
+              "version": "0.47.16.16243",
+              "templateHash": "4941602769600508022"
             },
             "description": "Creates a VNet connection from a spoke to a Virtual Hub"
           },
@@ -904,8 +904,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "3092434223311856052"
+              "version": "0.47.16.16243",
+              "templateHash": "6544850368361568914"
             },
             "description": "Simulates an on-premises branch site with VNet and VPN Gateway"
           },
@@ -944,10 +944,10 @@
             },
             "gatewaySku": {
               "type": "string",
-              "defaultValue": "VpnGw1",
+              "defaultValue": "VpnGw1AZ",
               "allowedValues": [
-                "VpnGw1",
-                "VpnGw2"
+                "VpnGw1AZ",
+                "VpnGw2AZ"
               ],
               "metadata": {
                 "description": "VPN Gateway SKU (lab-grade)"
@@ -1114,8 +1114,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "2391603829213551511"
+              "version": "0.47.16.16243",
+              "templateHash": "2891042540970455524"
             },
             "description": "Creates a VPN Site and S2S connection to a vWAN hub VPN Gateway"
           },
@@ -1297,8 +1297,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "1696970471041602215"
+              "version": "0.47.16.16243",
+              "templateHash": "8544953334057520788"
             },
             "description": "Deploys a spoke VNet with subnet, NSG, and optional test VM"
           },
@@ -1535,8 +1535,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "3455971362878257411"
+              "version": "0.47.16.16243",
+              "templateHash": "4941602769600508022"
             },
             "description": "Creates a VNet connection from a spoke to a Virtual Hub"
           },
@@ -1656,8 +1656,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "5737294688886367570"
+              "version": "0.47.16.16243",
+              "templateHash": "1210605977745102543"
             },
             "description": "Deploys a Linux NVA with IP forwarding and FRR (BGP) via cloud-init"
           },
@@ -1879,8 +1879,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "7676854989380089079"
+              "version": "0.47.16.16243",
+              "templateHash": "6319608456767554125"
             },
             "description": "Deploys a Standard SKU Internal Load Balancer for NVA high-availability (HA ports rule)"
           },
@@ -2047,8 +2047,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.42.1.51946",
-              "templateHash": "7739373846450713790"
+              "version": "0.47.16.16243",
+              "templateHash": "10599871471976624167"
             },
             "description": "Creates a BGP connection between an NVA and a Virtual Hub (AVM gap-fill)"
           },

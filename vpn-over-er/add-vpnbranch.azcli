@@ -25,7 +25,7 @@ az vm create -n vpnbranchVM  -g $rg --image Ubuntu2204 --public-ip-sku Standard 
 az network public-ip create -n vpnbranch-vpngw-pip -g $rg --location $location --sku Standard --output none
 
 # create VPN gateways
-az network vnet-gateway create -n vpnbranch-vpngw --public-ip-addresses vpnbranch-vpngw-pip -g $rg --vnet vpnbranch --asn 65200 --gateway-type Vpn -l $location --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n vpnbranch-vpngw --public-ip-addresses vpnbranch-vpngw-pip -g $rg --vnet vpnbranch --asn 65200 --gateway-type Vpn -l $location --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
 
 # Check deployment status
 prState=$(az network vnet-gateway show -g $rg -n vpnbranch-vpngw --query provisioningState -o tsv)
@@ -33,7 +33,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n vpnbranch-vpngw -g $rg
-    az network vnet-gateway create -n vpnbranch-vpngw --public-ip-addresses vpnbranch-vpngw-pip -g $rg --vnet branch1 --asn 65010 --gateway-type Vpn -l $location --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n vpnbranch-vpngw --public-ip-addresses vpnbranch-vpngw-pip -g $rg --vnet branch1 --asn 65010 --gateway-type Vpn -l $location --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''

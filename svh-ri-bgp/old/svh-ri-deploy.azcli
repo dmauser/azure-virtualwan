@@ -63,14 +63,14 @@ az network vnet subnet update --id $(az network vnet list -g $rg --query '[?cont
 
 echo Creating VPN Gateway in the onprem and branches...
 # Creating pips for VPN GW's in each onprem
-az network public-ip create -n onprem-vpngw-pip -g $rg --location $region --sku Basic --output none
-az network public-ip create -n branch1-vpngw-pip -g $rg --location $region --sku Basic --output none
-az network public-ip create -n branch2-vpngw-pip -g $rg --location $region --sku Basic --output none
+az network public-ip create -n onprem-vpngw-pip -g $rg --location $region --sku Standard --output none
+az network public-ip create -n branch1-vpngw-pip -g $rg --location $region --sku Standard --output none
+az network public-ip create -n branch2-vpngw-pip -g $rg --location $region --sku Standard --output none
 
 # Creating VPN gateways
-az network vnet-gateway create -n onprem-vpngw --public-ip-addresses onprem-vpngw-pip -g $rg --vnet onprem --asn 65010 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
-az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65020 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
-az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65030 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n onprem-vpngw --public-ip-addresses onprem-vpngw-pip -g $rg --vnet onprem --asn 65010 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65020 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
+az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet branch2 --asn 65030 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
 
 echo Creating Spoke VMs...
 # Creating a VM in each connected spoke
@@ -146,7 +146,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n onprem-vpngw -g $rg
-    az network vnet-gateway create -n onprem-vpngw --public-ip-addresses onprem-vpngw-pip -g $rg --vnet onprem --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n onprem-vpngw --public-ip-addresses onprem-vpngw-pip -g $rg --vnet onprem --asn 65510 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''
@@ -289,7 +289,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch1-vpngw -g $rg
-    az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65020 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch1-vpngw --public-ip-addresses branch1-vpngw-pip -g $rg --vnet branch1 --asn 65020 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''
@@ -307,7 +307,7 @@ if [[ $prState == 'Failed' ]];
 then
     echo VPN Gateway is in fail state. Deleting and rebuilding.
     az network vnet-gateway delete -n branch2-vpngw -g $rg
-    az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet onprem --asn 65030 --gateway-type Vpn -l $region --sku VpnGw1 --vpn-gateway-generation Generation1 --no-wait 
+    az network vnet-gateway create -n branch2-vpngw --public-ip-addresses branch2-vpngw-pip -g $rg --vnet onprem --asn 65030 --gateway-type Vpn -l $region --sku VpnGw1AZ --vpn-gateway-generation Generation1 --no-wait 
     sleep 5
 else
     prState=''
