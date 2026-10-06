@@ -45,25 +45,55 @@ Write-Host ''
 Write-Host 'Deleting ExpressRoute connections...'
 foreach ($key in @('wus2', 'scus')) {
     $gw = "$Prefix-hub-$key-ergw"
-    $conns = az network express-route gateway connection list --gateway-name $gw -g $ResourceGroup --query '[].name' -o tsv 2>$null
-    foreach ($conn in $conns) {
-        if ($conn) {
-            Write-Host "  $gw/$conn"
-            az network express-route gateway connection delete --gateway-name $gw -g $ResourceGroup -n $conn -o none 2>$null
+    # 'connection list' returns nothing on some CLI versions; read the child
+    # collection off the gateway itself instead.
+    $gwJson = az network express-route gateway show -n $gw -g $ResourceGroup -o json 2>$null | ConvertFrom-Json
+    if (-not $gwJson) { continue }
+    foreach ($conn in @($gwJson.expressRouteConnections)) {
+        if ($conn.name) {
+            Write-Host "  $gw/$($conn.name)"
+            az network express-route gateway connection delete --gateway-name $gw -g $ResourceGroup -n $conn.name -o none 2>$null
         }
     }
 }
 
 Write-Host 'Deleting ExpressRoute circuits (releases the provider-side VXC)...'
-$circuits = az network express-route list -g $ResourceGroup --query '[].name' -o tsv 2>$null
+$blockedCircuits = @()
+$circuits = @(az network express-route list -g $ResourceGroup -o json 2>$null | ConvertFrom-Json)
 foreach ($ckt in $circuits) {
-    if ($ckt) {
-        Write-Host "  $ckt"
-        az network express-route delete -g $ResourceGroup -n $ckt -o none 2>$null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Could not delete $ckt — check the provider side, then retry."
-        }
+    if (-not $ckt.name) { continue }
+    Write-Host "  $($ckt.name)"
+
+    # A previously failed delete leaves the circuit in 'Failed'; a no-op update
+    # clears it (and any half-deleted peering) so the delete can be retried.
+    if ($ckt.provisioningState -eq 'Failed') {
+        Write-Host "    clearing Failed provisioning state..."
+        az network express-route update -g $ResourceGroup -n $ckt.name -o none 2>$null
     }
+
+    # Azure refuses to delete a circuit while the provider still has it
+    # provisioned. Report that precisely rather than as a generic failure.
+    if ($ckt.serviceProviderProvisioningState -eq 'Provisioned') {
+        $blockedCircuits += $ckt
+        Write-Warning "$($ckt.name) is still Provisioned by the service provider — deprovision the VXC in the provider portal first."
+        continue
+    }
+
+    az network express-route delete -g $ResourceGroup -n $ckt.name -o none 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $blockedCircuits += $ckt
+        Write-Warning "Could not delete $($ckt.name) — check the provider side, then retry."
+    }
+}
+
+if ($blockedCircuits.Count -gt 0) {
+    Write-Host ''
+    Write-Warning 'The resource group cannot be fully removed until these circuits are deprovisioned by the provider:'
+    foreach ($ckt in $blockedCircuits) {
+        Write-Host ("    {0}  serviceKey={1}" -f $ckt.name, $ckt.serviceKey) -ForegroundColor Yellow
+    }
+    Write-Host '    Delete the matching VXCs in the provider portal, wait for'
+    Write-Host "    serviceProviderProvisioningState to reach 'NotProvisioned', then re-run this script." -ForegroundColor Yellow
 }
 
 if ($KeepResourceGroup) {
@@ -78,9 +108,16 @@ if ($KeepResourceGroup) {
     Write-Host "Done. Resource group '$ResourceGroup' kept."
 }
 else {
-    Write-Host "Deleting resource group '$ResourceGroup' (running in the background)..."
-    az group delete -n $ResourceGroup --yes --no-wait
-    Write-Host "Done. Track with: az group show -n $ResourceGroup"
+    if ($blockedCircuits.Count -gt 0) {
+        Write-Host ''
+        Write-Warning "Skipping resource group delete — it would fail while the circuits above are still provisioned."
+        Write-Host "Re-run this script after the provider deprovisions them." -ForegroundColor Yellow
+    }
+    else {
+        Write-Host "Deleting resource group '$ResourceGroup' (running in the background)..."
+        az group delete -n $ResourceGroup --yes --no-wait
+        Write-Host "Done. Track with: az group show -n $ResourceGroup"
+    }
 }
 
 Write-Host ''

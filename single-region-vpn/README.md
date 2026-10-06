@@ -19,7 +19,7 @@ curl -s https://raw.githubusercontent.com/dmauser/azure-virtualwan/main/single-r
 Few notes:
 1. Run it from Azure Cloud Shell Bash or Azure CLI for Linux. This script does not work over Azure CLI for Windows.
 
-2. Default username: azureuser and password: Msft123Msft123. You can change it in the script under the "Variables" section.
+2. The script prompts for the VM admin username (default: **azureuser**) and password. The password must be 12-123 characters and include 3 of the following: lowercase, uppercase, digit, special character. To skip the prompts, export `username` and `password` before running the script.
 
 3. All VMs are accessible using Serial Console or SSH. For SSH, ensure you adjust the existing NSG to access the target VM  from your remote Public IP.
 

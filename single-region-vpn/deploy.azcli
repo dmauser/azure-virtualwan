@@ -10,8 +10,20 @@ region=westus3
 rg=lab-vwan-vpn
 vwanname=vwan-vpn
 hubname=vhub1
-username=azureuser
-password="Msft123Msft123" #Please change your password
+# Prompt for VM credentials (set username/password env vars beforehand to skip prompts)
+if [ -z "$username" ]; then
+  read -p "Enter VM admin username [azureuser]: " username < /dev/tty
+fi
+username=${username:-azureuser}
+while [ -z "$password" ]; do
+  read -s -p "Enter VM admin password (12-123 chars, 3 of: lower, upper, digit, special): " password < /dev/tty; echo
+  read -s -p "Confirm VM admin password: " password2 < /dev/tty; echo
+  if [ -z "$password" ] || [ "$password" != "$password2" ]; then
+    echo "Passwords are empty or do not match. Try again."
+    password=""
+  fi
+done
+unset password2
 vmsize=Standard_D2s_v5 #VM Size
 
 #Variables
